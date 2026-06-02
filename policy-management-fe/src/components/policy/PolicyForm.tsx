@@ -15,6 +15,7 @@ import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
 import DocumentPreviewModal from "../ui/DocumentPreviewModal";
 import { commissionCalculationService } from "../../services/commissionCalculation.service";
+import { useAuth } from "../../Context/AuthContext";
 // import { Checkbox } from "../ui/checkbox"; // Commented out as declaration section is hidden
 
 export type PolicyType =
@@ -130,6 +131,7 @@ const HIDE_DEDUCTIBLE_FOR = ["ICICI LOMBARD"];
 const COMMISSION_ADDON_COMPANIES = ["HDFC ERGO"];
 
 const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
+  const { hasPermission } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [policyNames, setPolicyNames] = useState<
     { id: string; name: string; company_id?: string }[]
