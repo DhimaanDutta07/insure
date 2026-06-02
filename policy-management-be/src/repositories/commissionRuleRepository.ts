@@ -238,7 +238,7 @@ export const commissionRuleRepository = {
       });
 
       // Get company names
-      const companyIds = commissionByCompany.map(c => c.company_id);
+      const companyIds = commissionByCompany.map(c => c.company_id).filter((id): id is string => id !== null);
       const companies = await prisma.company.findMany({
         where: { id: { in: companyIds } },
         select: { id: true, name: true },
@@ -262,7 +262,7 @@ export const commissionRuleRepository = {
       });
 
       // Get policy names
-      const policyNameIds = commissionByPolicyName.map(p => p.policy_name_id);
+      const policyNameIds = commissionByPolicyName.map(p => p.policy_name_id).filter((id): id is string => id !== null);
       const policyNames = await prisma.policyName.findMany({
         where: { id: { in: policyNameIds } },
         select: { id: true, name: true },
@@ -288,14 +288,14 @@ export const commissionRuleRepository = {
         totalCommission: totalCommission._sum.calculated_commission_amount || 0,
         totalPolicies: totalPoliciesWithCommission,
         commissionByCompany: commissionByCompany.map(c => ({
-          companyId: c.company_id,
-          companyName: companyMap.get(c.company_id) || 'Unknown',
+          companyId: c.company_id!,
+          companyName: companyMap.get(c.company_id!) || 'Unknown',
           totalCommission: c._sum.calculated_commission_amount || 0,
           policyCount: c._count.id,
         })),
         commissionByPolicyName: commissionByPolicyName.map(p => ({
-          policyNameId: p.policy_name_id,
-          policyName: policyNameMap.get(p.policy_name_id) || 'Unknown',
+          policyNameId: p.policy_name_id!,
+          policyName: policyNameMap.get(p.policy_name_id!) || 'Unknown',
           totalCommission: p._sum.calculated_commission_amount || 0,
           policyCount: p._count.id,
         })),
