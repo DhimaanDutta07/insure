@@ -103,6 +103,8 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
       "https://insure-rdo9.vercel.app",
       "https://policy.mindrops.com",
       "https://insure-rdo9.vercel.app", // ✅ production frontend
+      "https://policy-management-frontend-coral.vercel.app", // ✅ production frontend
+      "https://insure-rdo9.vercel.app", // ✅ current frontend deployment
       /https:\/\/policy-management-frontend.*\.vercel\.app$/, // ✅ all Vercel preview deployments
       "http://localhost:5173",
       "http://localhost:3001",

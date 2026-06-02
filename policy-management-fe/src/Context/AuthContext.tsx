@@ -316,7 +316,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Add new function to send OTP
   const sendOTP = async (phone: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/send-otp`, {
+      const baseUrl = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/api/v1/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
@@ -339,7 +340,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Add new function to verify OTP
   const verifyOTP = async (phone: string, otp: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/verify-otp`, {
+      const baseUrl = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
+      const response = await fetch(`${baseUrl}/api/v1/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone, otp }),
