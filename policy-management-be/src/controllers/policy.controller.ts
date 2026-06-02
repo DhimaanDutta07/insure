@@ -360,8 +360,9 @@ export const policyController = {
     const startTime = Date.now();
     console.log('🚀 [CREATE] Starting robust policy creation request');
 
-    const userId = extractUserId(req, res);
+    const userId = extractUserId(req);
     if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
     
@@ -559,8 +560,9 @@ export const policyController = {
     const startTime = Date.now();
     console.log('🔄 [UPDATE] Starting robust policy update request');
 
-    const userId = extractUserId(req, res);
+    const userId = extractUserId(req);
     if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
     
@@ -709,8 +711,9 @@ export const policyController = {
 
   // Delete policy with enhanced response
   async deletePolicy(req: Request, res: Response) {
-    const userId = extractUserId(req, res);
+    const userId = extractUserId(req);
     if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
@@ -773,8 +776,9 @@ export const policyController = {
 
   // Get policies by current user
   async getMyPolicies(req: Request, res: Response) {
-    const userId = extractUserId(req, res);
+    const userId = extractUserId(req);
     if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
@@ -929,8 +933,9 @@ export const policyController = {
 
   // Enhanced document deletion with better authorization
   async deleteDocument(req: Request, res: Response) {
-    const userId = extractUserId(req, res);
+    const userId = extractUserId(req);
     if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
     
@@ -994,8 +999,9 @@ export const policyController = {
 
   // Get document URL
   async getDocumentUrl(req: Request, res: Response) {
-    const userId = extractUserId(req, res);
+    const userId = extractUserId(req);
     if (!userId) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
     
