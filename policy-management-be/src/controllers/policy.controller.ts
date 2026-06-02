@@ -18,11 +18,10 @@ import {
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET;
 
-const extractUserId = (req: Request, res: Response): string | undefined => {
+const extractUserId = (req: Request): string | null => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+    return null;
   }
   try { 
     const token = authHeader.split(" ")[1];
@@ -30,13 +29,12 @@ const extractUserId = (req: Request, res: Response): string | undefined => {
     const decoded = jwt.verify(token, JWT_SECRET) as { user_id: string };
     return decoded.user_id;
   } catch (error) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
+    return null;
   }
 };
 
-const extractUserRole = async (req: Request, res: Response): Promise<string | null> => {
-  const userId = extractUserId(req, res);
+const extractUserRole = async (req: Request): Promise<string | null> => {
+  const userId = extractUserId(req);
   if (!userId) return null;
 
   try {
@@ -489,7 +487,7 @@ export const policyController = {
   // Get all policies with enhanced response format
   async getAllPolicies(req: Request, res: Response) {
     try {
-      const userRole = await extractUserRole(req, res);
+      const userRole = await extractUserRole(req);
       const result = await policyService.getAllPolicies(req.query);
       const filteredData = filterCommissionData(result.data, userRole);
 
@@ -518,7 +516,7 @@ export const policyController = {
     try {
       // console.log(`Fetching policy with ID: ${req.params.id as string}`);
 
-      const userRole = await extractUserRole(req, res);
+      const userRole = await extractUserRole(req);
       const policy = await policyService.getPolicyById(req.params.id as string);
       const filteredPolicy = filterCommissionData(policy, userRole);
 
