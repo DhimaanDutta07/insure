@@ -270,19 +270,46 @@ export const commissionRuleRepository = {
 
       const policyNameMap = new Map(policyNames.map(p => [p.id, p.name]));
 
-      // Get monthly commission trends
-      const monthlyCommission = await prisma.$queryRaw`
-        SELECT 
-          DATE_TRUNC('month', start_date) as month,
-          SUM(calculated_commission_amount) as total_commission,
-          COUNT(*) as policy_count
-        FROM policy
-        WHERE start_date >= ${startDate}
-          AND calculated_commission_amount IS NOT NULL
-        GROUP BY DATE_TRUNC('month', start_date)
-        ORDER BY month DESC
-        LIMIT 12
-      `;
+      // Get monthly commission trends using Prisma instead of raw SQL
+      const policies = await prisma.policy.findMany({
+        where: {
+          start_date: { gte: startDate },
+          calculated_commission_amount: { not: null },
+        },
+        select: {
+          start_date: true,
+          calculated_commission_amount: true,
+        },
+        orderBy: {
+          start_date: 'desc',
+        },
+      });
+
+      // Group by month manually
+      const monthlyMap = new Map<string, { total_commission: number; policy_count: number }>();
+      
+      for (const policy of policies) {
+        if (!policy.start_date) continue;
+        
+        const date = new Date(policy.start_date);
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        
+        if (!monthlyMap.has(monthKey)) {
+          monthlyMap.set(monthKey, { total_commission: 0, policy_count: 0 });
+        }
+        
+        const current = monthlyMap.get(monthKey)!;
+        current.total_commission += Number(policy.calculated_commission_amount || 0);
+        current.policy_count += 1;
+      }
+
+      const monthlyCommission = Array.from(monthlyMap.entries())
+        .map(([month, data]) => ({
+          month,
+          total_commission: data.total_commission,
+          policy_count: data.policy_count,
+        }))
+        .slice(0, 12);
 
       return {
         totalCommission: totalCommission._sum.calculated_commission_amount || 0,
@@ -299,7 +326,7 @@ export const commissionRuleRepository = {
           totalCommission: p._sum.calculated_commission_amount || 0,
           policyCount: p._count.id,
         })),
-        monthlyCommission: monthlyCommission as any[],
+        monthlyCommission: monthlyCommission,
         timeRange,
       };
     } catch (error) {
