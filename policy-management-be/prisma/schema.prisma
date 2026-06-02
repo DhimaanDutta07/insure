@@ -1,0 +1,619 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "rhel-openssl-1.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum User_Status {
+  Active
+  Inactive
+  @@map("user_status")
+}
+
+enum Agent_Status {
+  Active
+  Inactive
+  @@map("agent_status")
+}
+
+enum Notification_Type {
+  PO_REMINDER
+  PO_EXPIRY
+  POLICY_REJECTION
+  POLICY_ACCEPTANCE
+  POLICY_RENEWAL
+  POLICY_ACTIVATION
+  GENERAL_UPDATE
+  @@map("notification_type")
+}
+
+enum Notification_Status {
+  Pending
+  Sent
+  Failed
+  @@map("notification_status")
+}
+
+enum Communication_Channel {
+  WhatsApp
+  SMS
+  Email
+  @@map("communication_channel")
+}
+
+enum InsuranceCategory {
+  HEALTH
+  LIFE
+  @@map("insurance_category")
+}
+
+enum FileType {
+  PDF
+  JPG
+  IMAGE
+  PNG
+  DOC
+  OTHER
+  CSV
+  XLSX
+  @@map("file_type")
+}
+
+enum Gender {
+  Male
+  Female
+  Other
+  @@map("gender")
+}
+
+enum MaritalStatus {
+  Single
+  Married
+  Divorced
+  Widowed
+  @@map("marital_status")
+}
+
+enum DocumentCategory {
+  POLICY_DOCUMENT
+  PROPOSER_DOCUMENT
+  INSURED_MEMBER_DOCUMENT
+  NOMINEE_DOCUMENT
+  CLAIM_DOCUMENT
+  OTHER
+  @@map("document_category")
+}
+
+enum PolicyCreationStatus {
+  Fresh
+  Renewal
+  Migration
+  Portablity
+  @@map("policy_creation_status")
+}
+
+enum DeductibleType {
+  ALL_SI
+  DEDUCTABLE_ALL_SI
+  LESS_THAN_10_LAKHS
+  GREATER_EQUAL_10_LAKHS
+}
+
+enum AgeCondition {
+  LESS_THAN_60
+  GREATER_THAN_60
+}
+
+enum ClaimantType {
+  SELF
+  INSURED_MEMBER
+  @@map("claimant_type")
+}
+
+enum ClaimType {
+  HOSPITALIZATION
+  DAYCARE
+  PREPOST
+  CASHLESS
+  HEALTH_CHECKUP
+  OTHER
+  @@map("claim_type")
+}
+
+enum ClaimStatus {
+  Pending
+  Approved
+  Rejected
+  Paid
+  @@map("claim_status")
+}
+
+enum PolicyTransitionType {
+  RENEWAL
+  MIGRATION
+  PORTABILITY
+  @@map("policy_transition_type")
+}
+
+model PolicyType {
+  id       String   @id @default(uuid())
+  name     String   @unique @db.VarChar(100)
+  policies Policy[]
+  @@map("policy_types")
+}
+
+model User {
+  id             String         @id @default(uuid())
+  name           String         @db.VarChar(255)
+  email          String?        @unique @db.VarChar(255)
+  phone          String         @unique @db.VarChar(15)
+  password       String?        @db.VarChar(255)
+  status         User_Status    @default(Active)
+  web_access     Boolean        @default(true)
+  app_access     Boolean        @default(true)
+  permissions    Json           @default("{\"app\": [], \"web\": []}")
+  created_at     DateTime       @default(now())
+  updated_at     DateTime       @updatedAt
+  is_deleted     Boolean        @default(false)
+  role_id        String
+  role           Role           @relation(fields: [role_id], references: [id], onDelete: Cascade)
+  policyReceipts PolicyReceipt[]
+  enquiries      Enquiry[]
+
+  @@index([role_id])
+  @@map("users")
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  role_name   String  @unique @db.VarChar(50)
+  permissions Json
+  is_deleted  Boolean @default(false)
+  users       User[]
+
+  @@map("roles")
+}
+
+model Otp {
+  id         String   @id @default(uuid())
+  phone      String   @unique
+  otp        String
+  expires_at DateTime
+  created_at DateTime @default(now())
+
+  @@map("otp")
+}
+
+model Agent {
+  id          String        @id @default(uuid())
+  name        String?
+  phone       String?
+  description String?
+  createdAt   DateTime?     @default(now())
+  updatedAt   DateTime?     @updatedAt
+  status      Agent_Status? @default(Active)
+  revenues    Revenue[]
+
+  @@map("agents")
+}
+
+model Commission {
+  id          String    @id @default(uuid())
+  name        String?
+  description String?
+  createdAt   DateTime? @default(now())
+  updatedAt   DateTime? @updatedAt
+  revenues    Revenue[]
+
+  @@map("commissions")
+}
+
+model Revenue {
+  id              String      @id @default(uuid())
+  reimbursementId String?
+  siteId          String?
+  area            Int?
+  month           DateTime?
+  clientId        String?
+  amount          Int?
+  camCharge       Int?
+  gst             Int?
+  lessTds         Int?
+  receivable      Int?
+  receivedInBank  Int?
+  createdAt       DateTime?   @default(now())
+  updatedAt       DateTime?   @updatedAt
+  isDeleted       Boolean?    @default(false)
+  policyId        String?
+  policy          Policy?     @relation(fields: [policyId], references: [id])
+  agentId         String?
+  agent           Agent?      @relation(fields: [agentId], references: [id])
+  commissionId    String?
+  commission      Commission? @relation(fields: [commissionId], references: [id])
+
+  @@index([policyId])
+  @@map("revenues")
+}
+
+model PolicyGroup {
+  id          String       @id @default(uuid())
+  name        String?      @unique @db.VarChar(100)
+  description String?      @db.Text
+  created_at  DateTime?    @default(now())
+  updated_at  DateTime?    @updatedAt
+  is_deleted  Boolean?     @default(false)
+  itemNames   PolicyName[]
+  policies    Policy[]
+
+  @@map("policy_groups")
+}
+
+model PolicyName {
+  id              String       @id @default(uuid())
+  name            String?      @db.VarChar(100)
+  description     String?      @db.Text
+  policy_group_id String?
+  policyGroup     PolicyGroup? @relation(fields: [policy_group_id], references: [id], onDelete: Cascade)
+  company_id      String?
+  company         Company?     @relation(fields: [company_id], references: [id])
+  created_at      DateTime?    @default(now())
+  updated_at      DateTime?    @updatedAt
+  is_deleted      Boolean?     @default(false)
+  policies        Policy[]
+  commissionRules CommissionRule[]
+
+  @@unique([name, company_id, policy_group_id])
+  @@index([policy_group_id])
+  @@index([company_id])
+  @@map("policy_names")
+}
+
+model Enquiry {
+  id                    String    @id @default(uuid())
+  date                  String?
+  siteName              String?
+  areaRequired          Float?
+  whenRequired          String?
+  company               String?
+  enquiryPersonOrBroker String?
+  contactNumber         String?
+  rentQuoted            Float?
+  remarks               String?
+  createdAt             DateTime? @default(now())
+  updatedAt             DateTime? @updatedAt
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id])
+  is_deleted            Boolean?  @default(false)
+
+  @@index([userId])
+  @@map("enquiries")
+}
+
+model Company {
+  id          String             @id @default(uuid()) @map("id")
+  name        String?            @unique @map("name")
+  category    InsuranceCategory? @map("category")
+  policies    Policy[]
+  form_fields CompanyFormField[]
+  policyNames PolicyName[]
+
+  @@map("company")
+}
+
+model CompanyFormField {
+  id          String   @id @default(uuid()) @map("id")
+  company_id  String?  @map("company_id")
+  company     Company? @relation(fields: [company_id], references: [id])
+  label       String?  @map("label")
+  field_type  String?  @map("field_type")
+  is_required Boolean? @map("is_required")
+  order       Int?     @map("order")
+
+  @@map("company_form_field")
+}
+
+model Policy {
+  policy_salutation             String?
+  policy_group_id               String?
+  policyGroup                   PolicyGroup?         @relation(fields: [policy_group_id], references: [id])
+  id                            String               @id @default(uuid()) @map("id")
+  policy_number                 String?              @unique @map("policy_number")
+  customer_name                 String?              @map("customer_name")
+  company_id                    String?              @map("company_id")
+  company                       Company?             @relation(fields: [company_id], references: [id])
+  policy_name_id                String?
+  policyName                    PolicyName?          @relation(fields: [policy_name_id], references: [id])
+  policy_type_id                String?
+  type                          PolicyType?          @relation(fields: [policy_type_id], references: [id])
+  created_by                    String?              @map("created_by")
+  created_at                    DateTime?            @default(now()) @map("created_at")
+  updated_at                    DateTime?            @updatedAt
+  insurer_name                  String?
+  product_name                  String?
+  plan_type                     String?
+  deductible_amount_status      Boolean?             @default(false)
+  deductible_amount             Int?                 @map("deductible_amount")
+  sum_insured                   Int?
+  start_date                    DateTime?
+  emi_amount                    Int?
+  commission_add_on_percentage  Int?
+  calculated_commission_amount  Float?
+  end_date                      DateTime?
+  tenure_years                  Int?
+  issued_date                   DateTime?
+  gst_status                    Boolean?             @default(false)
+  remarks                       String?
+  premium_amount                Float?
+  premium_amount_gst            Float?
+  declaration_accepted          Boolean?             @default(false)
+  system_ip                     String?
+  medical_condition             Boolean?             @default(false)
+  medical_remarks               String?
+  policy_creation_status        PolicyCreationStatus? @default(Fresh)
+  parent_policy_id              String?
+  parent_policy                 Policy?              @relation("PolicyHistory", fields: [parent_policy_id], references: [id])
+  transition_type               PolicyTransitionType?
+  children_policies             Policy[]             @relation("PolicyHistory")
+  proposer                      Proposer?
+  members                       InsuredMember[]
+  nominee_payment               NomineeAndPayment?
+  revenues                      Revenue[]
+  receipts                      PolicyReceipt[]
+  form_values                   PolicyFormValue[]
+  documents                     UploadedDocument[]
+  reminders                     Reminder[]
+  claims                        Claim[]
+  document_references           PolicyDocumentReference[]
+
+  @@index([company_id])
+  @@index([policy_name_id])
+  @@index([policy_type_id])
+  @@index([start_date, end_date])
+  @@index([company_id, start_date])
+  @@index([policy_number])
+  @@index([created_at])
+  @@index([parent_policy_id])
+  @@map("policy")
+}
+
+model Proposer {
+  proposer_salutation String?
+  id                  String          @id @default(uuid())
+  full_name           String?
+  date_of_birth       DateTime?
+  gender              Gender?
+  marital_status      MaritalStatus?
+  mobile              String?
+  alternate_mobile    String?
+  email               String?
+  address             String?
+  kyc_id              String?
+  occupation          String?
+  nationality         String?
+  policy_id           String?         @unique
+  policy              Policy?         @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  documents           UploadedDocument[]
+  created_at          DateTime?       @default(now())
+  updated_at          DateTime?       @updatedAt
+  insured_members     InsuredMember[]
+
+  @@map("proposers")
+}
+
+model InsuredMember {
+  insured_member_salutation           String?
+  id                                  String         @id @default(uuid())
+  policy_id                           String
+  policy                              Policy         @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  name                                String?
+  relation_to_proposer                String?
+  date_of_birth                       DateTime?
+  gender                              Gender?
+  pre_existing                        Boolean?
+  insured_member_medical_condition    Boolean?
+  insured_member_medical_remarks      String?
+  proposer_id                         String
+  proposer                            Proposer       @relation(fields: [proposer_id], references: [id], onDelete: Cascade)
+  documents                           UploadedDocument[]
+  created_at                          DateTime?      @default(now())
+  updated_at                          DateTime?      @updatedAt
+  claim_members                       ClaimMember[]
+
+  @@index([policy_id])
+  @@index([proposer_id])
+  @@map("insured_members")
+}
+
+model NomineeAndPayment {
+  nominee_salutation  String?
+  id                  String    @id @default(uuid())
+  policy_id           String?   @unique
+  policy              Policy?   @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  nominee_name        String?
+  nominee_relation    String?
+  nominee_dob         DateTime?
+  payment_mode        String?
+  payment_reference   String?
+  created_at          DateTime? @default(now())
+  updated_at          DateTime? @updatedAt
+  bank_name           String?
+  bank_account_number String?
+  bank_ifsc_code      String?
+  bank_branch_name    String?
+
+  @@map("nominee_and_payment")
+}
+
+model PolicyFormValue {
+  id         String  @id @default(uuid()) @map("id")
+  policy_id  String? @map("policy_id")
+  policy     Policy? @relation(fields: [policy_id], references: [id])
+  field_name String? @map("field_name")
+  value      String? @map("value")
+
+  @@map("policy_form_value")
+}
+
+model PolicyReceipt {
+  policy_id          String?
+  policy             Policy?              @relation(fields: [policy_id], references: [id])
+  id                 String               @id @default(uuid())
+  policy_number      String?              @db.VarChar(50)
+  policy_type        String?              @db.VarChar(50)
+  remark             String?              @db.Text
+  user_id            String
+  user               User                 @relation(fields: [user_id], references: [id])
+  created_at         DateTime?            @default(now())
+  updated_at         DateTime?            @updatedAt
+  is_deleted         Boolean?             @default(false)
+  policy_document_id String?
+  policy_document    UploadedDocument?    @relation(fields: [policy_document_id], references: [id], onDelete: Cascade)
+  images             PolicyReceiptImage[]
+
+  @@index([user_id])
+  @@map("policy_receipts")
+}
+
+model PolicyReceiptImage {
+  id                 String            @id @default(uuid())
+  url                String?           @db.Text
+  policy_receipt_id  String?
+  policy_document_id String?
+  policyReceipt      PolicyReceipt?    @relation(fields: [policy_receipt_id], references: [id], onDelete: Cascade)
+  policy_document    UploadedDocument? @relation(fields: [policy_document_id], references: [id])
+
+  @@index([policy_receipt_id])
+  @@index([policy_document_id])
+  @@map("policy_receipt_images")
+}
+
+model UploadedDocument {
+  policy_receipts       PolicyReceipt[]
+  policy_receipt_images PolicyReceiptImage[]
+  id                    String                    @id @default(uuid())
+  policy_id             String?
+  policy                Policy?                   @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  file_name             String?
+  original_name         String?
+  relative_path         String?
+  category              DocumentCategory?
+  created_at            DateTime?                 @default(now())
+  file_type             FileType?
+  uploaded_by           String?
+  uploaded_at           DateTime?                 @default(now())
+  proposer_id           String?
+  proposer              Proposer?                 @relation(fields: [proposer_id], references: [id], onDelete: SetNull)
+  insured_member_id     String?
+  insured_member        InsuredMember?            @relation(fields: [insured_member_id], references: [id], onDelete: SetNull)
+  claim_id              String?
+  claim                 Claim?                    @relation(fields: [claim_id], references: [id], onDelete: Cascade)
+  document_references   PolicyDocumentReference[] @relation("DocumentReference")
+
+  @@index([policy_id])
+  @@index([category])
+  @@index([proposer_id])
+  @@index([insured_member_id])
+  @@index([claim_id])
+  @@map("uploaded_documents")
+}
+
+model PolicyDocumentReference {
+  id                 String               @id @default(uuid())
+  policy_id          String
+  policy             Policy               @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  source_document_id String
+  source_document    UploadedDocument     @relation("DocumentReference", fields: [source_document_id], references: [id])
+  transition_type    PolicyTransitionType?
+  transition_date    DateTime             @default(now())
+  can_edit           Boolean              @default(false)
+  can_delete         Boolean              @default(false)
+  last_accessed      DateTime?
+  access_count       Int                  @default(0)
+  created_at         DateTime             @default(now())
+
+  @@unique([policy_id, source_document_id])
+  @@index([policy_id])
+  @@index([source_document_id])
+  @@index([transition_type])
+  @@map("policy_document_references")
+}
+
+model Reminder {
+  id         String                 @id @default(uuid())
+  policy_id  String?
+  policy     Policy?                @relation(fields: [policy_id], references: [id])
+  remind_on  DateTime?
+  type       Notification_Type?
+  status     Notification_Status?   @default(Pending)
+  channel    Communication_Channel?
+  created_at DateTime?              @default(now())
+  sent_at    DateTime?
+
+  @@index([policy_id, remind_on])
+  @@map("reminders")
+}
+
+model CommissionRule {
+  id                String               @id @default(uuid())
+  policy_name_id    String
+  policyName        PolicyName           @relation(fields: [policy_name_id], references: [id], onDelete: Cascade)
+  policyStatus      PolicyCreationStatus
+  deductibleType    DeductibleType
+  ageCondition      AgeCondition
+  commissionPercent Float
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  is_active         Boolean              @default(true)
+
+  @@unique([policy_name_id, policyStatus, deductibleType, ageCondition])
+  @@index([policy_name_id])
+  @@map("commission_rules")
+}
+
+model Claim {
+  id               String       @id @default(uuid())
+  policy_id        String
+  policy           Policy       @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  claimant_type    ClaimantType
+  claim_amount     Decimal?     @db.Decimal(10, 2)
+  claim_remarks    String?      @db.Text
+  claim_type       ClaimType
+  claim_date       DateTime?
+  is_full_claim    Boolean      @default(false)
+  claim_status     ClaimStatus? @default(Pending)
+  claim_members    ClaimMember[]
+  documents        UploadedDocument[]
+  created_at       DateTime     @default(now())
+  updated_at       DateTime     @updatedAt
+  created_by       String?
+  approved_by      String?
+  approved_at      DateTime?
+  rejection_reason String?      @db.Text
+  is_deleted       Boolean      @default(false)
+
+  @@index([policy_id])
+  @@index([claim_status])
+  @@index([created_at])
+  @@map("claims")
+}
+
+model ClaimMember {
+  id                  String        @id @default(uuid())
+  claim_id            String
+  claim               Claim         @relation(fields: [claim_id], references: [id], onDelete: Cascade)
+  insured_member_id   String
+  insured_member      InsuredMember @relation(fields: [insured_member_id], references: [id], onDelete: Cascade)
+  member_claim_amount Decimal?      @db.Decimal(10, 2)
+  member_remarks      String?       @db.Text
+  created_at          DateTime      @default(now())
+
+  @@unique([claim_id, insured_member_id])
+  @@index([claim_id])
+  @@index([insured_member_id])
+  @@map("claim_members")
+}

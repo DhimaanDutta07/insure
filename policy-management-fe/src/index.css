@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+    @apply cursor-pointer;
+  }
+
+/* Hide the checkmark for SelectItems with the 'no-tick' class (Time Range select) */
+.no-tick .absolute.left-2 {
+  display: none !important;
+}

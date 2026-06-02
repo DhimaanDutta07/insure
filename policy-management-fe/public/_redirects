@@ -1,0 +1,2 @@
+# Redirect all routes to index.html so that React Router can handle routing
+/*    /index.html   200
