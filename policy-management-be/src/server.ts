@@ -100,6 +100,7 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
   app.use(cors({ 
     origin: [
       "https://insurewelladvisory.in",
+      "https://insure-rdo9.vercel.app",
       "https://policy.mindrops.com",
       "https://insure-rdo9.vercel.app", // ✅ production frontend
       /https:\/\/policy-management-frontend.*\.vercel\.app$/, // ✅ all Vercel preview deployments
