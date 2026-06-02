@@ -774,20 +774,21 @@ export const policyRepository = {
   // Get all policies with filters, pagination, and nested includes
   async getAllPolicies(where: Prisma.PolicyWhereInput, skip: number, take: number) {
     // Fix: If where.type is a string, convert to relation filter
-    if (where.type && typeof where.type === 'string') {
-      where.type = { name: where.type };
+    const processedWhere: Prisma.PolicyWhereInput = { ...where };
+    if (processedWhere.type && typeof processedWhere.type === 'string') {
+      processedWhere.type = { name: processedWhere.type };
     }
     // Remove old status/date-based logic
     // Filtering by policy_creation_status is handled by the where object
     const [data, total] = await Promise.all([
       prisma.policy.findMany({
-        where,
+        where: processedWhere,
         orderBy: { created_at: 'desc' },
         skip,
         take,
         include: POLICY_FULL_INCLUDE,
       }),
-      prisma.policy.count({ where }),
+      prisma.policy.count({ where: processedWhere }),
     ]);
     
     return {
