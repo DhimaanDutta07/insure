@@ -9,7 +9,10 @@ import { mkdir } from 'fs/promises';
 const pipelineAsync = promisify(pipeline);
 
 // Use a web-accessible path on DigitalOcean, or /tmp on Vercel
-const STORAGE_DIR = process.env.STORAGE_DIR || (process.env.VERCEL ? '/tmp/uploads' : '/var/www/html/uploads');
+let STORAGE_DIR = process.env.STORAGE_DIR || (process.env.VERCEL ? '/tmp/uploads' : '/var/www/html/uploads');
+if (process.env.VERCEL && STORAGE_DIR.includes('/var/www')) {
+  STORAGE_DIR = '/tmp/uploads';
+}
 const MATERIAL_RECEIPTS_DIR = path.join(STORAGE_DIR, 'material-receipts');
 export const IMAGES_DIR = path.join(MATERIAL_RECEIPTS_DIR, 'images');
 
