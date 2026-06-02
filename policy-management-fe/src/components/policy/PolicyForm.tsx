@@ -1659,55 +1659,32 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
             </>
           )}
 
-          {showCommissionAddOn && (
+          {/* Commission Add-on Percentage - Auto-calculated, no manual input */}
+          {/* Removed manual input field as per requirements - commission is now automatically calculated */}
+
+          {/* Calculated Commission Display - Read-only */}
+          {hasPermission('commission') && (
             <div className="space-y-1">
               <label className="block text-xs font-semibold text-gray-700">
-                Commission Add-on (%)
+                Commission Amount (₹) - Auto-calculated
               </label>
               <Input
                 type="number"
                 step="0.01"
                 min={0}
-                max={100}
-                {...register("commission_add_on_percentage", {
+                {...register("calculated_commission_amount", {
                   setValueAs: (value) => {
                     if (!value || value === "") return undefined;
                     const num = parseFloat(value);
                     return isNaN(num) ? undefined : num;
                   },
-                  min: {
-                    value: 0,
-                    message: "Minimum is 0%",
-                  },
-                  max: {
-                    value: 100,
-                    message: "Maximum is 100%",
-                  },
+                  min: { value: 0, message: "Minimum is 0" },
                 })}
-                className="h-9 text-sm"
+                className="h-9 text-sm bg-gray-50"
+                readOnly
               />
             </div>
           )}
-
-          {/* Calculated / Manual Commission Display */}
-          <div className="space-y-1">
-            <label className="block text-xs font-semibold text-gray-700">
-              Commission Amount (₹)
-            </label>
-            <Input
-              type="number"
-              step="0.01"
-              min={0}
-              {...register("calculated_commission_amount", {
-                setValueAs: (value) => {
-                  if (!value || value === "") return undefined;
-                  const num = parseFloat(value);
-                  return isNaN(num) ? undefined : num;
-                },
-                min: { value: 0, message: "Minimum is 0" },
-              })}
-              className="h-9 text-sm"
-            />
             {/* {calculatedCommission.rule_found && (
     <div className="text-xs text-gray-600 mt-1 space-y-1">
       <div>Base Commission: {calculatedCommission.base_percentage}%</div>

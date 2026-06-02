@@ -178,4 +178,133 @@ export const commissionRuleRepository = {
       throw new AppError(500, "ServerError", "Error updating commission rules status", err);
     }
   },
+
+  // Get commission dashboard statistics
+  getCommissionDashboardStats: async (timeRange: string) => {
+    try {
+      const now = new Date();
+      let startDate: Date;
+
+      // Set date range based on timeRange parameter
+      switch (timeRange) {
+        case '7d':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case '30d':
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+        case '90d':
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+          break;
+        case '1y':
+          startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          break;
+        default:
+          startDate = new Date(0); // Beginning of time
+      }
+
+      // Get total commission amount
+      const totalCommission = await prisma.policy.aggregate({
+        where: {
+          start_date: { gte: startDate },
+          calculated_commission_amount: { not: null },
+        },
+        _sum: {
+          calculated_commission_amount: true,
+        },
+      });
+
+      // Get total policies with commission
+      const totalPoliciesWithCommission = await prisma.policy.count({
+        where: {
+          start_date: { gte: startDate },
+          calculated_commission_amount: { not: null },
+        },
+      });
+
+      // Get commission by company
+      const commissionByCompany = await prisma.policy.groupBy({
+        by: ['company_id'],
+        where: {
+          start_date: { gte: startDate },
+          calculated_commission_amount: { not: null },
+        },
+        _sum: {
+          calculated_commission_amount: true,
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get company names
+      const companyIds = commissionByCompany.map(c => c.company_id);
+      const companies = await prisma.company.findMany({
+        where: { id: { in: companyIds } },
+        select: { id: true, name: true },
+      });
+
+      const companyMap = new Map(companies.map(c => [c.id, c.name]));
+
+      // Get commission by policy name
+      const commissionByPolicyName = await prisma.policy.groupBy({
+        by: ['policy_name_id'],
+        where: {
+          start_date: { gte: startDate },
+          calculated_commission_amount: { not: null },
+        },
+        _sum: {
+          calculated_commission_amount: true,
+        },
+        _count: {
+          id: true,
+        },
+      });
+
+      // Get policy names
+      const policyNameIds = commissionByPolicyName.map(p => p.policy_name_id);
+      const policyNames = await prisma.policyName.findMany({
+        where: { id: { in: policyNameIds } },
+        select: { id: true, name: true },
+      });
+
+      const policyNameMap = new Map(policyNames.map(p => [p.id, p.name]));
+
+      // Get monthly commission trends
+      const monthlyCommission = await prisma.$queryRaw`
+        SELECT 
+          DATE_TRUNC('month', start_date) as month,
+          SUM(calculated_commission_amount) as total_commission,
+          COUNT(*) as policy_count
+        FROM policy
+        WHERE start_date >= ${startDate}
+          AND calculated_commission_amount IS NOT NULL
+        GROUP BY DATE_TRUNC('month', start_date)
+        ORDER BY month DESC
+        LIMIT 12
+      `;
+
+      return {
+        totalCommission: totalCommission._sum.calculated_commission_amount || 0,
+        totalPolicies: totalPoliciesWithCommission,
+        commissionByCompany: commissionByCompany.map(c => ({
+          companyId: c.company_id,
+          companyName: companyMap.get(c.company_id) || 'Unknown',
+          totalCommission: c._sum.calculated_commission_amount || 0,
+          policyCount: c._count.id,
+        })),
+        commissionByPolicyName: commissionByPolicyName.map(p => ({
+          policyNameId: p.policy_name_id,
+          policyName: policyNameMap.get(p.policy_name_id) || 'Unknown',
+          totalCommission: p._sum.calculated_commission_amount || 0,
+          policyCount: p._count.id,
+        })),
+        monthlyCommission: monthlyCommission as any[],
+        timeRange,
+      };
+    } catch (error) {
+      console.error('Error in getCommissionDashboardStats:', error);
+      throw new AppError(500, "ServerError", "Error fetching commission dashboard statistics", error);
+    }
+  },
 };

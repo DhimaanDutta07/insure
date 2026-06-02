@@ -78,4 +78,9 @@ export const commissionRuleService = {
     const result = await commissionRuleRepository.updateCommissionRulesStatusByPolicyName(policyNameId, isActive);
     return result;
   },
+
+  // Get commission dashboard statistics
+  async getCommissionDashboardStats(timeRange: string) {
+    return commissionRuleRepository.getCommissionDashboardStats(timeRange);
+  },
 };

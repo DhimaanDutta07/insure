@@ -372,24 +372,16 @@ export async function calculateAndSetCommission(policyInput: any) {
   console.log('[Commission] Fetched rule:', rule);
 
   if (!rule) {
-    // Fallback: when no matching CommissionRule exists, use commission_add_on_percentage as standalone percentage
-    const addOn = policyInput.commission_add_on_percentage || 0;
-    if (addOn > 0) {
-      policyInput.calculated_commission_amount = (policyInput.premium_amount * addOn) / 100;
-      console.log('[Commission] No matching rule, using add-on fallback:', policyInput.calculated_commission_amount, 'AddOn%:', addOn, 'Premium:', policyInput.premium_amount);
-    } else {
-      policyInput.calculated_commission_amount = 0;
-      console.log('[Commission] No matching rule and no add-on, commission set to 0');
-    }
+    // No matching CommissionRule found - set commission to 0
+    policyInput.calculated_commission_amount = 0;
+    console.log('[Commission] No matching rule found, commission set to 0');
     return;
   }
 
-  // 5. Calculate commission
+  // 5. Calculate commission based on CommissionRule only (no manual add-on)
   const basePercent = rule.commissionPercent || 0;
-  const addOn = policyInput.commission_add_on_percentage || 0;
-  const totalPercent = basePercent + addOn;
-  policyInput.calculated_commission_amount = (policyInput.premium_amount * totalPercent) / 100;
-  console.log('[Commission] Calculated commission:', policyInput.calculated_commission_amount, 'Base:', basePercent, 'AddOn:', addOn, 'Total%:', totalPercent, 'Premium Amount:', policyInput.premium_amount);
+  policyInput.calculated_commission_amount = (policyInput.premium_amount * basePercent) / 100;
+  console.log('[Commission] Calculated commission:', policyInput.calculated_commission_amount, 'Base%:', basePercent, 'Premium Amount:', policyInput.premium_amount);
   console.log('[Commission] Final calculated_commission_amount:', policyInput.calculated_commission_amount);
 }
 

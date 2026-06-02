@@ -130,4 +130,16 @@ export const commissionRuleController = {
       res.status(500).json({ error: error.message || 'Internal server error' });
     }
   },
+
+  // Get commission dashboard statistics
+  async getCommissionDashboardStats(req: Request, res: Response) {
+    try {
+      const { timeRange = 'all' } = req.query;
+      const stats = await commissionRuleService.getCommissionDashboardStats(timeRange as string);
+      res.status(200).json(stats);
+    } catch (error: any) {
+      console.error('Error fetching commission dashboard stats:', error);
+      res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+  },
 };

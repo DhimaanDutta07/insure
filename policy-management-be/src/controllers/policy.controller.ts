@@ -35,6 +35,41 @@ const extractUserId = (req: Request, res: Response): string | undefined => {
   }
 };
 
+const extractUserRole = async (req: Request, res: Response): Promise<string | null> => {
+  const userId = extractUserId(req, res);
+  if (!userId) return null;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true }
+    });
+    return user?.role?.role_name || null;
+  } catch (error) {
+    console.error("Error fetching user role:", error);
+    return null;
+  }
+};
+
+const filterCommissionData = (data: any, userRole: string | null): any => {
+  if (userRole === 'ADMIN') return data;
+
+  // Hide commission data from non-ADMIN users
+  if (Array.isArray(data)) {
+    return data.map(item => {
+      const { commission_add_on_percentage, calculated_commission_amount, ...rest } = item;
+      return rest;
+    });
+  }
+
+  if (data && typeof data === 'object') {
+    const { commission_add_on_percentage, calculated_commission_amount, ...rest } = data;
+    return rest;
+  }
+
+  return data;
+};
+
 // Enhanced data conversion for nested objects
 function convertPolicyDates(data: any) {
   const result = { ...data };
@@ -454,10 +489,13 @@ export const policyController = {
   // Get all policies with enhanced response format
   async getAllPolicies(req: Request, res: Response) {
     try {
+      const userRole = await extractUserRole(req, res);
       const result = await policyService.getAllPolicies(req.query);
+      const filteredData = filterCommissionData(result.data, userRole);
+
       res.json({
         success: true,
-        data: result.data,
+        data: filteredData,
         pagination: {
           total: result.total,
           page: result.page,
@@ -479,12 +517,14 @@ export const policyController = {
   async getPolicyById(req: Request, res: Response) {
     try {
       // console.log(`Fetching policy with ID: ${req.params.id as string}`);
-      
+
+      const userRole = await extractUserRole(req, res);
       const policy = await policyService.getPolicyById(req.params.id as string);
-      
-      if (!policy) {
+      const filteredPolicy = filterCommissionData(policy, userRole);
+
+      if (!filteredPolicy) {
         // console.log(`Policy not found with ID: ${req.params.id as string}`);
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: "Policy not found",
           message: `Policy with ID ${req.params.id as string} does not exist`,
           timestamp: new Date().toISOString()
@@ -504,7 +544,7 @@ export const policyController = {
       
       res.json({
         success: true,
-        data: policy
+        data: filteredPolicy
       });
     } catch (error) {
       console.error("Error fetching policy:", error);
@@ -677,23 +717,28 @@ export const policyController = {
     }
 
     try {
+      // Check if user has ADMIN role
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true }
+      });
+
+      if (!user || user.role.role_name !== 'ADMIN') {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Only Admin users can delete policies",
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const existingPolicy = await policyService.getPolicyById(req.params.id as string);
       if (!existingPolicy) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: "Policy not found",
           message: `Policy with ID ${req.params.id as string} does not exist`,
           timestamp: new Date().toISOString()
         });
       }
-      
-      // TODO: Temporarily commented out to allow any ADMIN/OPERATIONS user to delete policies
-      // if (existingPolicy.created_by !== userId) {
-      //   return res.status(403).json({ 
-      //     error: "Forbidden",
-      //     message: "You can only delete your own policies",
-      //     timestamp: new Date().toISOString()
-      //   });
-      // }
 
       const policyId = req.params.id as string;
 

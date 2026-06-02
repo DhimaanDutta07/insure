@@ -355,6 +355,7 @@ model Policy {
   medical_condition             Boolean?             @default(false)
   medical_remarks               String?
   policy_creation_status        PolicyCreationStatus? @default(Fresh)
+  status                        String?              @default("Active")
   parent_policy_id              String?
   parent_policy                 Policy?              @relation("PolicyHistory", fields: [parent_policy_id], references: [id])
   transition_type               PolicyTransitionType?
@@ -378,6 +379,8 @@ model Policy {
   @@index([policy_number])
   @@index([created_at])
   @@index([parent_policy_id])
+  @@index([status])
+  @@index([customer_name])
   @@map("policy")
 }
 

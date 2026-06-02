@@ -50,40 +50,54 @@ export class PolicyTransitionService {
       if (!parentPolicy) {
         throw new Error('Parent policy not found');
       }
-      
-      // 2. Create new policy with carried over data
-      const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
-      result.newPolicy = newPolicy;
-      
-      // 3. Set transition relationship
-      await prisma.policy.update({
-        where: { id: newPolicy.id },
-        data: {
-          parent_policy_id: parentPolicyId,
-          transition_type: transitionType,
-          policy_creation_status: this.getPolicyCreationStatus(transitionType)
-        }
-      });
-      
-      // 4. Create document references (not copies)
-      const documentRefs = await this.createDocumentReferences(
-        parentPolicyId, 
-        newPolicy.id, 
-        transitionType
-      );
-      result.documentReferences = documentRefs;
-      
-      // 5. Clear cache for affected policies
-      DocumentAccessService.clearCache(parentPolicyId);
-      DocumentAccessService.clearCache(newPolicy.id);
-      
-      // 6. Debug: Log the created document references
-      console.log(`Created ${documentRefs.length} document references for policy ${newPolicy.id}`);
-      console.log('Document references:', documentRefs.map(ref => ({
-        id: ref.id,
-        source_document_id: ref.source_document_id,
-        transition_type: ref.transition_type
-      })));
+
+      // 2. For Portability and Internal Portability, update the same policy record
+      if (transitionType === 'PORTABILITY' || transitionType === 'MIGRATION') {
+        const updatedPolicy = await this.updatePolicyForPortability(parentPolicy, newPolicyData, transitionType);
+        result.newPolicy = updatedPolicy;
+
+        // 3. Create document references (not copies)
+        const documentRefs = await this.createDocumentReferences(
+          parentPolicyId,
+          updatedPolicy.id,
+          transitionType
+        );
+        result.documentReferences = documentRefs;
+
+        // 4. Clear cache for affected policies
+        DocumentAccessService.clearCache(parentPolicyId);
+        DocumentAccessService.clearCache(updatedPolicy.id);
+
+        console.log(`Updated policy ${updatedPolicy.id} for ${transitionType}`);
+      } else {
+        // For Renewal, create new policy as before
+        const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
+        result.newPolicy = newPolicy;
+
+        // 3. Set transition relationship
+        await prisma.policy.update({
+          where: { id: newPolicy.id },
+          data: {
+            parent_policy_id: parentPolicyId,
+            transition_type: transitionType,
+            policy_creation_status: this.getPolicyCreationStatus(transitionType)
+          }
+        });
+
+        // 4. Create document references (not copies)
+        const documentRefs = await this.createDocumentReferences(
+          parentPolicyId,
+          newPolicy.id,
+          transitionType
+        );
+        result.documentReferences = documentRefs;
+
+        // 5. Clear cache for affected policies
+        DocumentAccessService.clearCache(parentPolicyId);
+        DocumentAccessService.clearCache(newPolicy.id);
+
+        console.log(`Created ${documentRefs.length} document references for policy ${newPolicy.id}`);
+      }
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -104,6 +118,52 @@ export class PolicyTransitionService {
       default:
         return 'Fresh';
     }
+  }
+
+  private static async updatePolicyForPortability(
+    parentPolicy: any,
+    newPolicyData: any,
+    transitionType: PolicyTransitionType
+  ): Promise<any> {
+    // Convert string values to appropriate types for Prisma
+    const processedData = {
+      ...newPolicyData,
+      // Convert numeric strings to numbers
+      premium_amount: typeof newPolicyData.premium_amount === 'string'
+        ? parseFloat(newPolicyData.premium_amount)
+        : newPolicyData.premium_amount,
+      sum_insured: typeof newPolicyData.sum_insured === 'string'
+        ? parseInt(newPolicyData.sum_insured)
+        : newPolicyData.sum_insured,
+      tenure_years: typeof newPolicyData.tenure_years === 'string'
+        ? parseInt(newPolicyData.tenure_years)
+        : newPolicyData.tenure_years,
+      // Ensure other numeric fields are properly typed
+      deductible_amount: newPolicyData.deductible_amount ?
+        (typeof newPolicyData.deductible_amount === 'string'
+          ? parseInt(newPolicyData.deductible_amount)
+          : newPolicyData.deductible_amount) : null,
+      // Convert date strings to DateTime objects
+      start_date: newPolicyData.start_date ? new Date(newPolicyData.start_date) : null,
+      end_date: newPolicyData.end_date ? new Date(newPolicyData.end_date) : null,
+      issued_date: newPolicyData.issued_date ? new Date(newPolicyData.issued_date) : null,
+      // Update transition type and status
+      transition_type: transitionType,
+      policy_creation_status: this.getPolicyCreationStatus(transitionType),
+      // Update company to new insurer
+      company_id: newPolicyData.company_id || parentPolicy.company_id,
+      insurer_name: newPolicyData.insurer_name || parentPolicy.insurer_name,
+      product_name: newPolicyData.product_name || parentPolicy.product_name,
+      plan_type: newPolicyData.plan_type || parentPolicy.plan_type,
+    };
+
+    // Update the existing policy instead of creating a new one
+    const updatedPolicy = await prisma.policy.update({
+      where: { id: parentPolicy.id },
+      data: processedData
+    });
+
+    return updatedPolicy;
   }
   
   private static async createPolicyWithCarriedOverData(parentPolicy: any, newPolicyData: any): Promise<any> {

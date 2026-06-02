@@ -358,7 +358,7 @@ router.patch(
 router.get("/policies", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getAllPolicies));
 router.get("/policies/dashboard-stats", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.dashboardStats));
 router.get("/policies/:id", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getPolicyById));
-router.delete("/policies/:id", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.deletePolicy));
+router.delete("/policies/:id", restrictTo(['ADMIN']), asyncHandler(policyController.deletePolicy));
 router.get("/my-policies", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getMyPolicies));
 
 // Document management routes
@@ -459,6 +459,7 @@ router.patch('/commission-rules/:id', restrictTo(['ADMIN']), (req, res) => { com
 router.patch('/commission-rules/:id/status', restrictTo(['ADMIN']), commissionRuleController.updateCommissionRuleStatus);
 router.patch('/commission-rules/policy/:policyNameId/status', restrictTo(['ADMIN']), commissionRuleController.updateCommissionRulesStatusByPolicyName);
 router.delete('/commission-rules/:id', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.deleteCommissionRule(req, res); });
+router.get('/commission-rules/dashboard/stats', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.getCommissionDashboardStats(req, res); });
 
 // Company Routes
 router.post('/companies', restrictTo(['ADMIN']), (req, res) => { companyController.createCompany(req, res); });

@@ -159,7 +159,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Fix: Use setTimeout instead of setInterval and navigate immediately
       setTimeout(() => {
-        navigate('/admin/users');
+        if (role?.role_name === 'ADMIN') {
+          navigate('/admin/users');
+        } else if (role?.role_name === 'OPERATIONS') {
+          // Check if user has dashboard access
+          const webPermissions = role?.permissions?.web || [];
+          if (webPermissions.includes('dashboard')) {
+            navigate('/admin/users');
+          } else {
+            // Redirect to first permitted module
+            if (webPermissions.includes('policies')) {
+              navigate('/admin/policies');
+            } else if (webPermissions.includes('enquiries')) {
+              navigate('/admin/enquiries');
+            } else if (webPermissions.includes('revenues')) {
+              navigate('/admin/revenues');
+            } else {
+              // Default fallback
+              navigate('/admin/policies');
+            }
+          }
+        } else {
+          navigate('/admin/users');
+        }
       }, 1000);
 
     } catch (error) {

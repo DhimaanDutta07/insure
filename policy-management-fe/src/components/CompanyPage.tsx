@@ -4,10 +4,10 @@ import { Button } from "./ui/button";
 import { Pencil, Trash2, Plus } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { CompanyModal } from "./CompanyModal";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
 import { toast } from "sonner";
+import ConfirmDialog from "./ui/confirm-dialog";
 
 const CompanyPage: React.FC = () => {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -236,45 +236,26 @@ const CompanyPage: React.FC = () => {
       />
 
       {/* Delete Confirmation Modal */}
-      <Dialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
-        <DialogContent className="sm:max-w-[425px] bg-white rounded-lg shadow-lg">
-          <DialogHeader>
-            <DialogTitle className="text-left text-gray-700">Confirm Delete</DialogTitle>
-            <DialogDescription className="text-left text-gray-600">
-              Are you sure you want to delete "<b>{companyToDelete?.name}</b>"? This action cannot be undone.
-            </DialogDescription>
-            {errorMessage && (
-              <div className="text-left mt-2 p-2 bg-red-100 text-red-700 rounded">
-                {errorMessage}
-              </div>
-            )}
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDeleteModalOpen(false);
-                setCompanyToDelete(undefined);
-                setErrorMessage(null);
-              }}
-              className="text-gray-700 hover:text-gray-900 hover:bg-gray-100 border border-gray-300"
-              disabled={isSaving}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={confirmDelete}
-              className="bg-red-600 text-white hover:bg-red-700"
-              disabled={isSaving}
-            >
-              {isSaving ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={deleteModalOpen}
+        onOpenChange={(open) => {
+          setDeleteModalOpen(open);
+          if (!open) {
+            setCompanyToDelete(undefined);
+            setErrorMessage(null);
+          }
+        }}
+        title="Confirm Delete"
+        description="Are you sure you want to delete this company? This action cannot be undone."
+        itemName={companyToDelete?.name}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDelete}
+        isDestructive={true}
+        isLoading={isSaving}
+      />
     </div>
   );
 };
 
-export default CompanyPage; 
+export default CompanyPage;

@@ -26,6 +26,7 @@ function App() {
     "/admin/agents",
     "/admin/reimbursement",
     "/admin/commission",
+    "/admin/commission-dashboard",
     "/admin/revenues",
     "/admin/policy-groups",
     "/admin/companies",
