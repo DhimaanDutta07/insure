@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Policy } from '../types/index';
 
-const API_BASE_URL = import.meta.env.VITE_BASE_URL || 'http://localhost:3001/api/v1';
+const API_BASE_URL = ((import.meta.env.VITE_BASE_URL as string || 'http://localhost:3001/api/v1')).replace(/\/$/, '');
 
 export interface PolicyTransitionData {
   policy_number: string;

@@ -55,7 +55,7 @@ export const commissionCalculationService = {
   async getCommissionRules(policyNameId: string): Promise<CommissionRule[]> {
     try {
       const response = await axios.get(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/commission-rules/policy/${policyNameId}`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/policy/${policyNameId}`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('authToken')}`,

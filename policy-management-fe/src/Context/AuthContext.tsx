@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const token = localStorage.getItem('authToken');
         if (token) {
           // Validate token with backend
-          const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/user/validate`, {
+          const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/validate`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           
@@ -130,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (phone: string, password: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/auth/login`, {
+      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -170,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (name: string, email: string | null, password: string, phoneNumber: string) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/auth/admin/register`, {
+      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/auth/admin/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, phoneNumber }),
@@ -216,7 +216,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const token = localStorage.getItem('authToken');
           if (!token) return;
 
-          const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/user/validate`, {
+          const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/validate`, {
             headers: { Authorization: `Bearer ${token}` },
           });
 
@@ -391,7 +391,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Add new function to set user sites
   const setUserSites = async (sites: string[]) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/sites/assign`, {
+      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites/assign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { CommissionRule } from '../types/index';
 
-const API_BASE_URL = import.meta.env.VITE_BASE_URL;
+const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
 
 // Define search parameters type
 export interface CommissionRuleSearchParams {

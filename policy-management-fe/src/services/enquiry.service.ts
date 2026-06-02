@@ -1,7 +1,7 @@
 import axios from "axios";
 import { Enquiry } from "../types/enquiry";
 
-const API_URL = `${import.meta.env.VITE_BASE_URL}/api/v1`;
+const API_URL = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1`;
 
 export const enquiryService = {
   getAllEnquiries: async (): Promise<Enquiry[]> => {

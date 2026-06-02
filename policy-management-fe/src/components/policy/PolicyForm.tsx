@@ -220,7 +220,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const fetchCompanies = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/companies`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -236,7 +236,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const fetchPolicyNames = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/policy-names`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -252,7 +252,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const fetchPolicyTypes = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/policy-types`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-types`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -267,7 +267,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const fetchPolicyGroups = async () => {
       try {
         const res = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/policy-groups`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken")}`,

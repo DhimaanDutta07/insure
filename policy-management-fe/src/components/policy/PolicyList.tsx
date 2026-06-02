@@ -226,7 +226,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
       try {
         const token = localStorage.getItem('authToken');
         const headers = { Authorization: `Bearer ${token}` };
-        const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policy-groups`, { headers });
+        const res = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`, { headers });
         if (Array.isArray(res.data.policyGroups)) {
           setPolicyGroups(res.data.policyGroups);
         } else if (Array.isArray(res.data)) {
@@ -399,7 +399,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
       formData.append("file", selectedFile);
       const token = localStorage.getItem("authToken");
       const res = await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/policies/import`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/import`,
         formData,
         {
           headers: {
@@ -764,7 +764,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
     try {
       const token = localStorage.getItem("authToken");
       await axios.delete(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/policies/${policyToDelete.id}`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyToDelete.id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       toast.success("Policy deleted successfully");

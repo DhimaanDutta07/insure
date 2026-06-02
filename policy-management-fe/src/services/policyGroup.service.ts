@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { PolicyGroup, PolicyName } from '../types/index';
 
-const API_BASE_URL = import.meta.env.VITE_BASE_URL;
+const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
 
 // PolicyGroup CRUD
 export const getAllPolicyGroups = async (): Promise<PolicyGroup[]> => {
