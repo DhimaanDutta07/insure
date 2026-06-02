@@ -54,7 +54,7 @@ export const EnquiryForm: React.FC<EnquiryFormProps> = ({ enquiry, onSubmit, onC
   useEffect(() => {
     const fetchSites = async () => {
       try {
-        const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/sites`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }) // Fetch sites from the backend
+        const response = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }) // Fetch sites from the backend
         setSites(response.data); // Assuming response.data contains the array of sites
       } catch (error) {
         console.error("Error fetching sites:", error);

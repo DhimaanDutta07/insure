@@ -76,7 +76,7 @@
 //     setIsLoading(true);
 //     try {
 //       const response = await axios.get<VendorResponse>(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/vendors`, 
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/vendors`, 
 //         {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem('authToken')}`

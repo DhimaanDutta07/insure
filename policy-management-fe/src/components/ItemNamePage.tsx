@@ -40,8 +40,8 @@ const ItemNamePage: React.FC = () => {
     const fetchData = async () => {
       try {
         const [namesRes, groupsRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/item-name`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/item-groups`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-name`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
         ]);
         const sortedItemNames = namesRes.data.sort((a: ItemName, b: ItemName) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setItemNames(sortedItemNames.filter((inm: ItemName) => !inm.is_deleted));
@@ -101,14 +101,14 @@ const ItemNamePage: React.FC = () => {
     try {
       if (isCreateMode) {
         const res = await axios.post(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/item-groups/${formData.item_group_id}/item-names`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups/${formData.item_group_id}/item-names`,
           { name: formData.name, description: formData.description, item_group_id: formData.item_group_id },
           { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }
         );
         setItemNames(prev => [...prev, res.data]);
       } else if (selectedItemName) {
         const res = await axios.patch(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/item-names/${selectedItemName.id}`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-names/${selectedItemName.id}`,
           { name: formData.name, description: formData.description, item_group_id: formData.item_group_id },
           { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }
         );
@@ -127,7 +127,7 @@ const ItemNamePage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await axios.delete(`${import.meta.env.VITE_BASE_URL}/api/v1/item-names/${id}`, {
+      await axios.delete(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-names/${id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
       setItemNames((prev) => prev.filter((inm) => inm.id !== id));

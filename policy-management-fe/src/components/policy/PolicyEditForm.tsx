@@ -267,11 +267,11 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
 
         // Fetch dropdown data and policy details in parallel
         const [policyRes, companiesRes, policyTypesRes, policyNamesRes, policyGroupsRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policies/${policyId}`, { headers }),
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/companies`, { headers }),
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policy-types`, { headers }),
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policy-names`, { headers }),
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policy-groups`, { headers }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`, { headers }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`, { headers }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-types`, { headers }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`, { headers }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`, { headers }),
         ]);
 
         // Extract policy data from the response (backend returns { success: true, data: policy })
@@ -925,7 +925,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       const headers = { Authorization: `Bearer ${token}` }; // Remove Content-Type!
 
       const response = await axios.patch(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/policies/${policyId}`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`,
         formData,
         { headers }
       );

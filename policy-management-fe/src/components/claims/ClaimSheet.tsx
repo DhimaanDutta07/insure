@@ -40,7 +40,7 @@ export const ClaimSheet: React.FC<ClaimSheetProps> = ({
     try {
       const token = localStorage.getItem("authToken");
       const response = await axios.get(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/policies/${policyId}`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }

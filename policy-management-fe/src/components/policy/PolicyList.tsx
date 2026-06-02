@@ -315,7 +315,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
       
       const token = localStorage.getItem("authToken");
       const headers = { Authorization: `Bearer ${token}` };
-      const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policies`, { params, headers });
+      const res = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies`, { params, headers });
       
       // Handle response with pagination
       if (res.data && res.data.success) {
@@ -583,7 +583,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
       
       const token = localStorage.getItem("authToken");
       const headers = { Authorization: `Bearer ${token}` };
-      const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/policies`, { params, headers });
+      const res = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies`, { params, headers });
       
       if (res.data && res.data.success && res.data.data) {
         const policiesToExport = res.data.data;

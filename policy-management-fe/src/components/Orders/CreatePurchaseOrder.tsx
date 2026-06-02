@@ -86,7 +86,7 @@
 
 //     try {
 //       await axios.post(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/purchase-orders`,
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-orders`,
 //         formData,
 //         {
 //           headers: {

@@ -55,7 +55,7 @@ export const MaterialReceiptSheet: React.FC<{
 
     //   try {
     //     const res = await axios.patch(
-    //       `${import.meta.env.VITE_BASE_URL}/api/v1/material-receipts/${
+    //       `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material-receipts/${
     //         selectedReceipt.id
     //       }`,
     //       data,

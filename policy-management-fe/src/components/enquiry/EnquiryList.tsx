@@ -112,7 +112,7 @@ export const EnquiryList: React.FC = () => {
   const fetchEnquiries = async () => {
     try {
       // const url = 
-      const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/enquiries`, {
+      const response = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/enquiries`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("authToken")}`,
         },

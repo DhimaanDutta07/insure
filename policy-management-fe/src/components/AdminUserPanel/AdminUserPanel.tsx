@@ -81,7 +81,7 @@ export default function AdminUserPanel() {
         queryParams.append("orderBy", JSON.stringify({ created_at: "desc" }));
 
         const response = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/users?${queryParams.toString()}`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/users?${queryParams.toString()}`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -128,7 +128,7 @@ export default function AdminUserPanel() {
         try {
           if (action === "delete") {
             await axios.delete(
-              `${import.meta.env.VITE_BASE_URL}/api/v1/user/${user.id}`,
+              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}`,
               {
                 headers: {
                   Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -140,7 +140,7 @@ export default function AdminUserPanel() {
           } else if (action === "toggle") {
             const payload = { status: user.status };
             await axios.patch(
-              `${import.meta.env.VITE_BASE_URL}/api/v1/user/${user.id}/status`,
+              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/status`,
               JSON.stringify(payload),
               {
                 headers: {
@@ -153,7 +153,7 @@ export default function AdminUserPanel() {
           } else if (action === "toggleApp") {
             const payload = { app_access: user.app_access };
             await axios.patch(
-              `${import.meta.env.VITE_BASE_URL}/api/v1/user/${user.id}/app-access`,
+              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/app-access`,
               JSON.stringify(payload),
               {
                 headers: {
@@ -166,7 +166,7 @@ export default function AdminUserPanel() {
           } else if (action === "toggleWeb") {
             const payload = { web_access: user.web_access };
             await axios.patch(
-              `${import.meta.env.VITE_BASE_URL}/api/v1/user/${user.id}/web-access`,
+              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/web-access`,
               JSON.stringify(payload),
               {
                 headers: {
@@ -205,7 +205,7 @@ export default function AdminUserPanel() {
             payload.email = user.email;
 
             await axios.patch(
-              `${import.meta.env.VITE_BASE_URL}/api/v1/user/${user.id}`,
+              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}`,
               JSON.stringify(payload),
               {
                 headers: {
@@ -430,7 +430,7 @@ const handleWebPermissionChange = (permission: string) => {
       try {
         // Remove the unused sitesRes variable
         // const [sitesRes] = await Promise.all([
-        //   axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/sites`, {
+        //   axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites`, {
         //     headers: {
         //       Authorization: `Bearer ${localStorage.getItem("authToken")}`,
         //     },
@@ -478,7 +478,7 @@ const handleWebPermissionChange = (permission: string) => {
       };
 
       await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/register`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/register`,
         JSON.stringify(payload),
         {
           headers: {

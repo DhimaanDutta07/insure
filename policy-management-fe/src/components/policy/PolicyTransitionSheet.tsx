@@ -295,7 +295,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
 
   const fetchCompanies = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/companies`, {
+      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         }
@@ -311,7 +311,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
 
   const fetchPolicyNames = async () => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/policy-names`, {
+      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         }

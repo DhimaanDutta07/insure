@@ -57,7 +57,7 @@ const CommissionPage: React.FC = () => {
 
   const fetchCommissions = async () => {
     try {
-      const url = `${import.meta.env.VITE_BASE_URL}/api/v1/commissions`;
+      const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commissions`;
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
@@ -78,7 +78,7 @@ const CommissionPage: React.FC = () => {
   const handleDeleteConfirm = async () => {
     if (commissionToDelete) {
       try {
-        const url = `${import.meta.env.VITE_BASE_URL}/api/v1/commissions/${commissionToDelete.id}`;
+        const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commissions/${commissionToDelete.id}`;
         await axios.delete(url, {
           headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
         });

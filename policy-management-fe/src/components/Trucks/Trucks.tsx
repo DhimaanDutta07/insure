@@ -104,7 +104,7 @@ const Trucks = () => {
   // const fetchVendors = async () => {
   //   try {
   //     const vendorsResponse = await axios.get(
-  //       `${import.meta.env.VITE_BASE_URL}/api/v1/vendors`,
+  //       `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/vendors`,
   //       {
   //         headers: {
   //           Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -128,7 +128,7 @@ const Trucks = () => {
     try {
       console.log(`Fetching page ${page} with limit ${limit}`); // Debug log
       const response = await axios.get<TruckResponse>(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/trucks`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/trucks`,
         {
           params: {
             page,
@@ -168,7 +168,7 @@ const Trucks = () => {
       setIsLoading(true);
       try {
         const response = await axios.get<TruckResponse>(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/search/truck`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/search/truck`,
           {
             params: {
               page: 1,
@@ -253,7 +253,7 @@ const Trucks = () => {
     try {
       // Create new truck using the API endpoint
       await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/truck`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/truck`,
         {
           truck_number: formData.truck_number,
           // vendor_id: formData.vendor_id,
@@ -291,7 +291,7 @@ const Trucks = () => {
 
     try {
       await axios.delete(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/truck/${truckToDelete}`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/truck/${truckToDelete}`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("authToken")}`,

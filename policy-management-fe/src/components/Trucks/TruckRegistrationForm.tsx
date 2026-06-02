@@ -33,7 +33,7 @@ const TruckRegistrationForm: React.FC = () => {
 
   const fetchTruckSuggestions = async (): Promise<void> => {
     try {
-      const response = await axios.get<string[]>(`${import.meta.env.VITE_BASE_URL}/api/v1/po/associated/truck?query=${truckNumber}`);
+      const response = await axios.get<string[]>(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/po/associated/truck?query=${truckNumber}`);
       // const response = await axios.get<string[]>(`http://139.59.28.237/api/v1/po/associated/truck?query=${truckNumber}`);
 
       setSuggestions(response.data || []);
@@ -58,7 +58,7 @@ const TruckRegistrationForm: React.FC = () => {
     
     try {
       // const response = await axios.get<TokenResponse>('http://139.59.28.237/api/v1/truck/token/generate');
-      const response = await axios.get<TokenResponse>(`${import.meta.env.VITE_BASE_URL}/api/v1/truck/token/generate`);
+      const response = await axios.get<TokenResponse>(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/truck/token/generate`);
 
       console.log(response.data.data.token)
       setToken(response.data.data.token || '');
@@ -122,7 +122,7 @@ const TruckRegistrationForm: React.FC = () => {
 
     try {
       // await axios.post('http://139.59.28.237/api/v1/truck-reg/entry', formData, {
-      await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/truck-reg/entry`, formData, {
+      await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/truck-reg/entry`, formData, {
 
         headers: {
           'Content-Type': 'multipart/form-data'

@@ -89,7 +89,7 @@ const MaterialReceiptPage: React.FC = () => {
     const fetchSites = async () => {
       try {
         const response = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/sites`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -111,7 +111,7 @@ const MaterialReceiptPage: React.FC = () => {
         let url: string;
         if (timePeriod === "custom") {
           url = `${
-            import.meta.env.VITE_BASE_URL
+            (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')
           }/api/v1/material-receipts/time-period/custom`;
           if (customDateRange.start && customDateRange.end) {
             // Format dates to ISO string and remove time component
@@ -125,7 +125,7 @@ const MaterialReceiptPage: React.FC = () => {
           }
         } else {
           url = `${
-            import.meta.env.VITE_BASE_URL
+            (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')
           }/api/v1/material-receipts/time-period/${timePeriod}`;
         }
 
@@ -288,7 +288,7 @@ const MaterialReceiptPage: React.FC = () => {
     try {
       if (isCreateMode) {
         const res = await axios.post(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/material-receipts`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material-receipts`,
           data,
           {
             headers: {
@@ -299,7 +299,7 @@ const MaterialReceiptPage: React.FC = () => {
         setReceipts((prev) => [...prev, res.data]);
       } else if (selectedReceipt) {
         const res = await axios.patch(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/material-receipts/${
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material-receipts/${
             selectedReceipt.id
           }`,
           data,

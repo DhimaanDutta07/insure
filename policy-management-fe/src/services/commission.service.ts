@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Commission } from "../types/index";
 
-const API_BASE_URL = import.meta.env.VITE_BASE_URL;
+const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
 
 export const getAllCommissions = async (): Promise<Commission[]> => {
   const res = await axios.get(`${API_BASE_URL}/api/v1/commissions`, {

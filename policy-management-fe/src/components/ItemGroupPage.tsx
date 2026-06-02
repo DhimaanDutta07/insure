@@ -34,7 +34,7 @@ const ItemGroupPage: React.FC = () => {
   useEffect(() => {
     const fetchItemGroups = async () => {
       try {
-        const res = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/item-groups`, {
+        const res = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups`, {
           headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
         });
         setItemGroups(res.data.itemGroups.filter((ig: ItemGroup) => !ig.is_deleted));
@@ -80,13 +80,13 @@ const ItemGroupPage: React.FC = () => {
 
     try {
       if (isCreateMode) {
-        const res = await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/item-groups`, formData, {
+        const res = await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups`, formData, {
           headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
         });
         setItemGroups(prev => [...prev, res.data]);
       } else if (selectedItemGroup) {
         const res = await axios.patch(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/item-groups/${selectedItemGroup.id}`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups/${selectedItemGroup.id}`,
           formData,
           { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }
         );
@@ -105,7 +105,7 @@ const ItemGroupPage: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     try {
-      await axios.delete(`${import.meta.env.VITE_BASE_URL}/api/v1/item-groups/${id}`, {
+      await axios.delete(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups/${id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
       setItemGroups(prev => prev.filter(ig => ig.id !== id));

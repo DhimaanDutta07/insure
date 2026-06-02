@@ -39,7 +39,7 @@
 
 //     const fetchOrder = async () => {
 //       try {
-//         const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/purchase-order/${id}`, {
+//         const response = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-order/${id}`, {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem("authToken")}`,
 //           },

@@ -110,7 +110,7 @@ export const deleteCommissionRule = async (id: string): Promise<void> => {
 }; 
 
 export async function updateCommissionRulesStatusByPolicy(policyNameId: string, is_active: boolean) {
-  const response = await fetch(`${import.meta.env.VITE_BASE_URL}/api/v1/commission-rules/policy/${policyNameId}/status`, {
+  const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/policy/${policyNameId}/status`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',

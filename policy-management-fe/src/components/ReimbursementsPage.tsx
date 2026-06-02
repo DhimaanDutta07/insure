@@ -56,7 +56,7 @@ const ReimbursementsPage: React.FC = () => {
 
   const fetchReimbursements = async () => {
     try {
-      const url = `${import.meta.env.VITE_BASE_URL}/api/v1/reimbursements`;
+      const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/reimbursements`;
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
@@ -76,7 +76,7 @@ const ReimbursementsPage: React.FC = () => {
   const handleDeleteConfirm = async () => {
     if (reimbursementToDelete) {
       try {
-        const url = `${import.meta.env.VITE_BASE_URL}/api/v1/reimbursements/${reimbursementToDelete.id}`;
+        const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/reimbursements/${reimbursementToDelete.id}`;
         await axios.delete(url, {
           headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
         });

@@ -126,7 +126,7 @@ function PolicyDashBoardPage() {
     setLoading(true);
     setError("");
     const token = localStorage.getItem("authToken");
-    let url = `${import.meta.env.VITE_BASE_URL}/api/v1/policies/dashboard-stats?timeRange=${timeRange}`;
+    let url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/dashboard-stats?timeRange=${timeRange}`;
     if (selectedMonth && selectedMonth !== 'all') {
       url += `&month=${selectedMonth}`;
     }

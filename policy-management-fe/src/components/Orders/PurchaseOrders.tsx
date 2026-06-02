@@ -148,14 +148,14 @@
 //   const fetchOrders = async (search: string = searchTerm) => {
 //     setLoading(true);
 //     try {
-//       let url = `${import.meta.env.VITE_BASE_URL}/api/v1/purchase-orders`;
+//       let url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-orders`;
 //       const params: { page: number; limit: number; vendor_name?: string } = {
 //         page: paginationInfo.currentPage,
 //         limit: paginationInfo.pageSize,
 //       };
 
 //       if (search) {
-//         url = `${import.meta.env.VITE_BASE_URL}/api/v1/purchase-orders-search`;
+//         url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-orders-search`;
 //         params.vendor_name = search;
 //       }
 
@@ -191,7 +191,7 @@
 //   const fetchVendors = async () => {
 //     try {
 //       const response = await axios.get(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/vendors`,
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/vendors`,
 //         {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -211,7 +211,7 @@
 //   const fetchMaterials = async () => {
 //     try {
 //       const response = await axios.get(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/materials`,
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/materials`,
 //         {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem("authToken")}`,
@@ -256,7 +256,7 @@
 //         formData.append("document", editDocument);
         
 //         await axios.patch(
-//           `${import.meta.env.VITE_BASE_URL}/api/v1/purchase-orders/${editOrder.id}`,
+//           `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-orders/${editOrder.id}`,
 //           formData,
 //           {
 //             headers: {
@@ -268,7 +268,7 @@
 //       } else {
 //         // If no document, send JSON directly
 //         await axios.patch(
-//           `${import.meta.env.VITE_BASE_URL}/api/v1/purchase-orders/${editOrder.id}`,
+//           `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-orders/${editOrder.id}`,
 //           updateData,
 //           {
 //             headers: {
@@ -302,7 +302,7 @@
 
 //     try {
 //       await axios.delete(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/purchase-orders/${orderToDelete}`,
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/purchase-orders/${orderToDelete}`,
 //         {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem("authToken")}`,

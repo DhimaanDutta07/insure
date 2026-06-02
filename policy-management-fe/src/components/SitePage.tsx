@@ -47,8 +47,8 @@ const SitePage: React.FC = () => {
     const fetchData = async () => {
       try {
         const [sitesRes, usersRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/sites`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
-          axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/users`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/users`, { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }),
         ]);
         const sortedSiteData = sitesRes.data.sort((a: Site, b: Site) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setSites(sortedSiteData);
@@ -105,14 +105,14 @@ const SitePage: React.FC = () => {
 
     try {
       if (isCreateMode) {
-        const res = await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/sites`, formData, {
+        const res = await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites`, formData, {
           headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}`,'Content-Type': 'application/json'},
           
         });
         setSites(prev => [...prev, res.data]);
       } else if (selectedSite) {
         const res = await axios.patch(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/sites/${selectedSite.id}`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites/${selectedSite.id}`,
           formData,
           { headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` } }
         );
@@ -144,7 +144,7 @@ const SitePage: React.FC = () => {
     }
 
     try {
-      const res = await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/sites/assign-multiple`, {
+      const res = await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites/assign-multiple`, {
         user_id: assignFormData.user_id,
         site_ids: assignFormData.site_ids
       }, {

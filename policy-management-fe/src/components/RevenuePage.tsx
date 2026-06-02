@@ -96,7 +96,7 @@ const RevenuePage: React.FC = () => {
   const fetchData = async () => {
     try {
       // Fetch revenues - this endpoint exists
-      const revenueRes = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/revenues`, {
+      const revenueRes = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/revenues`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
       const sortedRevenues = revenueRes.data
@@ -210,7 +210,7 @@ const RevenuePage: React.FC = () => {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      await axios.delete(`${import.meta.env.VITE_BASE_URL}/api/v1/revenues/${id}`, {
+      await axios.delete(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/revenues/${id}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
       setRevenues((prev) => prev.filter((r) => r.id !== id));

@@ -63,8 +63,8 @@
 
 //     try {
 //       const url = reimbursement?.id
-//         ? `${import.meta.env.VITE_BASE_URL}/api/v1/reimbursements/${reimbursement.id}`
-//         : `${import.meta.env.VITE_BASE_URL}/api/v1/reimbursements`;
+//         ? `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/reimbursements/${reimbursement.id}`
+//         : `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/reimbursements`;
 //       const method = reimbursement?.id ? 'patch' : 'post';
 //       const res = await axios[method](url, formData, {
 //         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },
@@ -204,8 +204,8 @@ export const ReimbursementModal: React.FC<ReimbursementModalProps> = ({
 
     try {
       const url = reimbursement?.id
-        ? `${import.meta.env.VITE_BASE_URL}/api/v1/reimbursements/${reimbursement.id}`
-        : `${import.meta.env.VITE_BASE_URL}/api/v1/reimbursements`;
+        ? `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/reimbursements/${reimbursement.id}`
+        : `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/reimbursements`;
       const method = reimbursement?.id ? 'patch' : 'post';
       const res = await axios[method](url, formData, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },

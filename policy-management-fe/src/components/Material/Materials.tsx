@@ -69,7 +69,7 @@
 //       }
       
 //       const response = await axios.get(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/materials`, 
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/materials`, 
 //         {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem('authToken')}`
@@ -138,7 +138,7 @@
 //     };
   
 //     try {
-//        await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/material`, material, {
+//        await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material`, material, {
 //         headers: {
 //           Authorization: `Bearer ${localStorage.getItem('authToken')}`
 //         }
@@ -179,7 +179,7 @@
 //     if (!editMaterial || !editMaterial.id) return;
 
 //     try {
-//       await axios.patch(`${import.meta.env.VITE_BASE_URL}/api/v1/material/${editMaterial.id}`, editMaterial, {
+//       await axios.patch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material/${editMaterial.id}`, editMaterial, {
 //         headers: {
 //           Authorization: `Bearer ${localStorage.getItem('authToken')}`
 //         }
@@ -205,7 +205,7 @@
 //     if (!materialToDelete || !materialToDelete.id) return;
     
 //     try {
-//       await axios.delete(`${import.meta.env.VITE_BASE_URL}/api/v1/material/${materialToDelete.id}`, {
+//       await axios.delete(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material/${materialToDelete.id}`, {
 //         headers: {
 //           Authorization: `Bearer ${localStorage.getItem('authToken')}`
 //         }
@@ -750,7 +750,7 @@
 //       }
       
 //       const response = await axios.get(
-//         `${import.meta.env.VITE_BASE_URL}/api/v1/materials`, 
+//         `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/materials`, 
 //         {
 //           headers: {
 //             Authorization: `Bearer ${localStorage.getItem('authToken')}`
@@ -814,7 +814,7 @@
 //     };
   
 //     try {
-//       await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/material`, material, {
+//       await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material`, material, {
 //         headers: {
 //           Authorization: `Bearer ${localStorage.getItem('authToken')}`
 //         }
@@ -850,7 +850,7 @@
 //     if (!editMaterial || !editMaterial.id) return;
 
 //     try {
-//       await axios.patch(`${import.meta.env.VITE_BASE_URL}/api/v1/material/${editMaterial.id}`, editMaterial, {
+//       await axios.patch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material/${editMaterial.id}`, editMaterial, {
 //         headers: {
 //           Authorization: `Bearer ${localStorage.getItem('authToken')}`
 //         }
@@ -874,7 +874,7 @@
 //     if (!materialToDelete || !materialToDelete.id) return;
     
 //     try {
-//       await axios.delete(`${import.meta.env.VITE_BASE_URL}/api/v1/material/${materialToDelete.id}`, {
+//       await axios.delete(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material/${materialToDelete.id}`, {
 //         headers: {
 //           Authorization: `Bearer ${localStorage.getItem('authToken')}`
 //         }
@@ -1404,7 +1404,7 @@ const Materials = () => {
   useEffect(() => {
     const fetchItemGroups = async () => {
       try {
-        const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/item-groups`, {
+        const response = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('authToken')}`
           }
@@ -1432,7 +1432,7 @@ const Materials = () => {
       }
       
       const response = await axios.get(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/item-groups`, 
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/item-groups`, 
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('authToken')}`
@@ -1493,7 +1493,7 @@ const Materials = () => {
     };
   
     try {
-      await axios.post(`${import.meta.env.VITE_BASE_URL}/api/v1/material`, material, {
+      await axios.post(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material`, material, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('authToken')}`
         }
@@ -1528,7 +1528,7 @@ const Materials = () => {
     if (!editMaterial || !editMaterial.id) return;
 
     try {
-      await axios.patch(`${import.meta.env.VITE_BASE_URL}/api/v1/material/${editMaterial.id}`, editMaterial, {
+      await axios.patch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material/${editMaterial.id}`, editMaterial, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('authToken')}`
         }
@@ -1552,7 +1552,7 @@ const Materials = () => {
     if (!materialToDelete || !materialToDelete.id) return;
     
     try {
-      await axios.delete(`${import.meta.env.VITE_BASE_URL}/api/v1/material/${materialToDelete.id}`, {
+      await axios.delete(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/material/${materialToDelete.id}`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('authToken')}`
         }

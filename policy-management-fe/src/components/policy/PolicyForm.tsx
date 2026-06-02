@@ -596,7 +596,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
       );
       // formData.append("form_values", JSON.stringify(data.form_values));
       await axios.post(
-        `${import.meta.env.VITE_BASE_URL}/api/v1/policies`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies`,
         formData,
         {
           headers: {

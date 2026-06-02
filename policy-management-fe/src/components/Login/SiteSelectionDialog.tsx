@@ -27,7 +27,7 @@ const SiteSelectionDialog: React.FC<SiteSelectionDialogProps> = ({
   useEffect(() => {
     const fetchSites = async () => {
       try {
-        const response = await axios.get(`${import.meta.env.VITE_BASE_URL}/api/v1/sites`, {
+        const response = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/sites`, {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('authToken')}`,
           },

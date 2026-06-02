@@ -62,8 +62,8 @@ export const CommissionModal: React.FC<CommissionModalProps> = ({
 
     try {
       const url = commission?.id
-        ? `${import.meta.env.VITE_BASE_URL}/api/v1/commissions/${commission.id}`
-        : `${import.meta.env.VITE_BASE_URL}/api/v1/commissions`;
+        ? `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commissions/${commission.id}`
+        : `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commissions`;
       const method = commission?.id ? 'patch' : 'post';
       const res = await axios[method](url, formData, {
         headers: { Authorization: `Bearer ${localStorage.getItem('authToken')}` },

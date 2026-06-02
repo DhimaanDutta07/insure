@@ -147,8 +147,8 @@ export const RevenueForm: React.FC<RevenueFormProps> = ({
       (formData.gst ?? 0) - 
       (formData.lessTds ?? 0);
       const url = revenue?.id
-        ? `${import.meta.env.VITE_BASE_URL}/api/v1/revenues/${revenue.id}`
-        : `${import.meta.env.VITE_BASE_URL}/api/v1/revenues`;
+        ? `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/revenues/${revenue.id}`
+        : `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/revenues`;
       const method = revenue?.id ? "patch" : "post";
       const res = await axios[method](url, formData, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },

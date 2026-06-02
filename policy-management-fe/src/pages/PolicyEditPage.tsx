@@ -28,7 +28,7 @@ export const PolicyEditPage: React.FC = () => {
         
         const token = localStorage.getItem("authToken");
         const response = await axios.get(
-          `${import.meta.env.VITE_BASE_URL}/api/v1/policies/${policyId}`,
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
 
