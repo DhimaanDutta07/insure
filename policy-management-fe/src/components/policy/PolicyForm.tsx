@@ -1663,35 +1663,36 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
           {/* Removed manual input field as per requirements - commission is now automatically calculated */}
 
           {/* Calculated Commission Display - Read-only */}
-          {hasPermission('commission') && (
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-700">
-                Commission Amount (₹) - Auto-calculated
-              </label>
-              <Input
-                type="number"
-                step="0.01"
-                min={0}
-                {...register("calculated_commission_amount", {
-                  setValueAs: (value) => {
-                    if (!value || value === "") return undefined;
-                    const num = parseFloat(value);
-                    return isNaN(num) ? undefined : num;
-                  },
-                  min: { value: 0, message: "Minimum is 0" },
-                })}
-                className="h-9 text-sm bg-gray-50"
-                readOnly
-              />
-            </div>
-          )}
+          <div className="space-y-1">
+            {hasPermission('commission') && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-700">
+                  Commission Amount (₹) - Auto-calculated
+                </label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  {...register("calculated_commission_amount", {
+                    setValueAs: (value) => {
+                      if (!value || value === "") return undefined;
+                      const num = parseFloat(value);
+                      return isNaN(num) ? undefined : num;
+                    },
+                    min: { value: 0, message: "Minimum is 0" },
+                  })}
+                  className="h-9 text-sm bg-gray-50"
+                  readOnly
+                />
+              </div>
+            )}
             {/* {calculatedCommission.rule_found && (
-    <div className="text-xs text-gray-600 mt-1 space-y-1">
-      <div>Base Commission: {calculatedCommission.base_percentage}%</div>
-      <div>Add-on Commission: {calculatedCommission.add_on_percentage}%</div>
-      <div>Total Commission: {calculatedCommission.total_percentage}%</div>
-    </div>
-  )} */}
+      <div className="text-xs text-gray-600 mt-1 space-y-1">
+        <div>Base Commission: {calculatedCommission.base_percentage}%</div>
+        <div>Add-on Commission: {calculatedCommission.add_on_percentage}%</div>
+        <div>Total Commission: {calculatedCommission.total_percentage}%</div>
+      </div>
+    )} */}
             {!calculatedCommission.rule_found && watch("policy_name_id") && (
               <div className="text-xs text-orange-600 mt-1">
                 No commission rule found for the selected criteria
