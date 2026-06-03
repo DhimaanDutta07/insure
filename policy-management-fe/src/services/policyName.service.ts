@@ -7,6 +7,7 @@ export interface PolicyName {
   name: string;
   description?: string;
   policy_group_id?: string;
+  company_id?: string;
   policyGroup?: {
     id: string;
     name: string;
