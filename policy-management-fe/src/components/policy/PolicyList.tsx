@@ -1671,7 +1671,12 @@ const PolicyList: React.FC<PolicyListProps> = ({
           {selectedPolicyForClaim && (
             <ClaimSheet
               policyId={selectedPolicyForClaim.id}
-              insuredMembers={selectedPolicyForClaim.members || []}
+              insuredMembers={
+                selectedPolicyForClaim.proposer?.insured_members || 
+                selectedPolicyForClaim.insured_members || 
+                selectedPolicyForClaim.members || 
+                []
+              }
               onClose={() => {
                 setShowClaimSheet(false);
                 setSelectedPolicyForClaim(null);

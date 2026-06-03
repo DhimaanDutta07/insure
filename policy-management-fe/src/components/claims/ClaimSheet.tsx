@@ -48,8 +48,9 @@ export const ClaimSheet: React.FC<ClaimSheetProps> = ({
       
       if (response.data && response.data.success && response.data.data) {
         const policy = response.data.data;
+        console.log('🔍 [ClaimSheet] Full policy data:', JSON.stringify(policy, null, 2));
         // Use members from the fetched policy data - they are in proposer.insured_members
-        const members = policy.proposer?.insured_members || initialInsuredMembers || [];
+        const members = policy.proposer?.insured_members || [];
         console.log('🔍 [ClaimSheet] Policy data loaded:', {
           policyId,
           policyMembers: policy.proposer?.insured_members,
