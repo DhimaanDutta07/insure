@@ -187,7 +187,7 @@ async function calculateAndSetCommission(policyInput) {
         commissionPercent: activeRule?.commissionPercent,
     });
     if (!activeRule) {
-        // No commission rule found - silently set commission to 0
+        // No commission rule found - set commission to 0 (no error thrown)
         policyInput.calculated_commission_amount = 0;
         policyInput.commission_add_on_percentage = 0;
         policyInput._commissionPercent = 0;
@@ -201,6 +201,10 @@ async function calculateAndSetCommission(policyInput) {
     policyInput.commission_add_on_percentage = basePercent;
     policyInput._commissionPercent = basePercent;
     policyInput._commissionRuleId = activeRule.id;
+    console.log('[Commission] Commission calculated successfully:', {
+        commissionPercent: basePercent,
+        calculatedAmount: policyInput.calculated_commission_amount,
+    });
     console.log('[Commission] Calculated commission:', policyInput.calculated_commission_amount, 'Base%:', basePercent, 'Premium Amount:', policyInput.premium_amount);
 }
 exports.policyService = {
