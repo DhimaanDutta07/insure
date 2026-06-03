@@ -1,3 +1,4 @@
+import { dashboardCache } from '../utils/lruCache';
 import {
   PrismaClient,
   Policy,
@@ -1531,6 +1532,11 @@ export const policyService = {
 
   // Dashboard stats can remain as is or be moved to the repository
   async getDashboardStats(timeRange: string) {
+    // Check cache first
+    const cacheKey = `dashboard:${timeRange}`;
+    const cached = dashboardCache.get(cacheKey);
+    if (cached) return cached;
+
     // Calculate date filter based on timeRange (for trend charts only)
     let fromDate: Date | undefined = undefined;
     const now = new Date();
@@ -1728,7 +1734,7 @@ export const policyService = {
       count
     }));
 
-    return {
+    const result = {
       totalActive,
       totalRenewal,
       companyDistribution,
@@ -1760,6 +1766,10 @@ export const policyService = {
       ageGroupDistribution,
       topCompaniesByPremium: topCompaniesWithNames,
     };
+
+    // Cache the result
+    dashboardCache.set(cacheKey, result);
+    return result;
   },
 
   // Get document by ID

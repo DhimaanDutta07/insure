@@ -12,6 +12,8 @@ const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const routes_1 = __importDefault(require("./routes/routes"));
 const GlobalErrorHandler_1 = require("./middlewares/GlobalErrorHandler");
+const etagCache_1 = require("./middlewares/etagCache");
+const apiCache_1 = require("./middlewares/apiCache");
 const AuthMiddleware_1 = require("./middlewares/AuthMiddleware");
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const path_1 = __importDefault(require("path"));
@@ -116,6 +118,8 @@ function setupMiddleware(app) {
         }
         (0, AuthMiddleware_1.decodeJwt)(req, res, next);
     });
+    // API response caching - caches GET responses and auto-invalidates on mutations
+    app.use(apiCache_1.apiCacheMiddleware);
 }
 function setupRoutes(app) {
     // Health check endpoint
@@ -166,6 +170,8 @@ function setupRoutes(app) {
     // ));
     // console.log(`Serving files from ${storageDir} at /api/files route`);
     // API routes
+    // ETag caching for API responses
+    app.use("/api", etagCache_1.etagCache);
     app.use("/api", routes_1.default);
     // 404 handler
     app.use((req, res) => {

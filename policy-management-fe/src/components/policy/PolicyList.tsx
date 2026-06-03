@@ -21,8 +21,8 @@ import PolicyTransitionSheet from "./PolicyTransitionSheet";
 import PolicyHistorySheet from "./PolicyHistorySheet";
 // import { format } from "date-fns";
 // import { PolicyGroup } from "../../types";
-import type { PolicyGroup } from '../../types/index';
 import { useAuth } from "../../Context/AuthContext";
+import { usePolicies, usePolicyGroups, usePrefetchPolicy } from "../../hooks/useApi";
 
 // Custom hook for drag and drop
 const useDragAndDrop = (onFileSelect: (file: File) => void) => {
@@ -160,24 +160,72 @@ const PolicyList: React.FC<PolicyListProps> = ({
 }) => {
   const navigate = useNavigate();
   const { role } = useAuth();
-  const [policies, setPolicies] = useState<Policy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const isLoading = externalLoading !== undefined ? externalLoading : loading;
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
-  const policiesCache = useRef<Policy[]>([]);
-  const [policyGroups, setPolicyGroups] = useState<PolicyGroup[]>([]);
+  // Use React Query hook for instant cached data
+  const policyGroupsQuery = usePolicyGroups();
+  const policyGroups = policyGroupsQuery.data || [];
   const [policyGroupFilter, setPolicyGroupFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<PolicyStatus>("all");
-  const [showDeleted] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [policiesPerPage, setPoliciesPerPage] = useState(10);
-  const [totalPolicies, setTotalPolicies] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
+  // Date filter state (must be before useMemo that references it)
+  const [dateFilter, setDateFilter] = useState<string>("all");
+  const [customDateRange, setCustomDateRange] = useState<{ from: Date | null, to: Date | null }>({ from: null, to: null });
+  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+
+  // Calculate from/to based on filter
+  const getDateRange = () => {
+    const today = new Date();
+    let from: Date | null = null;
+    let to: Date | null = null;
+    if (dateFilter === "last_month") {
+      from = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
+      to = today;
+    } else if (dateFilter === "3_months") {
+      from = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate());
+      to = today;
+    } else if (dateFilter === "6_months") {
+      from = new Date(today.getFullYear(), today.getMonth() - 6, today.getDate());
+      to = today;
+    } else if (customDateRange.from && customDateRange.to) {
+      from = customDateRange.from;
+      to = customDateRange.to;
+    }
+    return { from, to };
+  };
+
+  // Build params for the policies query
+
+  const policyParams = React.useMemo(() => {
+    const params: Record<string, string | number> = {
+      page: currentPage,
+      limit: policiesPerPage,
+    };
+    if (debouncedSearch) params.search = debouncedSearch;
+    if (policyGroupFilter && policyGroupFilter !== 'all') {
+      params.policy_group_id = policyGroupFilter;
+    }
+    if (statusFilter !== "all") {
+      params.policy_creation_status = statusFilter;
+    }
+    const { from, to } = getDateRange();
+    if (from) params.from = from.toISOString();
+    if (to) params.to = to.toISOString();
+    return params;
+  }, [currentPage, policiesPerPage, debouncedSearch, policyGroupFilter, statusFilter, dateFilter, customDateRange]);
+
+  const policiesQuery = usePolicies(policyParams);
+  const policies = policiesQuery.data?.data || [];
+  const totalPolicies = policiesQuery.data?.total || 0;
+  const totalPages = policiesQuery.data?.pages || 0;
+  const loading = policiesQuery.isLoading || policiesQuery.isFetching;
+  const isLoading = externalLoading !== undefined ? externalLoading : loading;
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [policyToDelete, setPolicyToDelete] = useState<Policy | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [showClaimSheet, setShowClaimSheet] = useState(false);
   const [selectedPolicyForClaim, setSelectedPolicyForClaim] = useState<Policy | null>(null);
   
@@ -206,10 +254,6 @@ const PolicyList: React.FC<PolicyListProps> = ({
   // Export state
   const [exporting, setExporting] = useState(false);
 
-  // Date filter state
-  const [dateFilter, setDateFilter] = useState<string>("all");
-  const [customDateRange, setCustomDateRange] = useState<{ from: Date | null, to: Date | null }>({ from: null, to: null });
-  const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
 
   // Debounce search input
   useEffect(() => {
@@ -222,51 +266,6 @@ const PolicyList: React.FC<PolicyListProps> = ({
     };
   }, [searchTerm]);
 
-  // Fetch policy groups on mount
-  useEffect(() => {
-    const fetchPolicyGroups = async () => {
-      try {
-        const token = localStorage.getItem('authToken');
-        const headers = { Authorization: `Bearer ${token}` };
-        const res = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`, { headers });
-        if (Array.isArray(res.data.policyGroups)) {
-          setPolicyGroups(res.data.policyGroups);
-        } else if (Array.isArray(res.data)) {
-          setPolicyGroups(res.data);
-        }
-      } catch {
-        toast.error('Failed to load policy groups');
-      }
-    };
-    fetchPolicyGroups();
-  }, []);
-
-  // Calculate from/to based on filter
-  const getDateRange = () => {
-    const today = new Date();
-    let from: Date | null = null;
-    let to: Date | null = null;
-    if (dateFilter === "last_month") {
-      from = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
-      to = today;
-    } else if (dateFilter === "3_months") {
-      from = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate());
-      to = today;
-    } else if (dateFilter === "6_months") {
-      from = new Date(today.getFullYear(), today.getMonth() - 6, today.getDate());
-      to = today;
-    } else if (customDateRange.from && customDateRange.to) {
-      from = customDateRange.from;
-      to = customDateRange.to;
-    }
-    return { from, to };
-  };
-
-  // Fetch policies from backend
-  useEffect(() => {
-    fetchPolicies();
-    // eslint-disable-next-line
-  }, [debouncedSearch, policyGroupFilter, statusFilter, showDeleted, dateFilter, customDateRange, currentPage, policiesPerPage]);
 
   // Fetch policy history for a specific policy
   const fetchPolicyHistory = useCallback(async (policyId: string) => {
@@ -293,60 +292,9 @@ const PolicyList: React.FC<PolicyListProps> = ({
     }
   }, [policies, fetchPolicyHistory]);
 
-  const fetchPolicies = async () => {
-    // Only show full loading on first fetch; subsequent fetches keep previous data
-    const isFirstLoad = policiesCache.current.length === 0;
-    if (isFirstLoad) setLoading(true);
-    try {
-      const params: Record<string, string | number> = {
-        page: currentPage,
-        limit: policiesPerPage,
-      };
-      if (debouncedSearch) params.search = debouncedSearch;
-      if (policyGroupFilter && policyGroupFilter !== 'all') {
-        params.policy_group_id = policyGroupFilter;
-      }
-      if (statusFilter !== "all") {
-        params.policy_creation_status = statusFilter;
-      }
-      if (showDeleted) params.deleted = "true";
-      // Date filter params
-      const { from, to } = getDateRange();
-      if (from) params.from = from.toISOString();
-      if (to) params.to = to.toISOString();
-      
-      const token = localStorage.getItem("authToken");
-      const headers = { Authorization: `Bearer ${token}` };
-      const res = await axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies`, { params, headers });
-      
-      // Handle response with pagination
-      if (res.data && res.data.success) {
-        const newPolicies = res.data.data || [];
-        setPolicies(newPolicies);
-        policiesCache.current = newPolicies;
-        setTotalPolicies(res.data.pagination?.total || 0);
-        setTotalPages(res.data.pagination?.pages || 0);
-      } else {
-        setPolicies([]);
-        setTotalPolicies(0);
-        setTotalPages(0);
-      }
-    } catch (error) {
-      console.error("Error fetching policies:", error);
-      // Don't clear on error - keep cached data
-      if (policiesCache.current.length === 0) {
-        setPolicies([]);
-        setTotalPolicies(0);
-        setTotalPages(0);
-      }
-      toast.error("Failed to load policies");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Use backend pagination - no need for frontend slicing
   const paginatedPolicies = policies;
+  const prefetchPolicy = usePrefetchPolicy();
 
   // File handling functions
   const handleFileSelect = useCallback((file: File) => {
@@ -415,7 +363,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
       if (res.data.failed?.length > 0) {
         toast.error(`${res.data.failed.length} policies failed to import.`);
       }
-      fetchPolicies();
+      policiesQuery.refetch();
       // Reset file selection after successful import
       setSelectedFile(null);
       if (fileInputRef.current) {
@@ -757,11 +705,13 @@ const PolicyList: React.FC<PolicyListProps> = ({
 
   const handleTransitionSuccess = (result: { message: string }) => {
     toast.success(result.message || `Policy ${transitionType.toLowerCase()} created successfully`);
-    fetchPolicies(); // Refresh the list
+    policiesQuery.refetch(); // Refresh the list
   };
 
   const handleConfirmDelete = async () => {
     if (!policyToDelete) return;
+    setIsDeleting(true);
+    console.log("Attempting to delete policy:", policyToDelete.id);
     
     try {
       const token = localStorage.getItem("authToken");
@@ -770,15 +720,15 @@ const PolicyList: React.FC<PolicyListProps> = ({
         { headers: { Authorization: `Bearer ${token}` } }
       );
       toast.success("Policy deleted successfully");
-      policiesCache.current = [];
+    setIsDeleting(false);
       setDeleteDialogOpen(false);
       setPolicyToDelete(null);
-      fetchPolicies();
+      policiesQuery.refetch();
     } catch (err: any) {
       const status = err.response?.status;
       if (status === 404) {
         toast.error("Policy no longer exists. Refreshing list...");
-        fetchPolicies();
+        policiesQuery.refetch();
         setDeleteDialogOpen(false);
         setPolicyToDelete(null);
       } else if (status === 500) {
@@ -787,6 +737,8 @@ const PolicyList: React.FC<PolicyListProps> = ({
       } else {
         toast.error("Failed to delete policy");
         setDeleteDialogOpen(false);
+    setIsDeleting(false);
+    setIsDeleting(false);
         setPolicyToDelete(null);
       }
     }
@@ -831,7 +783,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
             <h1 className="text-2xl font-bold hidden sm:block">Policies</h1>
             <div className="flex items-center gap-2 w-full justify-end">
               <Button
-                onClick={() => fetchPolicies()}
+                onClick={() => policiesQuery.refetch()}
                 variant="outline"
                 className="bg-white border border-gray-200 hover:bg-gray-100"
                 title="Refresh"
@@ -854,7 +806,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
               >
                 {exporting ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="animate-spin">...</span>
                     <span className="ml-2 hidden sm:inline">Exporting...</span>
                   </>
                 ) : (
@@ -1081,6 +1033,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                           index % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'
                         }`}
                         onClick={() => handleViewPolicy(policy)}
+                        onMouseEnter={() => prefetchPolicy(policy.id)}
                       >
 
                         {/* Policy Number */}
@@ -1501,9 +1454,17 @@ const PolicyList: React.FC<PolicyListProps> = ({
                 <Button
                   variant="destructive"
                   onClick={handleConfirmDelete}
-                  className="bg-red-600 hover:bg-red-700 text-white"
+                  className="bg-red-600 hover:bg-red-700 text-white relative"
+                  disabled={isDeleting}
                 >
-                  Delete
+                  {isDeleting ? (
+                    <span className="flex items-center gap-2">
+                      <span className="animate-spin">...</span>
+                      Deleting...
+                    </span>
+                  ) : (
+                    "Delete"
+                  )}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -1514,7 +1475,6 @@ const PolicyList: React.FC<PolicyListProps> = ({
             <DialogContent className="w-[95vw] max-w-2xl mx-auto bg-white border border-gray-100 rounded-lg">
               <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6">
                 <DialogTitle className="flex items-center gap-2 text-gray-800 text-lg sm:text-xl">
-                  <Download className="w-5 h-5 text-blue-500 flex-shrink-0" />
                   <span className="truncate">Import Policies (CSV/XLSX)</span>
                 </DialogTitle>
                 <DialogDescription>
@@ -1523,7 +1483,6 @@ const PolicyList: React.FC<PolicyListProps> = ({
               </DialogHeader>
               
               <div className="px-4 sm:px-6 pb-4 sm:pb-6 space-y-4 sm:space-y-6">
-                {/* Drag and Drop Area */}
                 <div
                   {...dragHandlers}
                   className={`

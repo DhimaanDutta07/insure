@@ -689,10 +689,10 @@ exports.policyController = {
                 where: { id: userId },
                 include: { role: true }
             });
-            if (!user || user.role.role_name !== 'ADMIN') {
+            if (!user || (user.role.role_name !== 'ADMIN' && user.role.role_name !== 'OPERATIONS')) {
                 return res.status(403).json({
                     error: "Forbidden",
-                    message: "Only Admin users can delete policies",
+                    message: "Only Admin and Operations users can delete policies",
                     timestamp: new Date().toISOString()
                 });
             }

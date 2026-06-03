@@ -1,47 +1,40 @@
 import { Route, Routes } from "react-router-dom";
-// import LoginPage from "../components/Login/Login";
-// import Register from "../components/Register/Register";
-import AdminUserPanel from "../components/AdminUserPanel/AdminUserPanel";
-// import AdminDashBoard from "../components/AdminDashBoard/AdminDashBoard";
-// import Materials from "../components/Material/Materials";
-// import Vendors from "../components/Vendors/Vendors";
-// import Trucks from "../components/Trucks/Trucks";
-// import ProductOrders from "../components/Orders/PurchaseOrders";
-// import PurchaseOrderDetail from "../components/Orders/PurchaseOrderDetail";
-// import TruckRegistrationForm from "../components/Trucks/TruckRegistrationForm";
+import { lazy, Suspense } from "react";
 import Unauthorized from "../components/Unauthorized/UnAuthorized";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { useAuth } from "../Context/AuthContext";
 import AuthRedirectWrapper from "./AuthRedirectWrapper ";
-// import AdminDashBoard2 from "../components/AdminDashBoard2/AdminDashBoard2";
-import LoginPage1 from "../components/Login/Login1";
-import ItemNamePage from "../components/ItemNamePage";
-// import ItemGroupPage from "../components/ItemGroupPage";
-import SitePage from "../components/SitePage";
-// import MaterialReceiptPage from "../components/MaterialReceiptPage";
-// import { EnquiryForm } from "../components/enquiry/EnquiryForm";
-import { EnquiryPage } from "../pages/EnquiryPage";
-import ClientsPage from "../components/ClientsPage";
-import ReimbursementsPage from "../components/ReimbursementsPage";
-// import RevenuePage from "../components/RevenuePage";
-import { RevenuePages } from "../pages/RevenuePage";
-import PolicyDashBoardPage from "../components/PolicyDashBoardPage";
 
-import { PolicyPage } from "../pages/PolicyPage";
-// import CommissionPage from "../components/CommissionPage";
-import PolicyGroupPage from "../pages/PolicyGroupPage";
-import CompanyPage from "../components/CompanyPage";
-import PolicyTypePage from "../components/PolicyTypePage";
-import PolicyNamePage from "../components/PolicyNamePage";
-import CompanyFormFieldPage from "../components/CompanyFormFieldPage";
-import AgentPage from "../components/AgentPage";
-import CommissionRuleTable from "../components/CommissionRule/CommissionRule";
-import CommissionDashboard from "../components/CommissionDashboard";
-import { PolicyViewPage } from "../pages/PolicyViewPage";
-import { PolicyEditPage } from "../pages/PolicyEditPage";
-import { PolicyCreatePage } from "../pages/PolicyCreatePage";
-import NotFound from "../components/NotFound/NotFound";
-// import NewPolicyDashboard from "../components/NewPolicyDashboard";
+// Lazy-loaded components for code splitting
+const LoginPage1 = lazy(() => import("../components/Login/Login1"));
+const AdminUserPanel = lazy(() => import("../components/AdminUserPanel/AdminUserPanel"));
+const ItemNamePage = lazy(() => import("../components/ItemNamePage"));
+const SitePage = lazy(() => import("../components/SitePage"));
+const EnquiryPage = lazy(() => import("../pages/EnquiryPage").then(m => ({ default: m.EnquiryPage })));
+const ClientsPage = lazy(() => import("../components/ClientsPage"));
+const ReimbursementsPage = lazy(() => import("../components/ReimbursementsPage"));
+const RevenuePages = lazy(() => import("../pages/RevenuePage").then(m => ({ default: m.RevenuePages })));
+const PolicyDashBoardPage = lazy(() => import("../components/PolicyDashBoardPage"));
+const PolicyPage = lazy(() => import("../pages/PolicyPage").then(m => ({ default: m.PolicyPage })));
+const PolicyGroupPage = lazy(() => import("../pages/PolicyGroupPage"));
+const CompanyPage = lazy(() => import("../components/CompanyPage"));
+const PolicyTypePage = lazy(() => import("../components/PolicyTypePage"));
+const PolicyNamePage = lazy(() => import("../components/PolicyNamePage"));
+const CompanyFormFieldPage = lazy(() => import("../components/CompanyFormFieldPage"));
+const AgentPage = lazy(() => import("../components/AgentPage"));
+const CommissionRuleTable = lazy(() => import("../components/CommissionRule/CommissionRule"));
+const CommissionDashboard = lazy(() => import("../components/CommissionDashboard"));
+const PolicyViewPage = lazy(() => import("../pages/PolicyViewPage").then(m => ({ default: m.PolicyViewPage })));
+const PolicyEditPage = lazy(() => import("../pages/PolicyEditPage").then(m => ({ default: m.PolicyEditPage })));
+const PolicyCreatePage = lazy(() => import("../pages/PolicyCreatePage").then(m => ({ default: m.PolicyCreatePage })));
+const NotFound = lazy(() => import("../components/NotFound/NotFound"));
+
+// Loading fallback
+const PageLoader = () => (
+  <div className="flex justify-center items-center h-64">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+  </div>
+);
 
 const AllRoute = () => {
 const {role, isLoading } = useAuth();
@@ -60,7 +53,9 @@ const {role, isLoading } = useAuth();
     <div className="flex-1 flex flex-col min-h-screen">
       <main className="flex-1 overflow-auto md:pt-0">
         <div className="container">
-          <Routes>
+          <Suspense fallback={<PageLoader />}>
+        <Routes>
+
             {/* Public routes */}
             <Route
               path="/"
@@ -299,7 +294,9 @@ const {role, isLoading } = useAuth();
             
             {/* 404 Route - Catch all unmatched routes */}
             <Route path="*" element={<NotFound />} />
-          </Routes>
+          
+        </Routes>
+      </Suspense>
         </div>
       </main>
     </div>

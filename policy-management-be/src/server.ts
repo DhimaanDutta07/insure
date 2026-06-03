@@ -7,6 +7,8 @@ import cors from "cors";
 import helmet from "helmet";
 import ApiRoutes from "./routes/routes";
 import { globalErrorHandler } from "./middlewares/GlobalErrorHandler";
+import { etagCache } from "./middlewares/etagCache";
+import { apiCacheMiddleware } from "./middlewares/apiCache";
 import { decodeJwt } from "./middlewares/AuthMiddleware";
 import rateLimit from "express-rate-limit";
 import path from "path";
@@ -146,6 +148,9 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
     }
     decodeJwt(req, res, next);
   });
+
+  // API response caching - caches GET responses and auto-invalidates on mutations
+  app.use(apiCacheMiddleware);
 }
 
 function setupRoutes(app: Express): void {
@@ -203,6 +208,8 @@ function setupRoutes(app: Express): void {
   // console.log(`Serving files from ${storageDir} at /api/files route`);
 
   // API routes
+  // ETag caching for API responses
+  app.use("/api", etagCache);
   app.use("/api", ApiRoutes);
 
   // 404 handler

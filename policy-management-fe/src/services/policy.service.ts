@@ -3,14 +3,25 @@ import type { Policy } from "../types/index";
 
 const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
 
-export const getAllPolicies = async (params?: Record<string, unknown>): Promise<{ data: Policy[]; total: number }> => {
+export const getAllPolicies = async (params?: Record<string, unknown>): Promise<{ data: Policy[]; total: number; page: number; limit: number; pages: number }> => {
   const res = await axios.get(`${API_BASE_URL}/api/v1/policies`, { 
     params,
     headers: {
       Authorization: `Bearer ${localStorage.getItem('authToken')}`,
     },
   });
-  return res.data;
+  // Normalize backend response shape { success, data, pagination } -> { data, total, page, limit, pages }
+  const responseData = res.data;
+  if (responseData && responseData.success && responseData.pagination) {
+    return {
+      data: responseData.data || [],
+      total: responseData.pagination.total || 0,
+      page: responseData.pagination.page || 1,
+      limit: responseData.pagination.limit || 25,
+      pages: responseData.pagination.pages || 0,
+    };
+  }
+  return responseData;
 };
 
 export const getPolicyById = async (id: string): Promise<Policy> => {

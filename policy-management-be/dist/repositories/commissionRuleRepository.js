@@ -212,7 +212,7 @@ exports.commissionRuleRepository = {
             // ✅ ULTRA-OPTIMIZATION: Single raw SQL query with all aggregations
             const result = await prismaClient_1.default.$queryRaw `
         WITH 
-        -- Get all commission data from journal
+        -- Get all commission data from journal (only leaf policies)
         journal_data AS (
           SELECT 
             cj.policy_id,
@@ -224,8 +224,12 @@ exports.commissionRuleRepository = {
           FROM "commission_journal" cj
           LEFT JOIN "policy" p ON cj.policy_id = p.id
           WHERE cj."calculatedAt" >= ${startDate}
+            AND NOT EXISTS (
+              SELECT 1 FROM "policy" child 
+              WHERE child."parent_policy_id" = p.id
+            )
         ),
-        -- Get policies with calculated commission not in journal
+        -- Get policies with calculated commission not in journal (only leaf policies)
         policy_commission AS (
           SELECT 
             p.id as policy_id,
@@ -238,6 +242,10 @@ exports.commissionRuleRepository = {
           WHERE p.created_at >= ${startDate}
             AND p."calculated_commission_amount" > 0
             AND p.id NOT IN (SELECT DISTINCT policy_id FROM "commission_journal" WHERE "calculatedAt" >= ${startDate})
+            AND NOT EXISTS (
+              SELECT 1 FROM "policy" child 
+              WHERE child."parent_policy_id" = p.id
+            )
         ),
         -- Combine both sources
         all_commission AS (
@@ -245,7 +253,7 @@ exports.commissionRuleRepository = {
           UNION ALL
           SELECT * FROM policy_commission
         ),
-        -- Aggregate by company
+        -- Aggregate by company (only leaf policies)
         company_agg AS (
           SELECT 
             ac.company_id,
@@ -257,7 +265,7 @@ exports.commissionRuleRepository = {
           WHERE ac.company_id IS NOT NULL
           GROUP BY ac.company_id, c.name
         ),
-        -- Aggregate by policy name
+        -- Aggregate by policy name (only leaf policies)
         policy_name_agg AS (
           SELECT 
             ac.policy_name_id,
@@ -317,9 +325,14 @@ exports.commissionRuleRepository = {
       `;
             // Parse the result
             const row = result[0];
+            // Count unique products and companies from the aggregated data
+            const productsCount = row.commission_by_policy_name ? row.commission_by_policy_name.length : 0;
+            const companiesCount = row.commission_by_company ? row.commission_by_company.length : 0;
             return {
                 totalCommission: Number(row.total_commission) || 0,
                 totalPolicies: Number(row.total_policies) || 0,
+                productsCount,
+                companiesCount,
                 commissionByCompany: row.commission_by_company || [],
                 commissionByPolicyName: row.commission_by_policy_name || [],
                 monthlyCommission: row.monthly_commission || [],

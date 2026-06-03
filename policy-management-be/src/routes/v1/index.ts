@@ -358,7 +358,7 @@ router.patch(
 router.get("/policies", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getAllPolicies));
 router.get("/policies/dashboard-stats", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.dashboardStats));
 router.get("/policies/:id", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getPolicyById));
-router.delete("/policies/:id", restrictTo(['ADMIN']), asyncHandler(policyController.deletePolicy));
+router.delete("/policies/:id", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.deletePolicy));
 router.get("/my-policies", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getMyPolicies));
 
 // Document management routes

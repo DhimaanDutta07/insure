@@ -1,4 +1,6 @@
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import api from "../services/api";
 import { 
   PieChart, 
   Pie, 
@@ -76,20 +78,7 @@ interface PolicyTypeDistributionItem {
   count: number;
 }
 
-interface CompanyDistributionItem {
-  company: string;
-  count: number;
-}
 
-interface GenderDistributionItem {
-  gender: string;
-  count: number;
-}
-
-interface MonthlyTrendItem {
-  month: string;
-  count: number;
-}
 
 const getLast12Months = () => {
   const months = [];
@@ -107,77 +96,49 @@ const getLast12Months = () => {
 function PolicyDashBoardPage() {
   const { user, role } = useAuth();
   const [timeRange, setTimeRange] = useState("7d");
-  const [loading, setLoading] = useState(false);
-  const [stats, setStats] = useState({
-    totalActive: 0,
-    totalRenewal: 0,
-    companyDistribution: [] as CompanyDistributionItem[],
-    policyTypeDistribution: [],
-    premiumStats: { total: 0, average: 0, min: 0, max: 0 },
-    sumInsuredStats: { total: 0, average: 0, min: 0, max: 0 },
-    monthlyTrend: [] as MonthlyTrendItem[],
-    planTypeDistribution: [],
-    genderDistribution: [] as GenderDistributionItem[],
-    ageGroupDistribution: [],
-    topCompaniesByPremium: [],
-  });
-  const [error, setError] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [sessionStartTime] = useState(() => {
-    const stored = localStorage.getItem('sessionStartTime');
+    const stored = localStorage.getItem("sessionStartTime");
     if (stored) return new Date(stored);
     const now = new Date();
-    localStorage.setItem('sessionStartTime', now.toISOString());
+    localStorage.setItem("sessionStartTime", now.toISOString());
     return now;
   });
-  const [policiesCreatedToday, setPoliciesCreatedToday] = useState(0);
 
-  useEffect(() => {
-    // Only fetch stats for ADMIN users
-    if (role?.role_name !== 'ADMIN') {
-      setLoading(false);
-      return;
-    }
+  // React Query: dashboard stats with auto-caching
+  const { data: statsData, isLoading: loading, error } = useQuery({
+    queryKey: ["dashboardStats", timeRange, selectedMonth],
+    queryFn: async () => {
+      const params = new URLSearchParams({ timeRange });
+      if (selectedMonth && selectedMonth !== "all") params.append("month", selectedMonth);
+      const res = await api.get(`/api/v1/policies/dashboard-stats?${params}`);
+      return res.data.data;
+    },
+    staleTime: 30_000,
+    enabled: role?.role_name === "ADMIN",
+    placeholderData: (prev: any) => prev,
+  });
 
-    setLoading(true);
-    setError("");
-    const token = localStorage.getItem("authToken");
-    let url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/dashboard-stats?timeRange=${timeRange}`;
-    if (selectedMonth && selectedMonth !== 'all') {
-      url += `&month=${selectedMonth}`;
-    }
+  const stats = statsData || {
+    totalActive: 0, totalRenewal: 0, companyDistribution: [],
+    policyTypeDistribution: [], premiumStats: { total: 0, average: 0, min: 0, max: 0 },
+    sumInsuredStats: { total: 0, average: 0, min: 0, max: 0 },
+    monthlyTrend: [], planTypeDistribution: [], genderDistribution: [],
+    ageGroupDistribution: [], topCompaniesByPremium: [],
+  };
 
-    console.log('🔍 [Frontend] Making API call to:', url);
-    console.log('🔍 [Frontend] Token exists:', !!token);
-    console.log('🔍 [Frontend] Environment VITE_BASE_URL:', import.meta.env.VITE_BASE_URL);
+  // React Query: today's policies for operations
+  const { data: policiesCreatedToday = 0 } = useQuery({
+    queryKey: ["policiesToday"],
+    queryFn: async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const res = await api.get(`/api/v1/policies?created_after=${today}`);
+      return res.data.data?.length || 0;
+    },
+    staleTime: 60_000,
+    enabled: role?.role_name !== "ADMIN",
+  });
 
-    fetch(url, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
-      .then(res => {
-        console.log('🔍 [Frontend] Response status:', res.status);
-        console.log('🔍 [Frontend] Response headers:', res.headers);
-        return res.json();
-      })
-      .then((result) => {
-        console.log('🔍 [Frontend] Full API response:', result);
-        if (result.success && result.data) {
-          setStats(result.data);
-        } else {
-          console.error('🔍 [Frontend] API returned error:', result);
-          setError(result.error || "Failed to load dashboard stats.");
-        }
-      })
-      .catch((err) => {
-        console.error('🔍 [Frontend] Fetch error:', err);
-        let msg = "Failed to load dashboard stats.";
-        if (err && err.message) {
-          msg = err.message;
-        }
-        setError(msg);
-      })
-      .finally(() => setLoading(false));
-  }, [timeRange, selectedMonth, role]);
-
-  // Calculate time worked for operations users
   const timeWorked = useMemo(() => {
     const now = new Date();
     const diffMs = now.getTime() - sessionStartTime.getTime();
@@ -186,27 +147,7 @@ function PolicyDashBoardPage() {
     return { hours: diffHours, minutes: diffMinutes };
   }, [sessionStartTime]);
 
-  // Fetch policies created today for operations users
-  useEffect(() => {
-    if (role?.role_name !== 'ADMIN') {
-      const token = localStorage.getItem("authToken");
-      const today = new Date().toISOString().split('T')[0];
-      const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies?created_after=${today}`;
-
-      fetch(url, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
-        .then(res => res.json())
-        .then((result) => {
-          if (result.success && result.data) {
-            setPoliciesCreatedToday(result.data.length || 0);
-          }
-        })
-        .catch((err) => {
-          console.error('Error fetching today\'s policies:', err);
-        });
-    }
-  }, [role]);
-
-  const formatCurrency = (amount: number) => {
+const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
       style: 'currency',
       currency: 'INR',
@@ -427,7 +368,7 @@ function PolicyDashBoardPage() {
                 <div className="flex items-center">
                   <div className="w-5 h-5 bg-red-500 rounded-full mr-3 flex-shrink-0"></div>
                   <div>
-                    <strong className="font-semibold">Error:</strong> {error}
+                    <strong className="font-semibold">Error:</strong> {error.message}
                   </div>
                 </div>
               </div>
@@ -478,7 +419,7 @@ function PolicyDashBoardPage() {
                     <LineChart 
                       data={
                         selectedMonth && selectedMonth !== 'all' 
-                          ? stats.monthlyTrend.filter(mt => mt.month === selectedMonth)
+                          ? stats.monthlyTrend.filter((mt: any) => mt.month === selectedMonth)
                           : stats.monthlyTrend
                       } 
                     margin={{ top: 10, right: 30, left: 0, bottom: 20 }}
@@ -606,7 +547,7 @@ function PolicyDashBoardPage() {
   
   
                       >
-                        {stats.companyDistribution.map((_entry, idx) => (
+                        {stats.companyDistribution.map((_entry: any, idx: number) => (
     <Cell
       key={`cell-${idx}`}
       fill={COLORS[idx % COLORS.length]}
@@ -759,7 +700,7 @@ function PolicyDashBoardPage() {
     );
   }}
                       >
-                        {stats.genderDistribution.map((_entry, idx) => (
+                        {stats.genderDistribution.map((_entry: any, idx: number) => (
     <Cell
       key={`cell-${idx}`}
       fill={COLORS[idx % COLORS.length]}

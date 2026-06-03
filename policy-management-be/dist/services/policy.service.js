@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyService = void 0;
 exports.calculateAndSetCommission = calculateAndSetCommission;
+const lruCache_1 = require("../utils/lruCache");
 const client_1 = require("@prisma/client");
 const policyRepository_1 = require("../repositories/policyRepository");
 // import { uploadFile } from '../utils/fileStorage';
@@ -1243,6 +1244,11 @@ exports.policyService = {
     },
     // Dashboard stats can remain as is or be moved to the repository
     async getDashboardStats(timeRange) {
+        // Check cache first
+        const cacheKey = `dashboard:${timeRange}`;
+        const cached = lruCache_1.dashboardCache.get(cacheKey);
+        if (cached)
+            return cached;
         // Calculate date filter based on timeRange (for trend charts only)
         let fromDate = undefined;
         const now = new Date();
@@ -1429,7 +1435,7 @@ exports.policyService = {
             ageGroup,
             count
         }));
-        return {
+        const result = {
             totalActive,
             totalRenewal,
             companyDistribution,
@@ -1461,6 +1467,9 @@ exports.policyService = {
             ageGroupDistribution,
             topCompaniesByPremium: topCompaniesWithNames,
         };
+        // Cache the result
+        lruCache_1.dashboardCache.set(cacheKey, result);
+        return result;
     },
     // Get document by ID
     async getDocumentById(documentId) {

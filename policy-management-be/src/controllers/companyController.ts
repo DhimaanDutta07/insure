@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { companyService } from '../services/companyService';
+import { referenceCache } from '../utils/lruCache';
 import { companySchema, companyUpdateSchema } from '../schemas/companySchema';
 import { z } from 'zod';
 

@@ -348,7 +348,7 @@ router.patch("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERAT
 router.get("/policies", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.getAllPolicies));
 router.get("/policies/dashboard-stats", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.dashboardStats));
 router.get("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.getPolicyById));
-router.delete("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN']), asyncHandler(policy_controller_1.policyController.deletePolicy));
+router.delete("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.deletePolicy));
 router.get("/my-policies", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.getMyPolicies));
 // Document management routes
 router.delete("/documents/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.deleteDocument));

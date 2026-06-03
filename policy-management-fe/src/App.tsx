@@ -1,6 +1,7 @@
 import { matchPath, useLocation } from "react-router-dom";
 import AllRoute from "./AllRoutes/AllRoute";
 import Sidebar from "./components/Sidebar/Sidebar";
+import { PrefetchProvider } from "./components/PrefetchProvider";
 
 function App() {
 
@@ -89,9 +90,11 @@ function App() {
   );
 
   return (
-    <Layout>
-      <AllRoute />
-    </Layout>
+    <PrefetchProvider>
+      <Layout>
+        <AllRoute />
+      </Layout>
+    </PrefetchProvider>
   );
 }
 
