@@ -13,6 +13,7 @@ import {
   getAllPolicyNames,
   PolicyName,
 } from "../../services/policyName.service";
+import { getAllCompanies } from "../../services/company.service";
 import type { CommissionRule } from "../../types/index";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -66,6 +67,7 @@ import {
 import { ChevronRight } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "../ui/tabs";
+import CommissionDashboard from "../CommissionDashboard";
 
 const POLICY_CREATION_STATUS_OPTIONS = [
   { value: "Fresh", label: "Fresh" },
@@ -89,9 +91,10 @@ const ROWS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
 const CommissionRulePage: React.FC = () => {
   const [commissionRules, setCommissionRules] = useState<CommissionRule[]>([]);
   const [policyNames, setPolicyNames] = useState<PolicyName[]>([]);
+  const [companies, setCompanies] = useState<any[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editRule, setEditRule] = useState<CommissionRule | null>(null);
-  const [form, setForm] = useState<Partial<CommissionRule>>({});
+  const [form, setForm] = useState<Partial<CommissionRule & { companyId?: string; minAmount?: number; maxAmount?: number }>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<number>(0);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -232,6 +235,10 @@ const CommissionRulePage: React.FC = () => {
       // Always fetch policy names
       const names = await getAllPolicyNames();
       setPolicyNames(names);
+
+      // Fetch companies
+      const companyData = await getAllCompanies();
+      setCompanies(companyData);
     } catch {
       toast.error("Failed to fetch commission rules or policy names");
     } finally {
@@ -249,10 +256,12 @@ const CommissionRulePage: React.FC = () => {
     setCurrentPage(1);
   }, [debouncedFilters, activeTab]);
 
-  // Filter products based on search term
-  const filteredProducts = policyNames.filter((policy) =>
-    policy.name.toLowerCase().includes(productSearchTerm.toLowerCase())
-  );
+  // Filter products based on search term and selected company
+  const filteredProducts = policyNames.filter((policy) => {
+    const matchesSearch = policy.name.toLowerCase().includes(productSearchTerm.toLowerCase());
+    const matchesCompany = !form.companyId || policy.company_id === form.companyId;
+    return matchesSearch && matchesCompany;
+  });
 
   // --- New: Filter products for filter bar ---
   const filteredProductFilterOptions = policyNames.filter((policy) =>
@@ -394,6 +403,7 @@ const CommissionRulePage: React.FC = () => {
     setError(null);
     try {
       if (
+        !form.companyId ||
         !form.policy_name_id ||
         !form.policyStatus ||
         !form.deductibleType ||
@@ -580,8 +590,13 @@ const CommissionRulePage: React.FC = () => {
   return (
     <div className="p-2 ">
 
-      <div className="flex justify-between items-center ">
-        <h1 className="text-2xl font-bold text-gray-800 mb-3">Commission Rules</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold text-gray-800">Commission Rules</h1>
+      </div>
+
+      {/* Commission Stats Dashboard */}
+      <div className="mb-6">
+        <CommissionDashboard />
       </div>
             {/* Tab Navigation */}
             <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as 'active' | 'inactive')} className="w-[350px] max-w-md mb-4">
@@ -1182,6 +1197,32 @@ const CommissionRulePage: React.FC = () => {
             </DialogDescription> */}
           </DialogHeader>
           <form onSubmit={handleModalSave} className="space-y-4">
+            {/* Company Selection */}
+            <div className="space-y-1">
+              <Label htmlFor="company">
+                Company <span className="text-red-500">*</span>
+              </Label>
+              <Select
+                value={form.companyId || ""}
+                onValueChange={(value) => {
+                  setForm((f) => ({ ...f, companyId: value, policy_name_id: undefined }));
+                  setSelectedProductName("");
+                  setProductSearchTerm("");
+                }}
+              >
+                <SelectTrigger className="w-full border border-gray-300 focus:border-blue-500 mt-1">
+                  <SelectValue placeholder="Select company first" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map((company) => (
+                    <SelectItem key={company.id} value={company.id}>
+                      {company.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Enhanced Searchable Product Name Field */}
             <div className="space-y-1">
               <Label htmlFor="policy" >
@@ -1269,6 +1310,50 @@ const CommissionRulePage: React.FC = () => {
               )}
             </div>
 
+            {/* Amount Range */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label htmlFor="minAmount">
+                  Min Amount (₹)
+                </Label>
+                <Input
+                  id="minAmount"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={form.minAmount || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      minAmount: Number(e.target.value),
+                    }))
+                  }
+                  placeholder="e.g. 100000"
+                  className="text-sm border border-gray-300 focus:border-blue-500 mt-1"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="maxAmount">
+                  Max Amount (₹)
+                </Label>
+                <Input
+                  id="maxAmount"
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={form.maxAmount || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      maxAmount: Number(e.target.value),
+                    }))
+                  }
+                  placeholder="e.g. 1000000"
+                  className="text-sm border border-gray-300 focus:border-blue-500 mt-1"
+                />
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label htmlFor="status">
@@ -1350,14 +1435,14 @@ const CommissionRulePage: React.FC = () => {
                     min="0"
                     max="100"
                     step="0.1"
-                    value={form.commissionPercent || ""}
+                    value={form.commissionPercent !== undefined ? form.commissionPercent : 12}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
                         commissionPercent: Number(e.target.value),
                       }))
                     }
-                    placeholder="e.g. 5.5"
+                    placeholder="e.g. 12"
                     className="pr-8 text-sm border border-gray-300 focus:border-blue-500"
                     required
                   />
@@ -1365,6 +1450,7 @@ const CommissionRulePage: React.FC = () => {
                     %
                   </span>
                 </div>
+                <p className="text-xs text-gray-500 mt-1">Default: 12%</p>
               </div>
             </div>
 
@@ -1386,6 +1472,7 @@ const CommissionRulePage: React.FC = () => {
                 type="submit"
                 className="bg-blue-600 hover:bg-blue-700 text-white"
                 disabled={
+                  !form.companyId ||
                   !form.policy_name_id ||
                   !form.policyStatus ||
                   !form.deductibleType ||

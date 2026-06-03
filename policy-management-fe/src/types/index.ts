@@ -50,6 +50,7 @@ export interface PolicyName {
   name: string;
   description: string | null;
   policy_group_id: string;
+  company_id: string | null;
   created_at: string;
   updated_at: string;
   is_deleted: boolean;

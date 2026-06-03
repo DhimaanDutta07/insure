@@ -40,7 +40,7 @@ const extractUserRole = async (req: Request): Promise<string | null> => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      include: { role: true }
+      select: { role: { select: { role_name: true } } }
     });
     return user?.role?.role_name || null;
   } catch (error) {

@@ -137,7 +137,6 @@ export const POLICY_LIST_INCLUDE = {
     select: {
       id: true,
       name: true,
-      category: true,
     },
   },
   type: { select: { name: true } },
@@ -158,7 +157,6 @@ export const POLICY_LIST_INCLUDE = {
       id: true,
       full_name: true,
       mobile: true,
-      email: true,
     },
   },
 } as const;

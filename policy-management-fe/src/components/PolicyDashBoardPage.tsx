@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { 
   PieChart, 
   Pie, 
@@ -21,6 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { useAuth } from "../Context/AuthContext";
 // Date utility functions
 const formatDate = (date: Date, formatStr: string) => {
   const year = date.getFullYear();
@@ -104,6 +105,7 @@ const getLast12Months = () => {
 };
 
 function PolicyDashBoardPage() {
+  const { user, role } = useAuth();
   const [timeRange, setTimeRange] = useState("7d");
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState({
@@ -121,8 +123,22 @@ function PolicyDashBoardPage() {
   });
   const [error, setError] = useState("");
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [sessionStartTime] = useState(() => {
+    const stored = localStorage.getItem('sessionStartTime');
+    if (stored) return new Date(stored);
+    const now = new Date();
+    localStorage.setItem('sessionStartTime', now.toISOString());
+    return now;
+  });
+  const [policiesCreatedToday, setPoliciesCreatedToday] = useState(0);
 
   useEffect(() => {
+    // Only fetch stats for ADMIN users
+    if (role?.role_name !== 'ADMIN') {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError("");
     const token = localStorage.getItem("authToken");
@@ -130,11 +146,11 @@ function PolicyDashBoardPage() {
     if (selectedMonth && selectedMonth !== 'all') {
       url += `&month=${selectedMonth}`;
     }
-    
+
     console.log('🔍 [Frontend] Making API call to:', url);
     console.log('🔍 [Frontend] Token exists:', !!token);
     console.log('🔍 [Frontend] Environment VITE_BASE_URL:', import.meta.env.VITE_BASE_URL);
-    
+
     fetch(url, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
       .then(res => {
         console.log('🔍 [Frontend] Response status:', res.status);
@@ -159,7 +175,36 @@ function PolicyDashBoardPage() {
         setError(msg);
       })
       .finally(() => setLoading(false));
-  }, [timeRange, selectedMonth]);
+  }, [timeRange, selectedMonth, role]);
+
+  // Calculate time worked for operations users
+  const timeWorked = useMemo(() => {
+    const now = new Date();
+    const diffMs = now.getTime() - sessionStartTime.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return { hours: diffHours, minutes: diffMinutes };
+  }, [sessionStartTime]);
+
+  // Fetch policies created today for operations users
+  useEffect(() => {
+    if (role?.role_name !== 'ADMIN') {
+      const token = localStorage.getItem("authToken");
+      const today = new Date().toISOString().split('T')[0];
+      const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies?created_after=${today}`;
+
+      fetch(url, token ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+        .then(res => res.json())
+        .then((result) => {
+          if (result.success && result.data) {
+            setPoliciesCreatedToday(result.data.length || 0);
+          }
+        })
+        .catch((err) => {
+          console.error('Error fetching today\'s policies:', err);
+        });
+    }
+  }, [role]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -312,58 +357,91 @@ function PolicyDashBoardPage() {
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-center gap-4 lg:gap-6 mb-4 lg:mb-4">
           <div className="flex-1">
-            <h1 className="text-2xl sm:text-2xl font-bold text-gray-900">Policy Dashboard</h1>
-            {/* <p className="text-sm sm:text-base text-gray-600">Comprehensive overview of your insurance policies and analytics</p> */}
+            <h1 className="text-2xl sm:text-2xl font-bold text-gray-900">
+              {role?.role_name === 'ADMIN' ? 'Policy Dashboard' : `Welcome, ${user?.name || 'User'}!`}
+            </h1>
+            {role?.role_name !== 'ADMIN' && (
+              <p className="text-sm sm:text-base text-gray-600">Here's your work summary for today</p>
+            )}
           </div>
-          <div className="w-[120px] flex-shrink-0">
-            <TimeRangeSelect value={timeRange} onValueChange={setTimeRange} />
-          </div>
+          {role?.role_name === 'ADMIN' && (
+            <div className="w-[120px] flex-shrink-0">
+              <TimeRangeSelect value={timeRange} onValueChange={setTimeRange} />
+            </div>
+          )}
         </div>
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl mb-6 lg:mb-8">
-            <div className="flex items-center">
-              <div className="w-5 h-5 bg-red-500 rounded-full mr-3 flex-shrink-0"></div>
-              <div>
-                <strong className="font-semibold">Error:</strong> {error}
-              </div>
-            </div>
+        {/* Operations User Dashboard - Show time worked and simple stats */}
+        {role?.role_name !== 'ADMIN' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
+            <StatCard
+              title="Time Worked Today"
+              value={`${timeWorked.hours}h ${timeWorked.minutes}m`}
+              icon={Calendar}
+              loading={false}
+            />
+            <StatCard
+              title="Policies Created Today"
+              value={policiesCreatedToday}
+              icon={FileText}
+              loading={false}
+            />
+            <StatCard
+              title="Session Started"
+              value={sessionStartTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              icon={TrendingUp}
+              loading={false}
+            />
+            <StatCard
+              title="Current Status"
+              value="Active"
+              icon={Users}
+              loading={false}
+            />
           </div>
         )}
 
-        {/* Key Statistics Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
-          <StatCard
-            title="Total Active Policies"
-            value={formatNumber(stats.totalActive ?? 0)}
-            icon={FileText}
-            loading={loading}
-          />
-          <StatCard
-            title="Renewal Policies"
-            value={formatNumber(stats.totalRenewal ?? 0)}
-            icon={Calendar}
-            loading={loading}
-          />
-          <StatCard
-            title="Total Premium"
-            value={formatCurrency(stats.premiumStats?.total ?? 0)}
-            icon={IndianRupee}
-            loading={loading}
-          />
-          <StatCard
-            title="Total Sum Insured"
-            value={formatCurrency(stats.sumInsuredStats?.total ?? 0)}
-            icon={Shield}
-            loading={loading}
-          />
-          {/* <StatCard
-            title="Average Premium"
-            value={formatCurrency(stats.premiumStats?.average ?? 0)}
-            icon={TrendingUp}
-            loading={loading}
-          /> */}
-</div>
+        {/* Admin Dashboard - Show full stats */}
+        {role?.role_name === 'ADMIN' && (
+          <>
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl mb-6 lg:mb-8">
+                <div className="flex items-center">
+                  <div className="w-5 h-5 bg-red-500 rounded-full mr-3 flex-shrink-0"></div>
+                  <div>
+                    <strong className="font-semibold">Error:</strong> {error}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Key Statistics Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-6 lg:mb-8">
+              <StatCard
+                title="Total Active Policies"
+                value={formatNumber(stats.totalActive ?? 0)}
+                icon={FileText}
+                loading={loading}
+              />
+              <StatCard
+                title="Renewal Policies"
+                value={formatNumber(stats.totalRenewal ?? 0)}
+                icon={Calendar}
+                loading={loading}
+              />
+              <StatCard
+                title="Total Premium"
+                value={formatCurrency(stats.premiumStats?.total ?? 0)}
+                icon={IndianRupee}
+                loading={loading}
+              />
+              <StatCard
+                title="Total Sum Insured"
+                value={formatCurrency(stats.sumInsuredStats?.total ?? 0)}
+                icon={Shield}
+                loading={loading}
+              />
+            </div>
 
         {/* Monthly Trend - Full Width */}
         <Card className="mb-6 lg:mb-8">
@@ -810,6 +888,8 @@ function PolicyDashBoardPage() {
               )}
           </CardContent>
         </Card>
+          </>
+        )}
       </div>
     </div>
   );
