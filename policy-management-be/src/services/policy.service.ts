@@ -393,8 +393,10 @@ export async function calculateAndSetCommission(policyInput: any) {
   console.log('[Commission] Fetched rule:', rule);
 
   if (!rule) {
-    // No matching CommissionRule found - set commission to 0
+    // No matching CommissionRule found - set commission to 0 but log it
     policyInput.calculated_commission_amount = 0;
+    policyInput._commissionPercent = 0;
+    policyInput._commissionRuleId = null;
     console.log('[Commission] No matching rule found, commission set to 0');
     return;
   }
