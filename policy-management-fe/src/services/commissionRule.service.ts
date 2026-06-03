@@ -122,4 +122,33 @@ export async function updateCommissionRulesStatusByPolicy(policyNameId: string, 
     throw new Error('Failed to update commission rules status');
   }
   return response.json();
-} 
+}
+
+// Simplified: get commission percentage for a product
+export async function getCommissionByProduct(policyNameId: string): Promise<{ commissionPercent: number; rule: CommissionRule | null }> {
+  const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/product/${policyNameId}`, {
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('authToken')}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch commission for product');
+  }
+  return response.json();
+}
+
+// Simplified: upsert commission percentage for a product
+export async function upsertCommissionByProduct(policyNameId: string, commissionPercent: number): Promise<{ success: boolean; rule: CommissionRule }> {
+  const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/product/${policyNameId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${localStorage.getItem('authToken')}`,
+    },
+    body: JSON.stringify({ commissionPercent }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update commission for product');
+  }
+  return response.json();
+}

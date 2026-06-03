@@ -73,10 +73,10 @@ export const POLICY_FULL_INCLUDE = {
       insured_members: {
         select: {
           id: true,
-          full_name: true,
+          name: true,
           date_of_birth: true,
           gender: true,
-          relationship: true,
+          relation_to_proposer: true,
           documents: {
             select: {
               id: true,

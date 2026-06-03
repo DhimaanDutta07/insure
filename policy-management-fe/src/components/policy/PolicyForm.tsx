@@ -1643,18 +1643,8 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
                 />
               </div>
             )}
-            {/* {calculatedCommission.rule_found && (
-      <div className="text-xs text-gray-600 mt-1 space-y-1">
-        <div>Base Commission: {calculatedCommission.base_percentage}%</div>
-        <div>Add-on Commission: {calculatedCommission.add_on_percentage}%</div>
-        <div>Total Commission: {calculatedCommission.total_percentage}%</div>
-      </div>
-    )} */}
-            {!calculatedCommission.rule_found && watch("policy_name_id") && (
-              <div className="text-xs text-orange-600 mt-1">
-                No commission rule found for the selected criteria
-              </div>
-            )}
+            {/* Commission is now auto-calculated silently in the background */}
+            {/* No UI warning shown when rule is not found - commission defaults to 0 */}
           </div>
 
           {/* <div className="space-y-1">

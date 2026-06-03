@@ -20,55 +20,25 @@ export interface CommissionCalculationParams {
 }
 
 export const commissionCalculationService = {
-  // Calculate age from date of birth
-  calculateAge(dob: string): number {
-    const birthDate = new Date(dob);
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    
-    return age;
-  },
-
-  // Determine age condition
-  getAgeCondition(age: number): 'LESS_THAN_60' | 'GREATER_THAN_60' {
-    return age < 60 ? 'LESS_THAN_60' : 'GREATER_THAN_60';
-  },
-
-  // Determine deductible type
-  getDeductibleType(sumInsured: number, deductibleStatus: boolean): 'DEDUCTABLE_ALL_SI' | 'LESS_THAN_10_LAKHS' | 'GREATER_EQUAL_10_LAKHS' {
-    if (deductibleStatus === true) {
-      return 'DEDUCTABLE_ALL_SI';
-    } else if (sumInsured < 1000000) {
-      return 'LESS_THAN_10_LAKHS';
-    } else {
-      return 'GREATER_EQUAL_10_LAKHS';
-    }
-  },
-
-  // Fetch commission rules for a policy name
-  async getCommissionRules(policyNameId: string): Promise<CommissionRule[]> {
+  // Fetch simplified commission for a policy name (first active rule)
+  async getCommissionPercent(policyNameId: string): Promise<number> {
     try {
       const response = await axios.get(
-        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/policy/${policyNameId}`,
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/product/${policyNameId}`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('authToken')}`,
           },
         }
       );
-      return response.data;
+      return response.data.commissionPercent || 0;
     } catch (error) {
-      console.error('Error fetching commission rules:', error);
-      return [];
+      console.error('Error fetching commission percent:', error);
+      return 0;
     }
   },
 
-  // Calculate commission amount
+  // Calculate commission amount using simplified lookup
   async calculateCommission(params: CommissionCalculationParams): Promise<{
     calculated_commission_amount: number;
     base_percentage: number;
@@ -76,7 +46,7 @@ export const commissionCalculationService = {
   }> {
     try {
       // Validate required parameters
-      if (!params.policy_name_id || !params.proposer_dob || !params.sum_insured || params.premium_amount === undefined) {
+      if (!params.policy_name_id || params.premium_amount === undefined) {
         return {
           calculated_commission_amount: 0,
           base_percentage: 0,
@@ -84,24 +54,10 @@ export const commissionCalculationService = {
         };
       }
 
-      // Calculate age and conditions
-      const age = this.calculateAge(params.proposer_dob);
-      const ageCondition = this.getAgeCondition(age);
-      const deductibleType = this.getDeductibleType(params.sum_insured, params.deductible_amount_status);
+      // Simplified lookup: just get commission percent for this product
+      const commissionPercent = await this.getCommissionPercent(params.policy_name_id);
 
-      // Fetch commission rules
-      const rules = await this.getCommissionRules(params.policy_name_id);
-
-      // Find matching rule
-      const matchingRule = rules.find(rule =>
-        rule.policyStatus === params.policy_creation_status &&
-        rule.ageCondition === ageCondition &&
-        rule.deductibleType === deductibleType &&
-        rule.is_active === true
-      );
-
-      if (!matchingRule) {
-        // No matching rule found - commission is 0
+      if (commissionPercent === 0) {
         return {
           calculated_commission_amount: 0,
           base_percentage: 0,
@@ -109,19 +65,18 @@ export const commissionCalculationService = {
         };
       }
 
-      // Calculate commission using only base percentage from rule
-      const basePercentage = matchingRule.commissionPercent || 0;
-      const calculatedCommission = (params.premium_amount * basePercentage) / 100;
+      // Calculate commission
+      const calculatedCommission = (params.premium_amount * commissionPercent) / 100;
 
       console.log('🔍 [Service Debug] Commission calculation:', {
-        basePercentage,
+        commissionPercent,
         premiumAmount: params.premium_amount,
         calculatedCommission,
       });
 
       return {
         calculated_commission_amount: calculatedCommission,
-        base_percentage: basePercentage,
+        base_percentage: commissionPercent,
         rule_found: true,
       };
     } catch (error) {

@@ -354,15 +354,33 @@ function PolicyDashBoardPage() {
   return (
     <div className="min-h-screen ">
       <div className="w-full max-w-screen-2xl mx-auto p-2 sm:p-2 lg:p-2">
-        {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-center gap-4 lg:gap-6 mb-4 lg:mb-4">
+        {/* Header with Welcome Banner */}
+        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-4 sm:p-6 mb-6 lg:mb-8 text-white shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold">
+                Welcome, {user?.name || (role?.role_name === 'ADMIN' ? 'Admin' : 'User')}!
+              </h1>
+              <p className="text-sm sm:text-base text-white/80 mt-1">
+                {role?.role_name === 'ADMIN'
+                  ? "Here's your policy management dashboard"
+                  : "Here's your work summary for today"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="bg-white/20 backdrop-blur-sm rounded-lg px-3 py-1.5 text-sm font-medium">
+                {role?.role_name || 'User'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Original header controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 lg:gap-6 mb-4 lg:mb-4">
           <div className="flex-1">
-            <h1 className="text-2xl sm:text-2xl font-bold text-gray-900">
-              {role?.role_name === 'ADMIN' ? 'Policy Dashboard' : `Welcome, ${user?.name || 'User'}!`}
-            </h1>
-            {role?.role_name !== 'ADMIN' && (
-              <p className="text-sm sm:text-base text-gray-600">Here's your work summary for today</p>
-            )}
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+              Dashboard Overview
+            </h2>
           </div>
           {role?.role_name === 'ADMIN' && (
             <div className="w-[120px] flex-shrink-0">
