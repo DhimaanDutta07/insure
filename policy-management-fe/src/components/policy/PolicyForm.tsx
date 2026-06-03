@@ -91,7 +91,6 @@ export interface PolicyFormData {
   issued_date?: string;
   premium_amount?: number;
   emi_amount?: number;
-  commission_add_on_percentage?: number;
   calculated_commission_amount?: number;
   declaration_accepted?: boolean;
   system_ip?: string;
@@ -158,14 +157,10 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const [calculatedCommission, setCalculatedCommission] = useState<{
     calculated_commission_amount: number;
     base_percentage: number;
-    add_on_percentage: number;
-    total_percentage: number;
     rule_found: boolean;
   }>({
     calculated_commission_amount: 0,
     base_percentage: 0,
-    add_on_percentage: 0,
-    total_percentage: 0,
     rule_found: false,
   });
 
@@ -307,7 +302,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const wSumInsured = watch("sum_insured");
   const wDeductibleStatus = watch("deductible_amount_status");
   const wPolicyCreationStatus = watch("policy_creation_status");
-  const wCommissionAddOn = watch("commission_add_on_percentage");
   const wStartDate = watch("start_date");
   const wTenureYears = watch("tenure_years");
 
@@ -319,7 +313,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const sumInsured = wSumInsured;
     const deductibleStatus = wDeductibleStatus;
     const policyCreationStatus = wPolicyCreationStatus || "Fresh";
-    const commissionAddOn = wCommissionAddOn;
 
     console.log("🔍 [Commission Debug] Input values:", {
       premiumAmount,
@@ -328,8 +321,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
       sumInsured,
       deductibleStatus,
       policyCreationStatus,
-      commissionAddOn,
-      commissionAddOnType: typeof commissionAddOn,
     });
 
     // Only calculate if we have the minimum required fields (policyNameId and proposerDob are still required)
@@ -337,8 +328,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
       setCalculatedCommission({
         calculated_commission_amount: 0,
         base_percentage: 0,
-        add_on_percentage: 0,
-        total_percentage: 0,
         rule_found: false,
       });
       return;
@@ -349,19 +338,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const finalSumInsured = sumInsured || 0;
 
     try {
-      // Ensure commission add-on is a number
-      const commissionAddOnNumber =
-        typeof commissionAddOn === "number"
-          ? commissionAddOn
-          : typeof commissionAddOn === "string"
-          ? parseFloat(commissionAddOn) || 0
-          : 0;
-
-      console.log(
-        "🔍 [Commission Debug] Processed commission add-on:",
-        commissionAddOnNumber
-      );
-
       const result = await commissionCalculationService.calculateCommission({
         policy_name_id: policyNameId,
         policy_creation_status: policyCreationStatus,
@@ -369,7 +345,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
         sum_insured: finalSumInsured,
         deductible_amount_status: deductibleStatus || false,
         premium_amount: finalPremiumAmount,
-        commission_add_on_percentage: commissionAddOnNumber,
       });
 
       console.log("🔍 [Commission Debug] Result:", result);
@@ -379,8 +354,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
       setCalculatedCommission({
         calculated_commission_amount: 0,
         base_percentage: 0,
-        add_on_percentage: 0,
-        total_percentage: 0,
         rule_found: false,
       });
     } finally {
@@ -392,7 +365,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     wSumInsured,
     wDeductibleStatus,
     wPolicyCreationStatus,
-    wCommissionAddOn,
   ]);
 
   // Calculate commission when relevant fields change
@@ -476,8 +448,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
         }
       }
 
-      // Always remove commission_add_on_percentage as it's no longer supported
-      delete filteredData.commission_add_on_percentage;
       if (hideDeductible || !deductibleOptions) {
         delete filteredData.deductible_amount_status;
         delete filteredData.deductible_amount;
@@ -722,11 +692,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   useEffect(() => {
     // Reset Policy Name
     setValue("policy_name_id", undefined, { shouldValidate: true });
-
-    // Reset commission_add_on_percentage (always remove since it's no longer supported)
-    setValue("commission_add_on_percentage", undefined, {
-      shouldValidate: true,
-    });
 
     // Reset deductible fields if not relevant
     if (hideDeductible || !deductibleOptions) {
