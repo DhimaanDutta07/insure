@@ -109,8 +109,9 @@ export const POLICY_FULL_INCLUDE = {
     select: {
       id: true,
       amount: true,
-      received_date: true,
-      payment_mode: true,
+      receivable: true,
+      receivedInBank: true,
+      createdAt: true,
     },
   },
   receipts: {
@@ -1074,11 +1075,21 @@ export const policyRepository = {
       delete prismaUpdateData.memberDocsMeta;
     }
 
-    // Update the main policy
+    // Update the main policy - use minimal include to avoid timeout
+    // Full data is fetched separately by the service layer via getPolicyById
     const result = await prisma.policy.update({
       where: { id },
       data: prismaUpdateData,
-      include: POLICY_FULL_INCLUDE,
+      select: {
+        id: true,
+        proposer: {
+          select: {
+            id: true,
+            insured_members: { select: { id: true } },
+          },
+        },
+        nominee_payment: { select: { id: true } },
+      },
     });
 
     console.log('✅ [REPOSITORY] Policy updated successfully');
@@ -1087,7 +1098,9 @@ export const policyRepository = {
 
   // Delete a policy with all related data
   async deletePolicy(id: string) {
-    // Step 1: Delete references where this policy's documents are the source
+    console.log(`🗑️ Starting deletion of policy ${id}`);
+
+    // Step 1: Delete document references where this policy's documents are the source
     await prisma.policyDocumentReference.deleteMany({
       where: {
         source_document: {
@@ -1095,19 +1108,94 @@ export const policyRepository = {
         }
       }
     });
+    console.log(`✅ Deleted document references (source)`);
 
-    // Step 2: Delete references where this policy references ancestor documents
+    // Step 2: Delete document references where this policy references ancestor documents
     await prisma.policyDocumentReference.deleteMany({
       where: {
         policy_id: id
       }
     });
+    console.log(`✅ Deleted document references (policy)`);
 
-    // Step 3: Now safe to delete
-    return prisma.policy.delete({
+    // Step 3: Delete commission journal entries
+    await prisma.commissionJournal.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted commission journal entries`);
+
+    // Step 4: Delete form values
+    await prisma.policyFormValue.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted form values`);
+
+    // Step 5: Delete receipts
+    await prisma.policyReceipt.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted receipts`);
+
+    // Step 6: Delete revenues
+    await prisma.revenue.deleteMany({
+      where: { policyId: id }
+    });
+    console.log(`✅ Deleted revenues`);
+
+    // Step 7: Delete reminders
+    await prisma.reminder.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted reminders`);
+
+    // Step 8: Delete claims
+    await prisma.claim.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted claims`);
+
+    // Step 9: Delete documents
+    await prisma.uploadedDocument.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted documents`);
+
+    // Step 10: Delete insured members
+    await prisma.insuredMember.deleteMany({
+      where: { policy_id: id }
+    });
+    console.log(`✅ Deleted insured members`);
+
+    // Step 11: Delete proposer (if exists)
+    const proposer = await prisma.proposer.findFirst({
+      where: { policy_id: id }
+    });
+    if (proposer) {
+      await prisma.proposer.delete({
+        where: { id: proposer.id }
+      });
+      console.log(`✅ Deleted proposer`);
+    }
+
+    // Step 12: Delete nominee payment (if exists)
+    const nomineePayment = await prisma.nomineeAndPayment.findFirst({
+      where: { policy_id: id }
+    });
+    if (nomineePayment) {
+      await prisma.nomineeAndPayment.delete({
+        where: { id: nomineePayment.id }
+      });
+      console.log(`✅ Deleted nominee payment`);
+    }
+
+    // Step 13: Now safe to delete the policy
+    const deletedPolicy = await prisma.policy.delete({
       where: { id },
       include: POLICY_FULL_INCLUDE,
     });
+    console.log(`✅ Policy ${id} deleted successfully`);
+
+    return deletedPolicy;
   },
 
   // Get policies by user ID

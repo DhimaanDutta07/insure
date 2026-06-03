@@ -705,20 +705,7 @@ exports.policyController = {
                 });
             }
             const policyId = req.params.id;
-            // Step 1: Delete references where this policy's documents are the source
-            await prisma.policyDocumentReference.deleteMany({
-                where: {
-                    source_document: {
-                        policy_id: policyId
-                    }
-                }
-            });
-            // Step 2: Delete references where this policy references ancestor documents
-            await prisma.policyDocumentReference.deleteMany({
-                where: {
-                    policy_id: policyId
-                }
-            });
+            // Repository handles all deletion steps including related data
             await policy_service_1.policyService.deletePolicy(policyId);
             res.status(200).json({
                 success: true,

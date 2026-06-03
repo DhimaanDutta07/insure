@@ -3,6 +3,35 @@ import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { 
+  PieChart, 
+  Pie, 
+  Cell, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  LineChart,
+  Line
+} from "recharts";
+import { IndianRupee, FileText, Building2, TrendingUp } from 'lucide-react';
+
+const COLORS = [
+  "#6F42C1", // Primary Fuschian
+  "#007BFF", // Primary Aquamarine Blue
+  "#00CCCC", // Supporting Cyan
+  "#0DCAF0", // Supporting Light Blue
+  "#17A2B8", // Supporting Teal
+  "#6F42C1", // Fuschian repeat
+  "#007BFF", // Blue repeat
+  "#00CCCC", // Cyan repeat
+  "#0DCAF0", // Light blue repeat
+  "#17A2B8", // Teal repeat
+];
 
 interface CommissionStats {
   totalCommission: number;
@@ -25,6 +54,9 @@ const CommissionDashboard: React.FC = () => {
       });
       return res.data as CommissionStats;
     },
+    staleTime: 30000, // Cache data for 30 seconds
+    gcTime: 60000, // Keep in cache for 60 seconds
+    refetchOnWindowFocus: false, // Don't refetch on window focus
   });
 
   if (isLoading) {
@@ -77,9 +109,10 @@ const CommissionDashboard: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader>
+        <Card className="border-l-4 border-l-purple-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Total Commission</CardTitle>
+            <IndianRupee className="h-4 w-4 text-purple-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
@@ -88,9 +121,10 @@ const CommissionDashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-l-4 border-l-blue-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Total Policies</CardTitle>
+            <FileText className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
@@ -99,9 +133,10 @@ const CommissionDashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-l-4 border-l-cyan-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Products</CardTitle>
+            <TrendingUp className="h-4 w-4 text-cyan-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
@@ -110,9 +145,10 @@ const CommissionDashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
+        <Card className="border-l-4 border-l-teal-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Companies</CardTitle>
+            <Building2 className="h-4 w-4 text-teal-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
@@ -122,73 +158,76 @@ const CommissionDashboard: React.FC = () => {
         </Card>
       </div>
 
-      {/* Commission by Product */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Commission by Product</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {stats.commissionByPolicyName.map((item) => (
-              <div key={item.policyNameId} className="flex justify-between items-center">
-                <div className="flex-1">
-                  <span className="text-sm text-gray-600">{item.policyName}</span>
-                  <span className="text-xs text-gray-400 ml-2">({item.policyCount} policies)</span>
-                </div>
-                <span className="text-sm font-semibold text-gray-900">
-                  ₹{item.totalCommission.toLocaleString('en-IN')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Commission by Product - Pie Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Commission by Product</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={stats.commissionByPolicyName}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ policyName, percent }) => `${policyName}: ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="totalCommission"
+                >
+                  {stats.commissionByPolicyName.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => `₹${value.toLocaleString('en-IN')}`} />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
 
-      {/* Commission by Company */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Commission by Company</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {stats.commissionByCompany.map((item) => (
-              <div key={item.companyId} className="flex justify-between items-center">
-                <div className="flex-1">
-                  <span className="text-sm text-gray-600">{item.companyName}</span>
-                  <span className="text-xs text-gray-400 ml-2">({item.policyCount} policies)</span>
-                </div>
-                <span className="text-sm font-semibold text-gray-900">
-                  ₹{item.totalCommission.toLocaleString('en-IN')}
-                </span>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+        {/* Commission by Company - Bar Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Commission by Company</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={stats.commissionByCompany}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="companyName" angle={-45} textAnchor="end" height={100} />
+                <YAxis tickFormatter={(value) => `₹${value / 1000}k`} />
+                <Tooltip formatter={(value: number) => `₹${value.toLocaleString('en-IN')}`} />
+                <Bar dataKey="totalCommission" fill="#6F42C1" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Commission by Month */}
+      {/* Commission by Month - Line Chart */}
       <Card>
         <CardHeader>
           <CardTitle>Commission by Month</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {stats.monthlyCommission.map((item) => {
-              const month = new Date(item.month as string);
-              const monthName = month.toLocaleDateString('en-US', { year: 'numeric', month: 'long' });
-              return (
-                <div key={item.month} className="flex justify-between items-center">
-                  <div className="flex-1">
-                    <span className="text-sm text-gray-600">{monthName}</span>
-                    <span className="text-xs text-gray-400 ml-2">({item.policy_count} policies)</span>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900">
-                    ₹{Number(item.total_commission).toLocaleString('en-IN')}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={stats.monthlyCommission.map(item => ({
+              month: new Date(item.month).toLocaleDateString('en-US', { year: 'numeric', month: 'short' }),
+              commission: item.total_commission,
+              policies: item.policy_count
+            }))}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis tickFormatter={(value) => `₹${value / 1000}k`} />
+              <Tooltip formatter={(value: number) => `₹${value.toLocaleString('en-IN')}`} />
+              <Legend />
+              <Line type="monotone" dataKey="commission" stroke="#6F42C1" strokeWidth={2} name="Commission" />
+              <Line type="monotone" dataKey="policies" stroke="#007BFF" strokeWidth={2} name="Policies" />
+            </LineChart>
+          </ResponsiveContainer>
         </CardContent>
       </Card>
     </div>

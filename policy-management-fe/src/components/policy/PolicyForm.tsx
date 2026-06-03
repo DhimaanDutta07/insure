@@ -104,7 +104,6 @@ export interface PolicyFormData {
   policy_creation_status?: "Fresh" | "Renewal" | "Migration" | "Portablity";
   gst_status?: boolean;
   remarks?: string;
-  premium_amount_gst?: number;
 }
 
 interface Company {
@@ -1384,7 +1383,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
           </div>
           <div className="space-y-1">
             <label className="block text-xs font-semibold text-gray-700">
-              {watch("gst_status") ? "Premium Amount (GST Inclusive) (₹)" : "Premium Amount (₹)"}
+              Premium Amount (₹)
             </label>
             <Input
               type="number"
@@ -1392,61 +1391,17 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
               {...register("premium_amount", {
                 setValueAs: (value) => {
                   if (!value || value === "") return undefined;
-                  const amount = parseFloat(value);
-                  
-                  // If GST is enabled, store the user-entered amount and calculate GST-exclusive amount
-                  if (watch("gst_status")) {
-                    // Calculate GST-exclusive amount
-                    const gstExclusiveAmount = amount / 1.18;
-                    
-                    // Store GST-exclusive amount in the separate field
-                    setValue("premium_amount_gst", gstExclusiveAmount, { shouldValidate: true });
-                    
-                    // Return the user-entered amount (GST-inclusive) for premium_amount
-                    return amount;
-                  } else {
-                    // If GST is disabled, clear GST-exclusive amount and store user-entered amount as-is
-                    setValue("premium_amount_gst", undefined, { shouldValidate: true });
-                    return amount;
-                  }
+                  return parseFloat(value);
                 },
                 min: {
                   value: 0,
                   message: "Premium amount must be 0 or greater",
                 },
               })}
-              placeholder={watch("gst_status") ? "Enter GST-inclusive amount" : "Enter premium amount"}
+              placeholder="Enter premium amount"
               className="h-9 text-sm"
             />
           </div>
-          
-          {/* Show GST-exclusive amount only when GST is enabled */}
-          {watch("gst_status") && (
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-700">
-                Premium Amount (GST Exclusive) (₹)
-              </label>
-              <Input
-                type="number"
-                step="0.01"
-                value={
-                  watch("premium_amount")
-                    ? (Number(watch("premium_amount")) / 1.18).toFixed(2)
-                    : ""
-                }
-                readOnly
-                className="h-9 text-sm bg-gray-50"
-              />
-              {watch("premium_amount") && (
-                <div className="text-xs text-gray-600 mt-1">
-                  <span>GST Amount: ₹{watch("premium_amount_gst") ? (Number(watch("premium_amount")) - Number(watch("premium_amount_gst"))).toFixed(2) : "0.00"}</span>
-                  <span className="ml-2 text-gray-500">
-                    (Total GST Inclusive: ₹{Number(watch("premium_amount")).toFixed(2)})
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
           <div className="space-y-1">
             <label className="block text-xs font-semibold text-gray-700">
               Tenure (Years)

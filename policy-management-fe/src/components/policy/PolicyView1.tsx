@@ -101,7 +101,6 @@ export interface Policy {
   policy_creation_status?: 'Fresh' | 'Renewal' | 'Migration' | 'Portablity';
   gst_status?: boolean;
   remarks?: string;
-  premium_amount_gst?: number;
   deductible_amount?: number;
   deductible_amount_status?: boolean;
   emi_amount?: number;
@@ -462,10 +461,7 @@ const PolicyView: React.FC<PolicyViewProps> = ({ policy, onClose }) => {
              {/* {policy.premium_amount_gst && (
                <div><div className="text-md text-gray-500 mb-1">Premium Amount (GST) (₹)</div><div className="font-semibold text-gray-800">{new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(policy.premium_amount_gst)}</div></div>
              )} */}
-            <div><div className="text-md text-gray-500 mb-1">{policy.gst_status ? "Premium Amount (GST Inclusive) (₹)" : "Premium Amount (₹)"}</div><div className="font-semibold text-gray-800">{policy.premium_amount ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(policy.premium_amount) : '-'}</div></div>
-            {policy.gst_status && (
-              <div><div className="text-md text-gray-500 mb-1">Premium Amount (GST Exclusive) (₹)</div><div className="font-semibold text-gray-800">{policy.premium_amount_gst ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(policy.premium_amount_gst) : '-'}</div></div>
-            )}
+            <div><div className="text-md text-gray-500 mb-1">Premium Amount (₹)</div><div className="font-semibold text-gray-800">{policy.premium_amount ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(policy.premium_amount) : '-'}</div></div>
             {/* {policy.premium_amount && (
               <div className="md:col-span-2">
                 <div className="text-sm text-gray-500 mb-1">GST Breakdown</div>

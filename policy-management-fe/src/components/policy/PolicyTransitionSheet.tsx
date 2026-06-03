@@ -73,7 +73,6 @@ type ExtendedTransitionData = PolicyTransitionData & {
   deductible_amount_status?: boolean;
   deductible_amount?: number;
   gst_status?: boolean;
-  premium_amount_gst?: number;
 };
 
 const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
@@ -112,7 +111,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
       end_date: '',
       issued_date: '',
       gst_status: false,
-      premium_amount_gst: undefined,
       deductible_amount_status: false,
       deductible_amount: undefined,
     },
@@ -138,8 +136,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
   const wStartDate = watchedValues.start_date;
   const wTenureYears = watchedValues.tenure_years;
   const wPolicyNameId = watchedValues.policy_name_id;
-  const wGstStatus = watchedValues.gst_status;
-  const wPremiumAmount = watchedValues.premium_amount;
 
   // Register hidden/non-UI fields so they are submitted
   useEffect(() => {
@@ -157,18 +153,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
       setValue('end_date', end.toISOString().split('T')[0], { shouldValidate: true });
     }
   }, [wStartDate, wTenureYears, setValue]);
-
-  // Handle GST status changes and recalculate premium_amount_gst
-  useEffect(() => {
-    if (wPremiumAmount && wGstStatus) {
-      // If GST is enabled, calculate and set the GST-exclusive amount
-      const gstExclusiveAmount = wPremiumAmount / 1.18;
-      setValue('premium_amount_gst', gstExclusiveAmount, { shouldValidate: true });
-    } else if (!wGstStatus) {
-      // If GST is disabled, clear the GST-exclusive amount
-      setValue('premium_amount_gst', undefined, { shouldValidate: true });
-    }
-  }, [wGstStatus, wPremiumAmount, setValue]);
 
   // Filter policy names by selected company
   const selectedCompanyId = watchedValues.company_id;
@@ -245,7 +229,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
       setValue('issued_date', '');
       setValue('policy_number', '');
       setValue('gst_status', false);
-      setValue('premium_amount_gst', undefined);
       
       // Clear local state
       setPremiumAmountInput("");
@@ -259,7 +242,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
       setValue('premium_amount', policy.premium_amount);
       setValue('tenure_years', policy.tenure_years);
       setValue('gst_status', Boolean((policy as ExtendedPolicy & { gst_status?: boolean }).gst_status));
-      setValue('premium_amount_gst', (policy as ExtendedPolicy & { premium_amount_gst?: number }).premium_amount_gst || undefined);
       setValue('deductible_amount_status', Boolean((policy as ExtendedPolicy & { deductible_amount_status?: boolean }).deductible_amount_status));
       if ((policy as ExtendedPolicy & { deductible_amount_status?: boolean }).deductible_amount_status) {
         setValue('deductible_amount', (policy as ExtendedPolicy & { deductible_amount?: number }).deductible_amount || 0);
@@ -338,7 +320,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
     setValue('issued_date', '');
     setValue('policy_number', '');
     setValue('gst_status', false);
-    setValue('premium_amount_gst', undefined);
     setValue('deductible_amount_status', false);
     setValue('deductible_amount', undefined);
     
@@ -363,11 +344,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
       // Handle deductible fields
       if (!payload.deductible_amount_status) {
         delete payload.deductible_amount;
-      }
-      
-      // Handle GST fields
-      if (!payload.gst_status) {
-        delete payload.premium_amount_gst;
       }
       
       let result;
@@ -599,21 +575,11 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                     </p>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-gray-600">
-                      {(policy as ExtendedPolicy & { gst_status?: boolean }).gst_status ? "Premium Amount (GST Inclusive)" : "Premium Amount"}
-                    </Label>
+                    <Label className="text-xs font-medium text-gray-600">Premium Amount</Label>
                     <p className="text-sm font-semibold text-green-600">
                       ₹{policy.premium_amount?.toLocaleString()}
                     </p>
                   </div>
-                  {(policy as ExtendedPolicy & { gst_status?: boolean }).gst_status && (
-                    <div>
-                      <Label className="text-xs font-medium text-gray-600">Premium Amount (GST Exclusive)</Label>
-                      <p className="text-sm font-semibold text-green-600">
-                        ₹{((policy as ExtendedPolicy & { premium_amount_gst?: number }).premium_amount_gst || 0)?.toLocaleString()}
-                      </p>
-                    </div>
-                  )}
                   <div>
                     <Label className="text-xs font-medium text-gray-600">Tenure (Years)</Label>
                     <p className="text-sm text-gray-900">{policy.tenure_years}</p>
@@ -960,54 +926,19 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                       onChange={(e) => {
                         const inputValue = e.target.value;
                         setPremiumAmountInput(inputValue);
-                        
-                        const amount = parseFloat(inputValue) || 0;
-                        
-                        if (watchedValues.gst_status) {
-                          // If GST is enabled, calculate GST-exclusive amount and store user-entered amount
-                          const gstExclusiveAmount = amount / 1.18;
-                          
-                          // Store GST-exclusive amount in the separate field
-                          setValue('premium_amount_gst', gstExclusiveAmount, { shouldValidate: true });
-                          // Store the user-entered amount (GST-inclusive) for premium_amount
-                          setValue('premium_amount', amount, { shouldValidate: true });
-                        } else {
-                          // If GST is disabled, clear GST-exclusive amount and store user-entered amount as-is
-                          setValue('premium_amount_gst', undefined, { shouldValidate: true });
-                          setValue('premium_amount', amount, { shouldValidate: true });
-                        }
+                        setValue('premium_amount', parseFloat(inputValue) || 0, { shouldValidate: true });
                       }}
                       onBlur={() => {
                         // Clear local input state when field loses focus
                         setPremiumAmountInput("");
                       }}
-                      placeholder={watchedValues.gst_status ? "Enter GST-inclusive amount" : "Enter premium amount"}
+                      placeholder="Enter premium amount"
                       className={`h-8 text-xs ${errors.premium_amount ? 'border-red-500' : ''}`}
                     />
                     {errors.premium_amount && (
                       <p className="text-xs text-red-500 mt-1">{errors.premium_amount.message}</p>
                     )}
                   </div>
-                  
-                  {/* Show GST-exclusive amount only when GST is enabled */}
-                  {watchedValues.gst_status && (
-                    <div>
-                      <label className="block text-xs font-medium mb-1">Premium Amount (GST Exclusive)</label>
-                      <Input
-                        id="premium_amount_gst_exclusive"
-                        type="number"
-                        step="0.01"
-                        value={watchedValues.premium_amount ? (Number(watchedValues.premium_amount) / 1.18).toFixed(2) : ""}
-                        readOnly
-                        className="h-8 text-xs bg-gray-50"
-                      />
-                      {watchedValues.premium_amount && (
-                        <div className="text-xs text-gray-600 mt-1">
-                          <span>GST Amount: ₹{watchedValues.premium_amount_gst ? (Number(watchedValues.premium_amount) - Number(watchedValues.premium_amount_gst)).toFixed(2) : "0.00"}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
 
                   {/* Tenure Years */}
                   <div>

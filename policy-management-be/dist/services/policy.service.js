@@ -162,6 +162,7 @@ async function calculateAndSetCommission(policyInput) {
         hasPolicyInput: !!policyInput,
         hasPolicyNameId: !!policyInput?.policy_name_id,
         premiumAmount: policyInput?.premium_amount,
+        gstStatus: policyInput?.gst_status,
         policyNameId: policyInput?.policy_name_id,
     });
     // Defensive: Only run if required fields are present
@@ -197,15 +198,29 @@ async function calculateAndSetCommission(policyInput) {
     }
     // Calculate commission based on CommissionRule percentage
     const basePercent = activeRule.commissionPercent || 0;
-    policyInput.calculated_commission_amount = (policyInput.premium_amount * basePercent) / 100;
+    // ✅ GST Logic: If GST Status is ON, deduct 18% from premium before commission calculation
+    let premiumForCommission = policyInput.premium_amount;
+    if (policyInput.gst_status === true) {
+        // Deduct 18% GST from premium amount
+        premiumForCommission = policyInput.premium_amount * (1 - 0.18); // 82% of original
+        console.log('[Commission] GST Status ON - Deducting 18% from premium:', {
+            originalPremium: policyInput.premium_amount,
+            afterGstDeduction: premiumForCommission,
+        });
+    }
+    else {
+        console.log('[Commission] GST Status OFF - Using full premium amount');
+    }
+    policyInput.calculated_commission_amount = (premiumForCommission * basePercent) / 100;
     policyInput.commission_add_on_percentage = basePercent;
     policyInput._commissionPercent = basePercent;
     policyInput._commissionRuleId = activeRule.id;
     console.log('[Commission] Commission calculated successfully:', {
         commissionPercent: basePercent,
         calculatedAmount: policyInput.calculated_commission_amount,
+        gstStatus: policyInput.gst_status,
+        premiumUsed: premiumForCommission,
     });
-    console.log('[Commission] Calculated commission:', policyInput.calculated_commission_amount, 'Base%:', basePercent, 'Premium Amount:', policyInput.premium_amount);
 }
 exports.policyService = {
     /**
@@ -425,6 +440,28 @@ exports.policyService = {
                 insuredMemberIds: coreEntities.insuredMemberIds,
                 nomineePaymentId: coreEntities.nomineePaymentId
             });
+            // Calculate commission with GST logic
+            const commissionData = {
+                policy_name_id: data.policy_name_id,
+                premium_amount: data.premium_amount,
+                gst_status: data.gst_status,
+            };
+            await calculateAndSetCommission(commissionData);
+            // Update policy with calculated commission
+            if (commissionData.calculated_commission_amount !== undefined) {
+                await prisma.policy.update({
+                    where: { id: coreEntities.policyId },
+                    data: {
+                        calculated_commission_amount: commissionData.calculated_commission_amount,
+                        commission_add_on_percentage: commissionData.commission_add_on_percentage,
+                    },
+                });
+                console.log('[Service] Commission calculated and updated for new policy:', {
+                    policyId: coreEntities.policyId,
+                    calculated_commission_amount: commissionData.calculated_commission_amount,
+                    gst_status: data.gst_status,
+                });
+            }
             // Phase 2: Link documents
             await this.linkDocuments(coreEntities, processedDocs);
             // Fetch the complete policy with all relations
@@ -1206,7 +1243,7 @@ exports.policyService = {
     },
     // Dashboard stats can remain as is or be moved to the repository
     async getDashboardStats(timeRange) {
-        // Calculate date filter based on timeRange
+        // Calculate date filter based on timeRange (for trend charts only)
         let fromDate = undefined;
         const now = new Date();
         switch (timeRange) {
@@ -1227,44 +1264,54 @@ exports.policyService = {
                 break;
             default: fromDate = undefined;
         }
-        // Apply fromDate to all queries
-        const where = {};
+        // No time filter for main summary stats - show actual totals
+        // Only show leaf policies (policies that have not been transitioned/renewed/porteded)
+        // This matches the logic used in the policy page
+        const summaryWhere = { children_policies: { none: {} } };
+        const renewalSummaryWhere = { ...summaryWhere, policy_creation_status: 'Renewal' };
+        // Time filter only for distribution/charts
+        // Also only show leaf policies for consistency with policy page
+        const chartWhere = { children_policies: { none: {} } };
         if (fromDate) {
-            where.created_at = { gte: fromDate };
+            chartWhere.created_at = { gte: fromDate };
         }
-        const renewalWhere = { ...where, policy_creation_status: 'Renewal' };
+        const renewalChartWhere = { ...chartWhere, policy_creation_status: 'Renewal' };
         const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
         // Run all independent queries in parallel for better performance
         const [totalActive, totalRenewal, companyDistributionRaw, policyTypeDistributionRaw, premiumStats, sumInsuredStats, planTypeDistribution, genderDistribution, proposers, allPoliciesWithDates] = await Promise.all([
-            prisma.policy.count({ where }),
-            prisma.policy.count({ where: renewalWhere }),
+            // Main summary stats - no time filter
+            prisma.policy.count({ where: summaryWhere }),
+            prisma.policy.count({ where: renewalSummaryWhere }),
+            // Distribution/charts - with time filter
             prisma.policy.groupBy({
                 by: ["company_id"],
-                where,
+                where: chartWhere,
                 _count: { _all: true },
             }),
             prisma.policy.groupBy({
                 by: ["policy_type_id"],
-                where,
+                where: chartWhere,
                 _count: { _all: true }
             }),
+            // Main summary stats - no time filter
             prisma.policy.aggregate({
-                where,
+                where: summaryWhere,
                 _sum: { premium_amount: true },
                 _avg: { premium_amount: true },
                 _min: { premium_amount: true },
                 _max: { premium_amount: true },
             }),
             prisma.policy.aggregate({
-                where,
+                where: summaryWhere,
                 _sum: { sum_insured: true },
                 _avg: { sum_insured: true },
                 _min: { sum_insured: true },
                 _max: { sum_insured: true },
             }),
+            // Distribution/charts - with time filter
             prisma.policy.groupBy({
                 by: ["plan_type"],
-                where,
+                where: chartWhere,
                 _count: { _all: true },
             }),
             prisma.proposer.groupBy({
@@ -1366,7 +1413,7 @@ exports.policyService = {
         // Top performing companies by premium
         const topCompaniesByPremium = await prisma.policy.groupBy({
             by: ["company_id"],
-            where,
+            where: summaryWhere,
             _sum: { premium_amount: true },
         });
         const topCompanyIds = topCompaniesByPremium.map(c => c.company_id).filter((id) => id !== null);

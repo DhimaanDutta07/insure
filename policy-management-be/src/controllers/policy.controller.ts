@@ -750,22 +750,7 @@ export const policyController = {
 
       const policyId = req.params.id as string;
 
-      // Step 1: Delete references where this policy's documents are the source
-      await prisma.policyDocumentReference.deleteMany({
-        where: {
-          source_document: {
-            policy_id: policyId
-          }
-        }
-      });
-
-      // Step 2: Delete references where this policy references ancestor documents
-      await prisma.policyDocumentReference.deleteMany({
-        where: {
-          policy_id: policyId
-        }
-      });
-
+      // Repository handles all deletion steps including related data
       await policyService.deletePolicy(policyId);
       res.status(200).json({
         success: true,
@@ -773,7 +758,7 @@ export const policyController = {
       });
     } catch (error) {
       console.error("Error deleting policy:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: "Failed to delete policy",
         message: error instanceof Error ? error.message : "An unexpected error occurred",
         timestamp: new Date().toISOString()

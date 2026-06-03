@@ -355,20 +355,20 @@ function PolicyDashBoardPage() {
     <div className="min-h-screen ">
       <div className="w-full max-w-screen-2xl mx-auto p-2 sm:p-2 lg:p-2">
         {/* Header with Welcome Banner */}
-        <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-4 sm:p-6 mb-6 lg:mb-8 text-white shadow-lg">
+        <div className="mb-6 lg:mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold">
+              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
                 Welcome, {user?.name || (role?.role_name === 'ADMIN' ? 'Admin' : 'User')}!
               </h1>
-              <p className="text-sm sm:text-base text-white/80 mt-1">
+              <p className="text-sm sm:text-base text-gray-600 mt-1">
                 {role?.role_name === 'ADMIN'
                   ? "Here's your policy management dashboard"
                   : "Here's your work summary for today"}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <div className="bg-white/20 backdrop-blur-sm rounded-lg px-3 py-1.5 text-sm font-medium">
+              <div className="text-sm font-medium text-gray-700">
                 {role?.role_name || 'User'}
               </div>
             </div>

@@ -110,7 +110,6 @@ export interface PolicyFormData {
   policy_creation_status?: 'Fresh' | 'Renewal' | 'Migration' | 'Portablity';
   gst_status?: boolean;
   remarks?: string;
-  premium_amount_gst?: number;
   emi_amount?: number;
   calculated_commission_amount?: number;
 }
@@ -485,7 +484,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
           policy_creation_status: policy.policy_creation_status || 'Fresh',
           gst_status: Boolean(policy.gst_status),
           remarks: policy.remarks || '',
-          premium_amount_gst: policy.premium_amount_gst || undefined,
           declaration_accepted: Boolean(policy.declaration_accepted),
           
           // Proposer information
@@ -645,7 +643,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wPolicyCreationStatus = watch("policy_creation_status");
   const wProposerFullName = watch("proposer.full_name");
   const wMembers = watch("members");
-  const wGstStatus = watch("gst_status");
+
 
   // Auto-calculate end date based on start date and tenure years
   useEffect(() => {
@@ -690,18 +688,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       }
     });
   }, [wMembers, wProposerFullName, wProposerDob, wProposerGender, wProposerSalutation, setValue]);
-
-  // Handle GST status changes and recalculate premium_amount_gst
-  useEffect(() => {
-    if (wPremiumAmount && wGstStatus) {
-      // If GST is enabled, calculate and set the GST-exclusive amount
-      const gstExclusiveAmount = wPremiumAmount / 1.18;
-      setValue("premium_amount_gst", gstExclusiveAmount, { shouldValidate: true });
-    } else if (!wGstStatus) {
-      // If GST is disabled, clear the GST-exclusive amount
-      setValue("premium_amount_gst", undefined, { shouldValidate: true });
-    }
-  }, [wGstStatus, wPremiumAmount, setValue]);
 
   // Commission calculation function
   const calculateCommission = useCallback(async () => {
@@ -808,15 +794,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       // Append all primitive fields (only if not empty/undefined)
       Object.entries(processedData).forEach(([key, value]) => {
         if (typeof value !== "object" || value === null || value instanceof Date) {
-          // Special handling for premium_amount_gst - only include it if gst_status is true
-          if (key === 'premium_amount_gst') {
-            if (processedData.gst_status && value !== undefined && value !== null) {
-              formData.append(key, String(value));
-            }
-            // If GST is disabled, don't send the field at all
-            return;
-          }
-          
           if (isEmptyOrUndefined(value)) return;
           // Coerce numeric fields
           if (key === 'emi_amount' && typeof value === 'string') {
@@ -1751,7 +1728,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
           </div>
           <div className="space-y-1">
             <label className="block text-xs font-semibold text-gray-700">
-              {watch("gst_status") ? "Premium Amount (GST Inclusive) (₹)" : "Premium Amount (₹)"}
+              Premium Amount (₹)
             </label>
             <Input 
               type="number" 
@@ -1762,55 +1739,16 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
               onChange={(e) => {
                 const inputValue = e.target.value;
                 setPremiumAmountInput(inputValue);
-                
-                const amount = parseFloat(inputValue) || 0;
-                
-                if (watch("gst_status")) {
-                  // If GST is enabled, calculate GST-exclusive amount and store user-entered amount
-                  const gstExclusiveAmount = amount / 1.18;
-                  
-                  // Store GST-exclusive amount in the separate field
-                  setValue("premium_amount_gst", gstExclusiveAmount, { shouldValidate: true });
-                  // Store the user-entered amount (GST-inclusive) for premium_amount
-                  setValue("premium_amount", amount, { shouldValidate: true });
-                } else {
-                  // If GST is disabled, clear GST-exclusive amount and store user-entered amount as-is
-                  setValue("premium_amount_gst", undefined, { shouldValidate: true });
-                  setValue("premium_amount", amount, { shouldValidate: true });
-                }
+                setValue("premium_amount", parseFloat(inputValue) || 0, { shouldValidate: true });
               }}
               onBlur={() => {
                 // Clear local input state when field loses focus
                 setPremiumAmountInput("");
               }}
-              placeholder={watch("gst_status") ? "Enter GST-inclusive amount" : "Enter premium amount"}
+              placeholder="Enter premium amount"
               className="h-9 text-sm"
             />
           </div>
-          
-          {/* Show GST-exclusive amount only when GST is enabled */}
-          {watch("gst_status") && (
-            <div className="space-y-1">
-              <label className="block text-xs font-semibold text-gray-700">
-                Premium Amount (GST Exclusive) (₹)
-              </label>
-              <Input 
-                type="number" 
-                step="0.01" 
-                value={watch("premium_amount") ? (Number(watch("premium_amount")) / 1.18).toFixed(2) : ""}
-                readOnly
-                className="h-9 text-sm bg-gray-50"
-              />
-              {watch("premium_amount") && (
-                <div className="text-xs text-gray-600 mt-1">
-                  <span>GST Amount: ₹{watch("premium_amount_gst") ? (Number(watch("premium_amount")) - Number(watch("premium_amount_gst"))).toFixed(2) : "0.00"}</span>
-                  <span className="ml-2 text-gray-500">
-                    (Total GST Inclusive: ₹{Number(watch("premium_amount")).toFixed(2)})
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
           <div className="space-y-1">
             <label className="block text-xs font-semibold text-gray-700">
               Tenure (Years)
