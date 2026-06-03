@@ -461,6 +461,10 @@ router.patch('/commission-rules/policy/:policyNameId/status', restrictTo(['ADMIN
 router.delete('/commission-rules/:id', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.deleteCommissionRule(req, res); });
 router.get('/commission-rules/dashboard/stats', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.getCommissionDashboardStats(req, res); });
 
+// Simplified product-based commission routes
+router.get('/commission-rules/product/:policyNameId', restrictTo(['ADMIN', 'OPERATIONS']), (req, res) => { commissionRuleController.getCommissionByProduct(req, res); });
+router.patch('/commission-rules/product/:policyNameId', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.upsertCommissionByProduct(req, res); });
+
 // Company Routes
 router.post('/companies', restrictTo(['ADMIN']), (req, res) => { companyController.createCompany(req, res); });
 router.get('/companies', restrictTo(['ADMIN', 'OPERATIONS']), (req, res) => { companyController.getAllCompanies(req, res); });

@@ -141,4 +141,35 @@ exports.commissionRuleController = {
             res.status(500).json({ error: error.message || 'Internal server error' });
         }
     },
+    // Simplified: get commission for a specific product (first active rule)
+    async getCommissionByProduct(req, res) {
+        try {
+            const policyNameId = req.params.policyNameId;
+            const rule = await commissionRuleService_1.commissionRuleService.getCommissionByProduct(policyNameId);
+            if (!rule) {
+                return res.status(200).json({ commissionPercent: 0, rule: null });
+            }
+            res.status(200).json({ commissionPercent: rule.commissionPercent, rule });
+        }
+        catch (error) {
+            console.error('Error fetching commission by product:', error);
+            res.status(500).json({ error: error.message || 'Internal server error' });
+        }
+    },
+    // Simplified: upsert commission percentage for a product
+    async upsertCommissionByProduct(req, res) {
+        try {
+            const policyNameId = req.params.policyNameId;
+            const { commissionPercent } = req.body;
+            if (typeof commissionPercent !== 'number' || commissionPercent < 0 || commissionPercent > 100) {
+                return res.status(400).json({ error: 'commissionPercent must be a number between 0 and 100' });
+            }
+            const rule = await commissionRuleService_1.commissionRuleService.upsertCommissionByProduct(policyNameId, commissionPercent);
+            res.status(200).json({ success: true, rule });
+        }
+        catch (error) {
+            console.error('Error upserting commission by product:', error);
+            res.status(500).json({ error: error.message || 'Internal server error' });
+        }
+    },
 };

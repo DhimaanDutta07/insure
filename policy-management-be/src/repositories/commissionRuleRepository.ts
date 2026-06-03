@@ -179,6 +179,50 @@ export const commissionRuleRepository = {
     }
   },
 
+  // Find first active commission rule for a policy name (simplified lookup)
+  findFirstByPolicyName: async (policyNameId: string) => {
+    return prisma.commissionRule.findFirst({
+      where: {
+        policy_name_id: policyNameId,
+        is_active: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  },
+
+  // Upsert a commission rule for a product (simplified - uses defaults for other fields)
+  upsertByProduct: async (policyNameId: string, commissionPercent: number) => {
+    const existing = await prisma.commissionRule.findFirst({
+      where: { policy_name_id: policyNameId },
+    });
+
+    if (existing) {
+      // Update all rules for this product with the new percentage
+      await prisma.commissionRule.updateMany({
+        where: { policy_name_id: policyNameId },
+        data: { commissionPercent },
+      });
+      // Return the first updated rule
+      return prisma.commissionRule.findFirst({
+        where: { policy_name_id: policyNameId },
+      });
+    }
+
+    // Create a default rule if none exists
+    return prisma.commissionRule.create({
+      data: {
+        policy_name_id: policyNameId,
+        policyStatus: 'Fresh',
+        deductibleType: 'ALL_SI',
+        ageCondition: 'LESS_THAN_60',
+        commissionPercent,
+        is_active: true,
+      },
+    });
+  },
+
   // Get commission dashboard statistics
   getCommissionDashboardStats: async (timeRange: string) => {
     try {

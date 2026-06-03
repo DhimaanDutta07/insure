@@ -422,6 +422,9 @@ router.patch('/commission-rules/:id/status', (0, AuthMiddleware_1.restrictTo)(['
 router.patch('/commission-rules/policy/:policyNameId/status', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), commissionRuleController_1.commissionRuleController.updateCommissionRulesStatusByPolicyName);
 router.delete('/commission-rules/:id', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (req, res) => { commissionRuleController_1.commissionRuleController.deleteCommissionRule(req, res); });
 router.get('/commission-rules/dashboard/stats', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (req, res) => { commissionRuleController_1.commissionRuleController.getCommissionDashboardStats(req, res); });
+// Simplified product-based commission routes
+router.get('/commission-rules/product/:policyNameId', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), (req, res) => { commissionRuleController_1.commissionRuleController.getCommissionByProduct(req, res); });
+router.patch('/commission-rules/product/:policyNameId', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (req, res) => { commissionRuleController_1.commissionRuleController.upsertCommissionByProduct(req, res); });
 // Company Routes
 router.post('/companies', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (req, res) => { companyController_1.companyController.createCompany(req, res); });
 router.get('/companies', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), (req, res) => { companyController_1.companyController.getAllCompanies(req, res); });

@@ -153,98 +153,55 @@ function validateDocumentForeignKeys(docs, availableIds) {
     });
 }
 /**
- * Calculates and sets the commission amount on the policy input using CommissionRule logic.
+ * Calculates and sets the commission amount on the policy input using simplified CommissionRule logic.
+ * Looks up ANY active commission rule for the policy_name_id and uses its commissionPercent.
  * Mutates policyInput.calculated_commission_amount in place.
  */
 async function calculateAndSetCommission(policyInput) {
-    console.log('[Commission] Starting commission calculation with input:', {
+    console.log('[Commission] Starting simplified commission calculation with input:', {
         hasPolicyInput: !!policyInput,
         hasPolicyNameId: !!policyInput?.policy_name_id,
-        hasProposer: !!policyInput?.proposer,
-        hasSumInsured: !!policyInput?.sum_insured,
-        proposerDOB: policyInput?.proposer?.date_of_birth,
+        premiumAmount: policyInput?.premium_amount,
         policyNameId: policyInput?.policy_name_id,
-        sumInsured: policyInput?.sum_insured
     });
     // Defensive: Only run if required fields are present
-    if (!policyInput || !policyInput.policy_name_id || !policyInput.proposer || !policyInput.sum_insured) {
+    if (!policyInput || !policyInput.policy_name_id || !policyInput.premium_amount) {
         policyInput.calculated_commission_amount = 0;
+        policyInput.commission_add_on_percentage = 0;
         console.log('[Commission] Missing required fields, commission set to 0');
         return;
     }
-    // 1. Age Condition
-    let ageCondition;
-    if (policyInput.proposer.date_of_birth) {
-        const dob = new Date(policyInput.proposer.date_of_birth);
-        const today = new Date();
-        let age = today.getFullYear() - dob.getFullYear();
-        const m = today.getMonth() - dob.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
-            age--;
-        }
-        ageCondition = age < 60 ? client_1.AgeCondition.LESS_THAN_60 : client_1.AgeCondition.GREATER_THAN_60;
-    }
-    else {
-        policyInput.calculated_commission_amount = 0;
-        console.log('[Commission] No proposer DOB, commission set to 0');
-        return;
-    }
-    // 2. Deductible Type
-    let deductibleType;
-    if (policyInput.deductible_amount_status === true) {
-        deductibleType = client_1.DeductibleType.DEDUCTABLE_ALL_SI;
-    }
-    else if (policyInput.sum_insured < 1000000) {
-        deductibleType = client_1.DeductibleType.LESS_THAN_10_LAKHS;
-    }
-    else {
-        deductibleType = client_1.DeductibleType.GREATER_EQUAL_10_LAKHS;
-    }
-    // 3. Policy Creation Status
-    const policy_creation_status = policyInput.policy_creation_status || client_1.PolicyCreationStatus.Fresh;
-    // 4. Fetch matching CommissionRule with fallback logic
-    const activeRules = await prisma.commissionRule.findMany({
+    // Fetch ANY active commission rule for this policy name
+    const activeRule = await prisma.commissionRule.findFirst({
         where: {
             policy_name_id: policyInput.policy_name_id,
-            policyStatus: policy_creation_status,
             is_active: true,
         },
+        orderBy: {
+            createdAt: 'desc',
+        },
     });
-    // Try exact match first, then fallbacks
-    let rule = activeRules.find((r) => r.deductibleType === deductibleType && r.ageCondition === ageCondition);
-    // Fallback 1: same deductible, any age
-    if (!rule) {
-        rule = activeRules.find((r) => r.deductibleType === deductibleType);
-    }
-    // Fallback 2: ALL_SI, exact age
-    if (!rule) {
-        rule = activeRules.find((r) => r.deductibleType === client_1.DeductibleType.ALL_SI && r.ageCondition === ageCondition);
-    }
-    // Fallback 3: ALL_SI, any age
-    if (!rule) {
-        rule = activeRules.find((r) => r.deductibleType === client_1.DeductibleType.ALL_SI);
-    }
-    console.log('[Commission] CommissionRule lookup params:', {
+    console.log('[Commission] CommissionRule lookup:', {
         policy_name_id: policyInput.policy_name_id,
-        policy_creation_status,
-        ageCondition,
-        deductibleType,
-        matchedRuleId: rule?.id,
+        matchedRuleId: activeRule?.id,
+        commissionPercent: activeRule?.commissionPercent,
     });
-    console.log('[Commission] Fetched rule:', rule);
-    if (!rule) {
-        // No matching CommissionRule found - set commission to 0
+    if (!activeRule) {
+        // No commission rule found - silently set commission to 0
         policyInput.calculated_commission_amount = 0;
-        console.log('[Commission] No matching rule found, commission set to 0');
+        policyInput.commission_add_on_percentage = 0;
+        policyInput._commissionPercent = 0;
+        policyInput._commissionRuleId = null;
+        console.log('[Commission] No commission rule found for product, commission set to 0');
         return;
     }
-    // 5. Calculate commission based on CommissionRule only (no manual add-on)
-    const basePercent = rule.commissionPercent || 0;
+    // Calculate commission based on CommissionRule percentage
+    const basePercent = activeRule.commissionPercent || 0;
     policyInput.calculated_commission_amount = (policyInput.premium_amount * basePercent) / 100;
+    policyInput.commission_add_on_percentage = basePercent;
     policyInput._commissionPercent = basePercent;
-    policyInput._commissionRuleId = rule.id;
+    policyInput._commissionRuleId = activeRule.id;
     console.log('[Commission] Calculated commission:', policyInput.calculated_commission_amount, 'Base%:', basePercent, 'Premium Amount:', policyInput.premium_amount);
-    console.log('[Commission] Final calculated_commission_amount:', policyInput.calculated_commission_amount);
 }
 exports.policyService = {
     /**

@@ -83,4 +83,14 @@ export const commissionRuleService = {
   async getCommissionDashboardStats(timeRange: string) {
     return commissionRuleRepository.getCommissionDashboardStats(timeRange);
   },
+
+  // Simplified: get commission percentage for a product
+  async getCommissionByProduct(policyNameId: string) {
+    return commissionRuleRepository.findFirstByPolicyName(policyNameId);
+  },
+
+  // Simplified: upsert commission percentage for a product
+  async upsertCommissionByProduct(policyNameId: string, commissionPercent: number) {
+    return commissionRuleRepository.upsertByProduct(policyNameId, commissionPercent);
+  },
 };
