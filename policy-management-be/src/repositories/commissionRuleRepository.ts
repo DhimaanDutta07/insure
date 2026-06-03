@@ -203,42 +203,46 @@ export const commissionRuleRepository = {
           startDate = new Date(0); // Beginning of time
       }
 
-      // Get total commission amount
-      const totalCommission = await prisma.policy.aggregate({
+      // Get total commission amount from CommissionJournal
+      const totalCommission = await prisma.commissionJournal.aggregate({
         where: {
-          start_date: { gte: startDate },
-          calculated_commission_amount: { not: null },
+          calculatedAt: { gte: startDate },
         },
         _sum: {
-          calculated_commission_amount: true,
+          commissionAmount: true,
         },
       });
 
-      // Get total policies with commission
-      const totalPoliciesWithCommission = await prisma.policy.count({
+      // Get total policies with commission from CommissionJournal
+      const totalPoliciesWithCommission = await prisma.commissionJournal.count({
         where: {
-          start_date: { gte: startDate },
-          calculated_commission_amount: { not: null },
+          calculatedAt: { gte: startDate },
         },
       });
 
-      // Get commission by company
-      const commissionByCompany = await prisma.policy.groupBy({
-        by: ['company_id'],
+      // Get commission by company from CommissionJournal joined with Policy
+      const commissionByCompany = await prisma.commissionJournal.groupBy({
+        by: ['policy_id'],
         where: {
-          start_date: { gte: startDate },
-          calculated_commission_amount: { not: null },
+          calculatedAt: { gte: startDate },
         },
         _sum: {
-          calculated_commission_amount: true,
+          commissionAmount: true,
         },
         _count: {
           id: true,
         },
       });
 
-      // Get company names
-      const companyIds = commissionByCompany.map(c => c.company_id).filter((id): id is string => id !== null);
+      // Get company names from policies
+      const policyIds = commissionByCompany.map((c: any) => c.policy_id).filter((id: any): id is string => id !== null);
+      const policiesForCompany = await prisma.policy.findMany({
+        where: { id: { in: policyIds } },
+        select: { id: true, company_id: true },
+      });
+
+      const policyCompanyMap = new Map(policiesForCompany.map(p => [p.id, p.company_id]));
+      const companyIds = Array.from(new Set(policiesForCompany.map(p => p.company_id).filter((id): id is string => id !== null)));
       const companies = await prisma.company.findMany({
         where: { id: { in: companyIds } },
         select: { id: true, name: true },
@@ -246,60 +250,92 @@ export const commissionRuleRepository = {
 
       const companyMap = new Map(companies.map(c => [c.id, c.name]));
 
-      // Get commission by policy name
-      const commissionByPolicyName = await prisma.policy.groupBy({
-        by: ['policy_name_id'],
+      // Aggregate commission by company
+      const companyCommissionMap = new Map<string, { totalCommission: number; policyCount: number }>();
+      for (const entry of commissionByCompany) {
+        const companyId = policyCompanyMap.get(entry.policy_id);
+        if (!companyId) continue;
+
+        if (!companyCommissionMap.has(companyId)) {
+          companyCommissionMap.set(companyId, { totalCommission: 0, policyCount: 0 });
+        }
+        const current = companyCommissionMap.get(companyId)!;
+        current.totalCommission += entry._sum.commissionAmount || 0;
+        current.policyCount += entry._count.id;
+      }
+
+      // Get commission by policy name from CommissionJournal joined with Policy
+      const commissionByPolicyName = await prisma.commissionJournal.groupBy({
+        by: ['policy_id'],
         where: {
-          start_date: { gte: startDate },
-          calculated_commission_amount: { not: null },
+          calculatedAt: { gte: startDate },
         },
         _sum: {
-          calculated_commission_amount: true,
+          commissionAmount: true,
         },
         _count: {
           id: true,
         },
       });
 
-      // Get policy names
-      const policyNameIds = commissionByPolicyName.map(p => p.policy_name_id).filter((id): id is string => id !== null);
+      // Get policy names from policies
+      const policyIdsForName = commissionByPolicyName.map((p: any) => p.policy_id).filter((id: any): id is string => id !== null);
+      const policiesForName = await prisma.policy.findMany({
+        where: { id: { in: policyIdsForName } },
+        select: { id: true, policy_name_id: true },
+      });
+
+      const policyNameIds = Array.from(new Set(policiesForName.map((p: any) => p.policy_name_id).filter((id: any): id is string => id !== null)));
       const policyNames = await prisma.policyName.findMany({
         where: { id: { in: policyNameIds } },
         select: { id: true, name: true },
       });
 
-      const policyNameMap = new Map(policyNames.map(p => [p.id, p.name]));
+      const policyNameMap = new Map(policyNames.map((p: any) => [p.id, p.name]));
 
-      // Get monthly commission trends using Prisma instead of raw SQL
-      const policies = await prisma.policy.findMany({
+      // Aggregate commission by policy name
+      const policyNameCommissionMap = new Map<string, { totalCommission: number; policyCount: number }>();
+      for (const entry of commissionByPolicyName) {
+        const policy = policiesForName.find((p: any) => p.id === entry.policy_id);
+        if (!policy?.policy_name_id) continue;
+
+        if (!policyNameCommissionMap.has(policy.policy_name_id)) {
+          policyNameCommissionMap.set(policy.policy_name_id, { totalCommission: 0, policyCount: 0 });
+        }
+        const current = policyNameCommissionMap.get(policy.policy_name_id)!;
+        current.totalCommission += entry._sum.commissionAmount || 0;
+        current.policyCount += entry._count.id;
+      }
+
+      // Get monthly commission trends from CommissionJournal
+      const journalEntries = await prisma.commissionJournal.findMany({
         where: {
-          start_date: { gte: startDate },
-          calculated_commission_amount: { not: null },
+          calculatedAt: { gte: startDate },
         },
         select: {
-          start_date: true,
-          calculated_commission_amount: true,
+          calculatedAt: true,
+          commissionAmount: true,
         },
         orderBy: {
-          start_date: 'desc',
+          calculatedAt: 'desc',
         },
       });
 
       // Group by month manually
       const monthlyMap = new Map<string, { total_commission: number; policy_count: number }>();
-      
-      for (const policy of policies) {
-        if (!policy.start_date) continue;
-        
-        const date = new Date(policy.start_date);
+
+      for (const entry of journalEntries) {
+        if (!entry.calculatedAt) continue;
+
+        const date = new Date(entry.calculatedAt);
         const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        
+
         if (!monthlyMap.has(monthKey)) {
           monthlyMap.set(monthKey, { total_commission: 0, policy_count: 0 });
         }
-        
+
         const current = monthlyMap.get(monthKey)!;
-        current.total_commission += Number(policy.calculated_commission_amount || 0);
+        current.total_commission += Number(entry.commissionAmount || 0);
         current.policy_count += 1;
       }
 
@@ -312,19 +348,19 @@ export const commissionRuleRepository = {
         .slice(0, 12);
 
       return {
-        totalCommission: totalCommission._sum.calculated_commission_amount || 0,
+        totalCommission: totalCommission._sum.commissionAmount || 0,
         totalPolicies: totalPoliciesWithCommission,
-        commissionByCompany: commissionByCompany.map(c => ({
-          companyId: c.company_id!,
-          companyName: companyMap.get(c.company_id!) || 'Unknown',
-          totalCommission: c._sum.calculated_commission_amount || 0,
-          policyCount: c._count.id,
+        commissionByCompany: Array.from(companyCommissionMap.entries()).map(([companyId, data]) => ({
+          companyId,
+          companyName: companyMap.get(companyId) || 'Unknown',
+          totalCommission: data.totalCommission,
+          policyCount: data.policyCount,
         })),
-        commissionByPolicyName: commissionByPolicyName.map(p => ({
-          policyNameId: p.policy_name_id!,
-          policyName: policyNameMap.get(p.policy_name_id!) || 'Unknown',
-          totalCommission: p._sum.calculated_commission_amount || 0,
-          policyCount: p._count.id,
+        commissionByPolicyName: Array.from(policyNameCommissionMap.entries()).map(([policyNameId, data]) => ({
+          policyNameId,
+          policyName: policyNameMap.get(policyNameId) || 'Unknown',
+          totalCommission: data.totalCommission,
+          policyCount: data.policyCount,
         })),
         monthlyCommission: monthlyCommission,
         timeRange,

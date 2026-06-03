@@ -127,9 +127,6 @@ const DEDUCTIBLE_OPTIONS: Record<string, number[]> = {
 };
 const HIDE_DEDUCTIBLE_FOR = ["ICICI LOMBARD"];
 
-// Companies for which Commission Add-on field should be shown
-const COMMISSION_ADDON_COMPANIES = ["HDFC ERGO"];
-
 const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const { hasPermission } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -479,9 +476,8 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
         }
       }
 
-      if (!showCommissionAddOn) {
-        delete filteredData.commission_add_on_percentage;
-      }
+      // Always remove commission_add_on_percentage as it's no longer supported
+      delete filteredData.commission_add_on_percentage;
       if (hideDeductible || !deductibleOptions) {
         delete filteredData.deductible_amount_status;
         delete filteredData.deductible_amount;
@@ -706,9 +702,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     : undefined;
   const hideDeductible =
     selectedCompany && HIDE_DEDUCTIBLE_FOR.includes(selectedCompany.name);
-  const showCommissionAddOn =
-    selectedCompany &&
-    COMMISSION_ADDON_COMPANIES.includes(selectedCompany.name);
 
   // Filter policy names by selected company; when no company selected, keep list empty
   const filteredPolicyNames = selectedCompanyId
@@ -730,12 +723,10 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     // Reset Policy Name
     setValue("policy_name_id", undefined, { shouldValidate: true });
 
-    // Reset commission_add_on_percentage if not relevant
-    if (!showCommissionAddOn) {
-      setValue("commission_add_on_percentage", undefined, {
-        shouldValidate: true,
-      });
-    }
+    // Reset commission_add_on_percentage (always remove since it's no longer supported)
+    setValue("commission_add_on_percentage", undefined, {
+      shouldValidate: true,
+    });
 
     // Reset deductible fields if not relevant
     if (hideDeductible || !deductibleOptions) {
@@ -744,7 +735,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     }
   }, [
     selectedCompanyId,
-    showCommissionAddOn,
     hideDeductible,
     deductibleOptions,
     setValue,

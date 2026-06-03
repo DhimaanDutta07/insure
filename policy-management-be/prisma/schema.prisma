@@ -370,6 +370,7 @@ model Policy {
   reminders                     Reminder[]
   claims                        Claim[]
   document_references           PolicyDocumentReference[]
+  commissionJournal             CommissionJournal[]
 
   @@index([company_id])
   @@index([policy_name_id])
@@ -576,6 +577,52 @@ model CommissionRule {
   @@unique([policy_name_id, policyStatus, deductibleType, ageCondition])
   @@index([policy_name_id])
   @@map("commission_rules")
+}
+
+model CommissionCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  is_active   Boolean  @default(true)
+  subCategories CommissionSubCategory[]
+
+  @@map("commission_categories")
+}
+
+model CommissionSubCategory {
+  id                String              @id @default(uuid())
+  name              String
+  categoryId        String
+  category          CommissionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  commissionPercent Float
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  is_active         Boolean             @default(true)
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
+  @@map("commission_sub_categories")
+}
+
+model CommissionJournal {
+  id                  String   @id @default(uuid())
+  policy_id           String
+  policy              Policy   @relation(fields: [policy_id], references: [id], onDelete: Cascade)
+  categoryId          String?
+  subCategoryId       String?
+  commissionPercent   Float
+  premiumAmount       Float
+  commissionAmount    Float
+  calculatedAt        DateTime @default(now())
+  calculatedBy        String?
+  remarks             String?
+
+  @@index([policy_id])
+  @@index([categoryId])
+  @@index([calculatedAt])
+  @@map("commission_journal")
 }
 
 model Claim {

@@ -22,6 +22,7 @@ import PolicyHistorySheet from "./PolicyHistorySheet";
 // import { format } from "date-fns";
 // import { PolicyGroup } from "../../types";
 import type { PolicyGroup } from '../../types/index';
+import { useAuth } from "../../Context/AuthContext";
 
 // Custom hook for drag and drop
 const useDragAndDrop = (onFileSelect: (file: File) => void) => {
@@ -158,6 +159,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
   onCreatePolicy 
 }) => {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const isLoading = externalLoading !== undefined ? externalLoading : loading;
@@ -1038,9 +1040,11 @@ const PolicyList: React.FC<PolicyListProps> = ({
                     <TableHead className="h-10 px-3 text-center font-semibold text-gray-700 text-xs w-[9%]">
                       Premium
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[9%]">
-                      Commission
-                    </TableHead>
+                    {role?.role_name === 'ADMIN' && (
+                      <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[9%]">
+                        Commission
+                      </TableHead>
+                    )}
                     <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[8%]">
                       Period
                     </TableHead>
@@ -1226,12 +1230,14 @@ const PolicyList: React.FC<PolicyListProps> = ({
                             {formatCurrency(policy.premium_amount)}
                           </span>
                         </TableCell>
-                        {/* Commission */}
-                        <TableCell className="h-14 px-3 align-middle text-center">
-                          <span className="text-xs font-semibold text-green-700">
-                            {policy.calculated_commission_amount !== undefined && policy.calculated_commission_amount !== null ? formatCurrency(policy.calculated_commission_amount) : '-'}
-                          </span>
-                        </TableCell>
+                        {/* Commission - admin only */}
+                        {role?.role_name === 'ADMIN' && (
+                          <TableCell className="h-14 px-3 align-middle text-center">
+                            <span className="text-xs font-semibold text-green-700">
+                              {policy.calculated_commission_amount !== undefined && policy.calculated_commission_amount !== null ? formatCurrency(policy.calculated_commission_amount) : '-'}
+                            </span>
+                          </TableCell>
+                        )}
 
                         {/* Period */}
                         <TableCell className="h-14 px-3 align-middle text-left">
@@ -1359,17 +1365,19 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                 </DropdownMenuItem>
 
                                 <DropdownMenuSeparator className="my-0 border-gray-200" />
-                                <DropdownMenuItem
-                                  className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700 cursor-pointer"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setOpenDropdownId(null);
-                                    handleDeleteClick(policy);
-                                  }}
-                                >
-                                  <Trash2 size={14} />
-                                  Delete Policy
-                                </DropdownMenuItem>
+                                {role?.role_name === 'ADMIN' && (
+                                  <DropdownMenuItem
+                                    className="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700 cursor-pointer"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenDropdownId(null);
+                                      handleDeleteClick(policy);
+                                    }}
+                                  >
+                                    <Trash2 size={14} />
+                                    Delete Policy
+                                  </DropdownMenuItem>
+                                )}
 
                               </DropdownMenuContent>
                             </DropdownMenu>

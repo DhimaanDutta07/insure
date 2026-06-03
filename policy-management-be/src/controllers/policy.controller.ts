@@ -438,6 +438,24 @@ export const policyController = {
         memberDocCount: policy.proposer?.insured_members?.reduce((total: number, member: any) => total + (member.documents?.length || 0), 0) || 0
       });
 
+      // Create commission journal entry if commission was calculated
+      if (policy.calculated_commission_amount && policy.calculated_commission_amount > 0) {
+        try {
+          await prisma.commissionJournal.create({
+            data: {
+              policy_id: policy.id,
+              commissionPercent: dataWithDates._commissionPercent || 0,
+              premiumAmount: policy.premium_amount || 0,
+              commissionAmount: policy.calculated_commission_amount,
+              calculatedBy: userId,
+              remarks: `Auto-calculated: ${dataWithDates._commissionRuleId || 'rule'}`,
+            },
+          });
+        } catch (journalError) {
+          console.error('[CREATE] Failed to create commission journal:', journalError);
+        }
+      }
+
       res.status(201).json({
         success: true,
         message: 'Policy created successfully',

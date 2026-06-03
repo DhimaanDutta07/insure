@@ -8,7 +8,7 @@ import {
   DeductibleType,
   PolicyCreationStatus,
 } from "@prisma/client";
-import { policyRepository, POLICY_FULL_INCLUDE } from '../repositories/policyRepository';
+import { policyRepository, POLICY_FULL_INCLUDE, POLICY_LIST_INCLUDE } from '../repositories/policyRepository';
 // import { uploadFile } from '../utils/fileStorage';
 
 const prisma = new PrismaClient();
@@ -355,19 +355,40 @@ export async function calculateAndSetCommission(policyInput: any) {
   // 3. Policy Creation Status
   const policy_creation_status: PolicyCreationStatus = policyInput.policy_creation_status || PolicyCreationStatus.Fresh;
 
-  // 4. Fetch matching CommissionRule
-  const rule = await policyRepository.getMatchingCommissionRule({
-    policy_name_id: policyInput.policy_name_id,
-    policy_creation_status,
-    ageCondition,
-    deductibleType,
+  // 4. Fetch matching CommissionRule with fallback logic
+  const activeRules = await prisma.commissionRule.findMany({
+    where: {
+      policy_name_id: policyInput.policy_name_id,
+      policyStatus: policy_creation_status,
+      is_active: true,
+    },
   });
+
+  // Try exact match first, then fallbacks
+  let rule = activeRules.find(
+    (r) => r.deductibleType === deductibleType && r.ageCondition === ageCondition
+  );
+  // Fallback 1: same deductible, any age
+  if (!rule) {
+    rule = activeRules.find((r) => r.deductibleType === deductibleType);
+  }
+  // Fallback 2: ALL_SI, exact age
+  if (!rule) {
+    rule = activeRules.find(
+      (r) => r.deductibleType === DeductibleType.ALL_SI && r.ageCondition === ageCondition
+    );
+  }
+  // Fallback 3: ALL_SI, any age
+  if (!rule) {
+    rule = activeRules.find((r) => r.deductibleType === DeductibleType.ALL_SI);
+  }
 
   console.log('[Commission] CommissionRule lookup params:', {
     policy_name_id: policyInput.policy_name_id,
     policy_creation_status,
     ageCondition,
     deductibleType,
+    matchedRuleId: rule?.id,
   });
   console.log('[Commission] Fetched rule:', rule);
 
@@ -381,6 +402,8 @@ export async function calculateAndSetCommission(policyInput: any) {
   // 5. Calculate commission based on CommissionRule only (no manual add-on)
   const basePercent = rule.commissionPercent || 0;
   policyInput.calculated_commission_amount = (policyInput.premium_amount * basePercent) / 100;
+  policyInput._commissionPercent = basePercent;
+  policyInput._commissionRuleId = rule.id;
   console.log('[Commission] Calculated commission:', policyInput.calculated_commission_amount, 'Base%:', basePercent, 'Premium Amount:', policyInput.premium_amount);
   console.log('[Commission] Final calculated_commission_amount:', policyInput.calculated_commission_amount);
 }
@@ -1292,6 +1315,10 @@ export const policyService = {
   async getAllPolicies(query: any = {}): Promise<any> {
     const { search, type, policy_creation_status, page = 1, limit = 25, from, to } = query;
     const where: any = {};
+
+    // Only show leaf policies (policies that have not been transitioned/renewed/porteded)
+    // History of transitioned policies is shown in the policy history view
+    where.children_policies = { none: {} };
     
     if (search) {
       const validTypes = ["HEALTH INSURANCE", "MOTOR INSURANCE", "LIFE INSURANCE"];

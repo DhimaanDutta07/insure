@@ -112,7 +112,6 @@ export interface PolicyFormData {
   remarks?: string;
   premium_amount_gst?: number;
   emi_amount?: number;
-  commission_add_on_percentage?: number;
   calculated_commission_amount?: number;
 }
 
@@ -200,14 +199,10 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const [calculatedCommission, setCalculatedCommission] = useState<{
     calculated_commission_amount: number;
     base_percentage: number;
-    add_on_percentage: number;
-    total_percentage: number;
     rule_found: boolean;
   }>({
     calculated_commission_amount: 0,
     base_percentage: 0,
-    add_on_percentage: 0,
-    total_percentage: 0,
     rule_found: false,
   });
   const [isCalculatingCommission, setIsCalculatingCommission] = useState(false);
@@ -608,9 +603,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
           if (typeof policy.emi_amount === 'number') {
             setValue('emi_amount', policy.emi_amount);
           }
-          if (typeof policy.commission_add_on_percentage === 'number') {
-            setValue('commission_add_on_percentage', policy.commission_add_on_percentage);
-          }
           if (typeof policy.calculated_commission_amount === 'number') {
             setValue('calculated_commission_amount', policy.calculated_commission_amount);
           }
@@ -651,7 +643,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wSumInsured = watch("sum_insured");
   const wDeductibleStatus = watch("deductible_amount_status");
   const wPolicyCreationStatus = watch("policy_creation_status");
-  const wCommissionAddOn = watch("commission_add_on_percentage");
   const wProposerFullName = watch("proposer.full_name");
   const wMembers = watch("members");
   const wGstStatus = watch("gst_status");
@@ -720,7 +711,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     const sumInsured = wSumInsured;
     const deductibleStatus = wDeductibleStatus;
     const policyCreationStatus = wPolicyCreationStatus || "Fresh";
-    const commissionAddOn = wCommissionAddOn;
 
     console.log('🔍 [Commission Debug] Input values:', {
       premiumAmount,
@@ -729,8 +719,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       sumInsured,
       deductibleStatus,
       policyCreationStatus,
-      commissionAddOn,
-      commissionAddOnType: typeof commissionAddOn
     });
 
     // Only calculate if we have the minimum required fields
@@ -738,8 +726,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       setCalculatedCommission({
         calculated_commission_amount: 0,
         base_percentage: 0,
-        add_on_percentage: 0,
-        total_percentage: 0,
         rule_found: false,
       });
       return;
@@ -747,12 +733,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
 
     setIsCalculatingCommission(true);
     try {
-      // Ensure commission add-on is a number
-      const commissionAddOnNumber = typeof commissionAddOn === 'number' ? commissionAddOn : 
-                                   typeof commissionAddOn === 'string' ? parseFloat(commissionAddOn) || 0 : 0;
-
-      console.log('🔍 [Commission Debug] Processed commission add-on:', commissionAddOnNumber);
-
       const result = await commissionCalculationService.calculateCommission({
         policy_name_id: policyNameId,
         policy_creation_status: policyCreationStatus,
@@ -760,9 +740,8 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         sum_insured: sumInsured,
         deductible_amount_status: deductibleStatus || false,
         premium_amount: premiumAmount, // Use GST-exclusive amount (same as PolicyForm)
-        commission_add_on_percentage: commissionAddOnNumber,
       });
-      
+
       console.log('🔍 [Commission Debug] Result:', result);
       setCalculatedCommission(result);
     } catch (error) {
@@ -770,14 +749,12 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       setCalculatedCommission({
         calculated_commission_amount: 0,
         base_percentage: 0,
-        add_on_percentage: 0,
-        total_percentage: 0,
         rule_found: false,
       });
     } finally {
       setIsCalculatingCommission(false);
     }
-  }, [wPremiumAmount, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPolicyCreationStatus, wCommissionAddOn]);
+  }, [wPremiumAmount, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPolicyCreationStatus]);
 
   // Calculate commission when relevant fields change
   useEffect(() => {
@@ -794,7 +771,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     wSumInsured,
     wDeductibleStatus,
     wPolicyCreationStatus,
-    wCommissionAddOn,
   ]);
 
   const onFormSubmit = async (data: PolicyFormData) => {
@@ -1245,12 +1221,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
 
   const deductibleOptions = selectedCompany ? DEDUCTIBLE_OPTIONS[selectedCompany.name] : undefined;
   const hideDeductible = selectedCompany && HIDE_DEDUCTIBLE_FOR.includes(selectedCompany.name);
-
-  // Show emi_amount and commission_add_on_percentage if company is HDFC ERGO or value is filled
-  const COMMISSION_COMPANIES = ["HDFC ERGO"];
-  const showCommissionFields =
-    (selectedCompany && COMMISSION_COMPANIES.some(name => selectedCompany.name.includes(name))) ||
-    !!watch("commission_add_on_percentage");
 
   // Recursively remove empty string/null/undefined from objects/arrays
   const cleanObject = (obj: unknown): unknown => {
@@ -1991,27 +1961,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
               )}
             </>
           )}
-                    {showCommissionFields && (
-  <>
-    <div className="space-y-1">
-      <label className="block text-xs font-semibold text-gray-700">
-        Commission Add-on (%)
-      </label>
-      <Input
-        type="number"
-        step="0.01"
-        {...register("commission_add_on_percentage", {
-          setValueAs: (value) => {
-            if (!value || value === '') return undefined;
-            const num = parseFloat(value);
-            return isNaN(num) ? undefined : num;
-          }
-        })}
-        className="h-9 text-sm"
-      />
-    </div>
-  </>
-)}
 {/* Calculated Commission Display */}
 <div className="space-y-1">
   <label className="block text-xs font-semibold text-gray-700">

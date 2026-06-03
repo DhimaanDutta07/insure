@@ -2,35 +2,165 @@ import { PrismaClient, Prisma } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-// Standardized include block - use this everywhere for consistent data structure
+// Optimized include block - use select where possible for better performance
 export const POLICY_FULL_INCLUDE = {
-  documents: true,
-  document_references: {
-    include: {
-      source_document: true
-    }
+  documents: {
+    select: {
+      id: true,
+      file_name: true,
+      original_name: true,
+      relative_path: true,
+      file_type: true,
+      category: true,
+      uploaded_at: true,
+    },
   },
-  company: true,
-  type: { select: { name: true } },
-  policyName: true,
-  policyGroup: true,
-  proposer: {
-    include: {
-      documents: true,
-      insured_members: { 
-        include: { 
-          documents: true 
+  document_references: {
+    select: {
+      id: true,
+      source_document_id: true,
+      transition_type: true,
+      transition_date: true,
+      can_edit: true,
+      can_delete: true,
+      source_document: {
+        select: {
+          id: true,
+          file_name: true,
+          original_name: true,
         },
-        orderBy: { created_at: 'asc' }
       },
     },
   },
-  // Removed members relation - insured members are accessed through proposer relation
-  nominee_payment: true,
-  form_values: true,
-  revenues: true,
-  receipts: true,
-  reminders: true,
+  company: {
+    select: {
+      id: true,
+      name: true,
+      category: true,
+    },
+  },
+  type: { select: { name: true } },
+  policyName: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+    },
+  },
+  policyGroup: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  proposer: {
+    select: {
+      id: true,
+      full_name: true,
+      mobile: true,
+      email: true,
+      date_of_birth: true,
+      gender: true,
+      proposer_salutation: true,
+      documents: {
+        select: {
+          id: true,
+          file_name: true,
+          original_name: true,
+          file_type: true,
+        },
+      },
+      insured_members: {
+        select: {
+          id: true,
+          full_name: true,
+          date_of_birth: true,
+          gender: true,
+          relationship: true,
+          documents: {
+            select: {
+              id: true,
+              file_name: true,
+              original_name: true,
+              file_type: true,
+            },
+          },
+        },
+        orderBy: { created_at: 'asc' },
+      },
+    },
+  },
+  nominee_payment: {
+    select: {
+      id: true,
+      nominee_name: true,
+      nominee_relation: true,
+      payment_mode: true,
+    },
+  },
+  form_values: {
+    select: {
+      id: true,
+      field_name: true,
+      value: true,
+    },
+  },
+  revenues: {
+    select: {
+      id: true,
+      amount: true,
+      received_date: true,
+      payment_mode: true,
+    },
+  },
+  receipts: {
+    select: {
+      id: true,
+      policy_number: true,
+      remark: true,
+      created_at: true,
+    },
+  },
+  reminders: {
+    select: {
+      id: true,
+      remind_on: true,
+      type: true,
+      status: true,
+    },
+  },
+} as const;
+
+// Lightweight include for list views - only essential fields for display
+export const POLICY_LIST_INCLUDE = {
+  company: {
+    select: {
+      id: true,
+      name: true,
+      category: true,
+    },
+  },
+  type: { select: { name: true } },
+  policyName: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  policyGroup: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  proposer: {
+    select: {
+      id: true,
+      full_name: true,
+      mobile: true,
+      email: true,
+    },
+  },
 } as const;
 
 // Removed hardcoded COMPANY_NAME_TO_ID mapping - will use Prisma lookup instead
@@ -786,7 +916,7 @@ export const policyRepository = {
         orderBy: { created_at: 'desc' },
         skip,
         take,
-        include: POLICY_FULL_INCLUDE,
+        include: POLICY_LIST_INCLUDE,
       }),
       prisma.policy.count({ where: processedWhere }),
     ]);

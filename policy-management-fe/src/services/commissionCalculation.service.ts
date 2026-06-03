@@ -17,7 +17,6 @@ export interface CommissionCalculationParams {
   sum_insured: number;
   deductible_amount_status: boolean;
   premium_amount: number;
-  commission_add_on_percentage?: number;
 }
 
 export const commissionCalculationService = {
@@ -73,8 +72,6 @@ export const commissionCalculationService = {
   async calculateCommission(params: CommissionCalculationParams): Promise<{
     calculated_commission_amount: number;
     base_percentage: number;
-    add_on_percentage: number;
-    total_percentage: number;
     rule_found: boolean;
   }> {
     try {
@@ -83,8 +80,6 @@ export const commissionCalculationService = {
         return {
           calculated_commission_amount: 0,
           base_percentage: 0,
-          add_on_percentage: 0,
-          total_percentage: 0,
           rule_found: false,
         };
       }
@@ -96,9 +91,9 @@ export const commissionCalculationService = {
 
       // Fetch commission rules
       const rules = await this.getCommissionRules(params.policy_name_id);
-      
+
       // Find matching rule
-      const matchingRule = rules.find(rule => 
+      const matchingRule = rules.find(rule =>
         rule.policyStatus === params.policy_creation_status &&
         rule.ageCondition === ageCondition &&
         rule.deductibleType === deductibleType &&
@@ -110,32 +105,23 @@ export const commissionCalculationService = {
         return {
           calculated_commission_amount: 0,
           base_percentage: 0,
-          add_on_percentage: 0,
-          total_percentage: 0,
           rule_found: false,
         };
       }
 
-      // Calculate commission
+      // Calculate commission using only base percentage from rule
       const basePercentage = matchingRule.commissionPercent || 0;
-      const addOnPercentage = params.commission_add_on_percentage || 0;
-      const totalPercentage = basePercentage + addOnPercentage;
-      const calculatedCommission = (params.premium_amount * totalPercentage) / 100;
+      const calculatedCommission = (params.premium_amount * basePercentage) / 100;
 
       console.log('🔍 [Service Debug] Commission calculation:', {
         basePercentage,
-        addOnPercentage,
-        totalPercentage,
         premiumAmount: params.premium_amount,
         calculatedCommission,
-        inputAddOn: params.commission_add_on_percentage
       });
 
       return {
         calculated_commission_amount: calculatedCommission,
         base_percentage: basePercentage,
-        add_on_percentage: addOnPercentage,
-        total_percentage: totalPercentage,
         rule_found: true,
       };
     } catch (error) {
@@ -143,8 +129,6 @@ export const commissionCalculationService = {
       return {
         calculated_commission_amount: 0,
         base_percentage: 0,
-        add_on_percentage: 0,
-        total_percentage: 0,
         rule_found: false,
       };
     }
