@@ -33,20 +33,9 @@ const extractUserId = (req: Request): string | null => {
   }
 };
 
-const extractUserRole = async (req: Request): Promise<string | null> => {
-  const userId = extractUserId(req);
-  if (!userId) return null;
-
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: { select: { role_name: true } } }
-    });
-    return user?.role?.role_name || null;
-  } catch (error) {
-    console.error("Error fetching user role:", error);
-    return null;
-  }
+const extractUserRole = (req: Request): string | null => {
+  // Use role from JWT payload instead of database query for better performance
+  return (req as any).jwtPayload?.role || null;
 };
 
 const filterCommissionData = (data: any, userRole: string | null): any => {

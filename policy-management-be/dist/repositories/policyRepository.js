@@ -1,0 +1,1265 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.policyRepository = exports.POLICY_LIST_INCLUDE = exports.POLICY_FULL_INCLUDE = void 0;
+const client_1 = require("@prisma/client");
+const prisma = new client_1.PrismaClient();
+// Optimized include block - use select where possible for better performance
+exports.POLICY_FULL_INCLUDE = {
+    documents: {
+        select: {
+            id: true,
+            file_name: true,
+            original_name: true,
+            relative_path: true,
+            file_type: true,
+            category: true,
+            uploaded_at: true,
+        },
+    },
+    document_references: {
+        select: {
+            id: true,
+            source_document_id: true,
+            transition_type: true,
+            transition_date: true,
+            can_edit: true,
+            can_delete: true,
+            source_document: {
+                select: {
+                    id: true,
+                    file_name: true,
+                    original_name: true,
+                },
+            },
+        },
+    },
+    company: {
+        select: {
+            id: true,
+            name: true,
+            category: true,
+        },
+    },
+    type: { select: { name: true } },
+    policyName: {
+        select: {
+            id: true,
+            name: true,
+            description: true,
+        },
+    },
+    policyGroup: {
+        select: {
+            id: true,
+            name: true,
+        },
+    },
+    proposer: {
+        select: {
+            id: true,
+            full_name: true,
+            mobile: true,
+            email: true,
+            date_of_birth: true,
+            gender: true,
+            proposer_salutation: true,
+            documents: {
+                select: {
+                    id: true,
+                    file_name: true,
+                    original_name: true,
+                    file_type: true,
+                },
+            },
+            insured_members: {
+                select: {
+                    id: true,
+                    full_name: true,
+                    date_of_birth: true,
+                    gender: true,
+                    relationship: true,
+                    documents: {
+                        select: {
+                            id: true,
+                            file_name: true,
+                            original_name: true,
+                            file_type: true,
+                        },
+                    },
+                },
+                orderBy: { created_at: 'asc' },
+            },
+        },
+    },
+    nominee_payment: {
+        select: {
+            id: true,
+            nominee_name: true,
+            nominee_relation: true,
+            payment_mode: true,
+        },
+    },
+    form_values: {
+        select: {
+            id: true,
+            field_name: true,
+            value: true,
+        },
+    },
+    revenues: {
+        select: {
+            id: true,
+            amount: true,
+            received_date: true,
+            payment_mode: true,
+        },
+    },
+    receipts: {
+        select: {
+            id: true,
+            policy_number: true,
+            remark: true,
+            created_at: true,
+        },
+    },
+    reminders: {
+        select: {
+            id: true,
+            remind_on: true,
+            type: true,
+            status: true,
+        },
+    },
+};
+// Lightweight include for list views - only essential fields for display
+exports.POLICY_LIST_INCLUDE = {
+    company: {
+        select: {
+            id: true,
+            name: true,
+        },
+    },
+    type: { select: { name: true } },
+    policyName: {
+        select: {
+            id: true,
+            name: true,
+        },
+    },
+    policyGroup: {
+        select: {
+            id: true,
+            name: true,
+        },
+    },
+    proposer: {
+        select: {
+            id: true,
+            full_name: true,
+            mobile: true,
+        },
+    },
+};
+// Removed hardcoded COMPANY_NAME_TO_ID mapping - will use Prisma lookup instead
+// Removed hardcoded POLICY_NAME_TO_ID mapping - will use Prisma lookup instead
+exports.policyRepository = {
+    // Create a new policy with all nested relations and documents (legacy method)
+    async createPolicy(data) {
+        // Debug: log the full data object before mapping
+        // console.log('Raw data before company mapping:', JSON.stringify(data, null, 2));
+        // --- Company mapping logic ---
+        let companyName = data.company_name || data.company;
+        if (companyName && !data.company_id) {
+            // Use Prisma to find existing company by name instead of hardcoded mapping
+            try {
+                const existingCompany = await prisma.company.findFirst({
+                    where: { name: companyName }
+                });
+                if (existingCompany) {
+                    data.company_id = existingCompany.id;
+                    console.log('Mapping company name:', companyName, 'to company_id:', data.company_id);
+                }
+                else {
+                    console.warn('Company not found:', companyName);
+                    delete data.company_name;
+                    delete data.company;
+                }
+            }
+            catch (error) {
+                console.warn('Error finding company:', error);
+                delete data.company_name;
+                delete data.company;
+            }
+        }
+        if (data.company_id) {
+            data.company = { connect: { id: data.company_id } };
+            delete data.company_id;
+        }
+        else if (!data.company) {
+            // Make company optional - don't throw error
+            console.warn('No company provided for policy creation');
+        }
+        // --- PolicyName mapping logic ---
+        let policyName = data.policy_name_name || data.policy_name;
+        if (policyName && !data.policy_name_id) {
+            console.log(`🔍 Looking for policy name: "${policyName}"`);
+            console.log(`🔍 Company ID: ${data.company_id}, Policy Group ID: ${data.policy_group_id}`);
+            // Use Prisma to find existing policy name by name instead of hardcoded mapping
+            try {
+                // First try to find with company and policy group (as per seeded data structure)
+                let existingPolicyName = null;
+                if (data.company_id && data.policy_group_id) {
+                    console.log(`🔍 Searching with company and policy group constraints`);
+                    existingPolicyName = await prisma.policyName.findFirst({
+                        where: {
+                            name: policyName,
+                            company_id: data.company_id,
+                            policy_group_id: data.policy_group_id
+                        }
+                    });
+                }
+                // If not found, try just by name
+                if (!existingPolicyName) {
+                    console.log(`🔍 Searching by name only`);
+                    existingPolicyName = await prisma.policyName.findFirst({
+                        where: { name: policyName }
+                    });
+                }
+                if (existingPolicyName) {
+                    data.policy_name_id = existingPolicyName.id;
+                    console.log('✅ Mapping policy name:', policyName, 'to policy_name_id:', data.policy_name_id);
+                }
+                else {
+                    console.warn('❌ Policy name not found:', policyName);
+                    delete data.policy_name_name;
+                    delete data.policy_name;
+                }
+            }
+            catch (error) {
+                console.warn('❌ Error finding policy name:', error);
+                delete data.policy_name_name;
+                delete data.policy_name;
+            }
+        }
+        if (data.policy_name_id) {
+            data.policyName = { connect: { id: data.policy_name_id } };
+            delete data.policy_name_id;
+        }
+        else if (!data.policyName) {
+            // Make policy name optional - don't throw error
+            console.warn('No policy name provided for policy creation');
+        }
+        // --- End PolicyName mapping logic ---
+        // --- PolicyType mapping logic ---
+        if (data.policy_type_id) {
+            data.type = { connect: { id: data.policy_type_id } };
+            delete data.policy_type_id;
+        }
+        else if (data.policy_type_name && typeof data.policy_type_name === 'string') {
+            // Try to find existing policy type by name instead of hardcoded mapping
+            try {
+                const existingType = await prisma.policyType.findFirst({
+                    where: { name: data.policy_type_name }
+                });
+                if (existingType) {
+                    data.type = { connect: { id: existingType.id } };
+                }
+                else {
+                    console.warn('Policy type not found:', data.policy_type_name);
+                    delete data.policy_type_name;
+                }
+            }
+            catch (error) {
+                console.warn('Error finding policy type:', error);
+                delete data.policy_type_name;
+            }
+        }
+        else if (data.type && typeof data.type === 'string') {
+            // Try to find existing policy type by name instead of hardcoded mapping
+            try {
+                const existingType = await prisma.policyType.findFirst({
+                    where: { name: data.type }
+                });
+                if (existingType) {
+                    data.type = { connect: { id: existingType.id } };
+                }
+                else {
+                    console.warn('Policy type not found:', data.type);
+                    delete data.type;
+                }
+            }
+            catch (error) {
+                console.warn('Error finding policy type:', error);
+                delete data.type;
+            }
+        }
+        else if (!data.type) {
+            // Make policy type optional - don't throw error
+            console.warn('No policy type provided for policy creation');
+        }
+        // --- End PolicyType mapping logic ---
+        // --- PolicyGroup mapping logic ---
+        let policyGroupName = data.policy_group_name || data.policy_group;
+        if (policyGroupName && !data.policy_group_id) {
+            // Normalize policy group name to match database (uppercase)
+            const normalizedGroupName = policyGroupName.toUpperCase();
+            // Use Prisma to find existing policy group by name
+            try {
+                const existingPolicyGroup = await prisma.policyGroup.findFirst({
+                    where: { name: normalizedGroupName }
+                });
+                if (existingPolicyGroup) {
+                    data.policy_group_id = existingPolicyGroup.id;
+                    console.log('Mapping policy group name:', policyGroupName, 'to policy_group_id:', data.policy_group_id);
+                }
+                else {
+                    console.warn('Policy group not found:', normalizedGroupName);
+                    delete data.policy_group_name;
+                    delete data.policy_group;
+                }
+            }
+            catch (error) {
+                console.warn('Error finding policy group:', error);
+                delete data.policy_group_name;
+                delete data.policy_group;
+            }
+        }
+        if (data.policy_group_id) {
+            data.policyGroup = { connect: { id: data.policy_group_id } };
+            delete data.policy_group_id;
+        }
+        else if (!data.policyGroup) {
+            // Make policy group optional - don't throw error
+            console.warn('No policy group provided for policy creation');
+        }
+        // --- End PolicyGroup mapping logic ---
+        // Helper to convert legacy field names before usage
+        function convertDocumentFields(doc) {
+            if (doc.file_url && !doc.relative_path) {
+                doc.relative_path = doc.file_url;
+                delete doc.file_url;
+            }
+            return doc;
+        }
+        // Fix proposer documents for nested create
+        if (data.proposer && data.proposer.create) {
+            if (Array.isArray(data.proposer.create.documents?.create)) {
+                data.proposer.create.documents.create = data.proposer.create.documents.create.map((doc) => convertDocumentFields({
+                    ...doc,
+                    category: 'PROPOSER_DOCUMENT',
+                }));
+            }
+        }
+        // Fix nominee_payment for nested create
+        if (data.nominee_payment) {
+            data.nominee_payment = { create: data.nominee_payment };
+        }
+        // Fix members for nested create - they will be created directly under policy
+        // and Prisma will automatically set the policy_id
+        if (data.members && data.members.create && Array.isArray(data.members.create)) {
+            data.members.create = data.members.create.map((member) => {
+                if (member.documents?.create && Array.isArray(member.documents.create)) {
+                    member.documents.create = member.documents.create.map((doc) => convertDocumentFields({
+                        ...doc,
+                        category: 'INSURED_MEMBER_DOCUMENT'
+                    }));
+                }
+                return member;
+            });
+        }
+        // Fix main policy documents for nested create
+        if (data.documents && data.documents.create && Array.isArray(data.documents.create)) {
+            data.documents.create = data.documents.create.map(convertDocumentFields);
+            console.log('Keeping documents as prepared by service layer with categories:', data.documents.create.map((d) => d.category));
+        }
+        else if (Array.isArray(data.documents)) {
+            // Legacy format - convert to nested create with POLICY_DOCUMENT category
+            data.documents = { create: data.documents.map((doc) => convertDocumentFields({ ...doc, category: 'POLICY_DOCUMENT' })) };
+        }
+        console.log('Creating policy with final data structure:', JSON.stringify(data, null, 2));
+        // Create the policy with all nested relations
+        const result = await prisma.policy.create({
+            data,
+            include: exports.POLICY_FULL_INCLUDE,
+        });
+        console.log('Policy created successfully with nested relations');
+        return result;
+    },
+    // async bulkCreatePolicy(data: Prisma.PolicyCreateInput) {
+    //   // Basic validation
+    //   if (!data.policy_number) {
+    //     throw new Error('Policy number is required');
+    //   }
+    //   if (!data.customer_name) {
+    //     throw new Error('Customer name is required');
+    //   }
+    //   if (data.proposer?.create?.insured_members?.create) {
+    //     const members = Array.isArray(data.proposer.create.insured_members.create) 
+    //       ? data.proposer.create.insured_members.create 
+    //       : [data.proposer.create.insured_members.create];
+    //     const invalidMembers = members.filter(
+    //       (member: any) => !member.name || !member.relation_to_proposer || member.relation_to_proposer === 'false' || !member.date_of_birth
+    //     );
+    //     if (invalidMembers.length > 0) {
+    //       throw new Error(`Invalid insured members detected: ${JSON.stringify(invalidMembers)}`);
+    //     }
+    //   }
+    //   // --- Company mapping logic ---
+    //   let companyName = (data as any).company_name || (data as any).company;
+    //   if (companyName && !(data as any).company_id) {
+    //     // Use Prisma to find existing company by name instead of hardcoded mapping
+    //     try {
+    //       const existingCompany = await prisma.company.findFirst({
+    //         where: { name: companyName }
+    //       });
+    //       if (existingCompany) {
+    //         (data as any).company_id = existingCompany.id;
+    //         console.log('Mapping company name:', companyName, 'to company_id:', (data as any).company_id);
+    //       } else {
+    //         console.warn('Company not found:', companyName);
+    //         delete (data as any).company_name;
+    //         delete (data as any).company;
+    //       }
+    //     } catch (error) {
+    //       console.warn('Error finding company:', error);
+    //       delete (data as any).company_name;
+    //       delete (data as any).company;
+    //     }
+    //   }
+    //   if ((data as any).company_id) {
+    //     (data as any).company = { connect: { id: (data as any).company_id } };
+    //     delete (data as any).company_id;
+    //   } else if (!(data as any).company) {
+    //     // Make company optional - don't throw error
+    //     console.warn('No company provided for policy creation');
+    //   }
+    //   // --- End Company mapping logic ---
+    //   // --- PolicyName mapping logic ---
+    //   let policyName = (data as any).policy_name_name || (data as any).policy_name;
+    //   if (policyName && !(data as any).policy_name_id) {
+    //     console.log(`🔍 Looking for policy name: "${policyName}"`);
+    //     console.log(`🔍 Company ID: ${(data as any).company_id}, Policy Group ID: ${(data as any).policy_group_id}`);
+    //     // Use Prisma to find existing policy name by name instead of hardcoded mapping
+    //     try {
+    //       // First try to find with company and policy group (as per seeded data structure)
+    //       let existingPolicyName = null;
+    //       if ((data as any).company_id && (data as any).policy_group_id) {
+    //         console.log(`🔍 Searching with company and policy group constraints`);
+    //         existingPolicyName = await prisma.policyName.findFirst({
+    //           where: { 
+    //             name: policyName,
+    //             company_id: (data as any).company_id,
+    //             policy_group_id: (data as any).policy_group_id
+    //           }
+    //         });
+    //       }
+    //       // If not found, try just by name
+    //       if (!existingPolicyName) {
+    //         console.log(`🔍 Searching by name only`);
+    //         existingPolicyName = await prisma.policyName.findFirst({
+    //           where: { name: policyName }
+    //         });
+    //       }
+    //       if (existingPolicyName) {
+    //         (data as any).policy_name_id = existingPolicyName.id;
+    //         console.log('✅ Mapping policy name:', policyName, 'to policy_name_id:', (data as any).policy_name_id);
+    //       } else {
+    //         console.warn('❌ Policy name not found:', policyName);
+    //         delete (data as any).policy_name_name;
+    //         delete (data as any).policy_name;
+    //       }
+    //     } catch (error) {
+    //       console.warn('❌ Error finding policy name:', error);
+    //       delete (data as any).policy_name_name;
+    //       delete (data as any).policy_name;
+    //     }
+    //   }
+    //   if ((data as any).policy_name_id) {
+    //     (data as any).policyName = { connect: { id: (data as any).policy_name_id } };
+    //     delete (data as any).policy_name_id;
+    //   } else if (!(data as any).policyName) {
+    //     // Make policy name optional - don't throw error
+    //     console.warn('No policy name provided for policy creation');
+    //   }
+    //   // --- End PolicyName mapping logic ---
+    //   // --- PolicyType mapping logic ---
+    //   if ((data as any).policy_type_id) {
+    //     (data as any).type = { connect: { id: (data as any).policy_type_id } };
+    //     delete (data as any).policy_type_id;
+    //   } else if ((data as any).policy_type_name && typeof (data as any).policy_type_name === 'string') {
+    //     // Try to find existing policy type by name instead of hardcoded mapping
+    //     try {
+    //       const existingType = await prisma.policyType.findFirst({
+    //         where: { name: (data as any).policy_type_name }
+    //       });
+    //       if (existingType) {
+    //         (data as any).type = { connect: { id: existingType.id } };
+    //       } else {
+    //         console.warn('Policy type not found:', (data as any).policy_type_name);
+    //         delete (data as any).policy_type_name;
+    //       }
+    //     } catch (error) {
+    //       console.warn('Error finding policy type:', error);
+    //       delete (data as any).policy_type_name;
+    //     }
+    //   } else if ((data as any).type && typeof (data as any).type === 'string') {
+    //     // Try to find existing policy type by name instead of hardcoded mapping
+    //     try {
+    //       const existingType = await prisma.policyType.findFirst({
+    //         where: { name: (data as any).type }
+    //       });
+    //       if (existingType) {
+    //         (data as any).type = { connect: { id: existingType.id } };
+    //       } else {
+    //         console.warn('Policy type not found:', (data as any).type);
+    //         delete (data as any).type;
+    //       }
+    //     } catch (error) {
+    //       console.warn('Error finding policy type:', error);
+    //       delete (data as any).type;
+    //     }
+    //   } else if (!(data as any).type) {
+    //     // Make policy type optional - don't throw error
+    //     console.warn('No policy type provided for policy creation');
+    //   }
+    //   // --- End PolicyType mapping logic ---
+    //   // --- PolicyGroup mapping logic ---
+    //   let policyGroupName = (data as any).policy_group_name || (data as any).policy_group;
+    //   if (policyGroupName && !(data as any).policy_group_id) {
+    //     // Normalize policy group name to match database (uppercase)
+    //     const normalizedGroupName = policyGroupName.toUpperCase();
+    //     // Use Prisma to find existing policy group by name
+    //     try {
+    //       const existingPolicyGroup = await prisma.policyGroup.findFirst({
+    //         where: { name: normalizedGroupName }
+    //       });
+    //       if (existingPolicyGroup) {
+    //         (data as any).policy_group_id = existingPolicyGroup.id;
+    //         console.log('Mapping policy group name:', policyGroupName, 'to policy_group_id:', (data as any).policy_group_id);
+    //       } else {
+    //         console.warn('Policy group not found:', normalizedGroupName);
+    //         delete (data as any).policy_group_name;
+    //         delete (data as any).policy_group;
+    //       }
+    //     } catch (error) {
+    //       console.warn('Error finding policy group:', error);
+    //       delete (data as any).policy_group_name;
+    //       delete (data as any).policy_group;
+    //     }
+    //   }
+    //   if ((data as any).policy_group_id) {
+    //     (data as any).policyGroup = { connect: { id: (data as any).policy_group_id } };
+    //     delete (data as any).policy_group_id;
+    //   } else if (!(data as any).policyGroup) {
+    //     // Make policy group optional - don't throw error
+    //     console.warn('No policy group provided for policy creation');
+    //   }
+    //   // --- End PolicyGroup mapping logic ---
+    //   // Clean up any remaining string fields that don't belong in the Policy model
+    //   delete (data as any).company_name;
+    //   delete (data as any).policy_name_name;
+    //   delete (data as any).policy_type_name;
+    //   delete (data as any).policy_group_name;
+    //   // Helper to convert legacy field names before usage
+    //   function convertDocumentFields(doc: any) {
+    //     if (doc.file_url && !doc.relative_path) {
+    //       doc.relative_path = doc.file_url;
+    //       delete doc.file_url;
+    //     }
+    //     return doc;
+    //   }
+    //   // Fix proposer documents for nested create
+    //   if (data.proposer?.create) {
+    //     if (Array.isArray(data.proposer.create.documents?.create)) {
+    //       data.proposer.create.documents.create = data.proposer.create.documents.create.map((doc: any) =>
+    //         convertDocumentFields({
+    //           ...doc,
+    //           category: 'PROPOSER_DOCUMENT',
+    //         })
+    //       );
+    //     }
+    //     // Sanitize insured_members
+    //     if (data.proposer.create.insured_members?.create) {
+    //       const members = Array.isArray(data.proposer.create.insured_members.create) 
+    //         ? data.proposer.create.insured_members.create 
+    //         : [data.proposer.create.insured_members.create];
+    //       data.proposer.create.insured_members.create = members.map((member: any) => ({
+    //         ...member,
+    //         pre_existing: Boolean(member.pre_existing),
+    //         insured_member_medical_condition: Boolean(member.insured_member_medical_condition),
+    //         insured_member_medical_remarks: member.insured_member_medical_remarks === 'false' ? undefined : member.insured_member_medical_remarks,
+    //       }));
+    //     }
+    //   }
+    //   // Fix nominee_payment for nested create
+    //   if (data.nominee_payment?.create) {
+    //     if (data.nominee_payment.create.payment_mode === 'false' || !data.nominee_payment.create.payment_mode) {
+    //       delete data.nominee_payment;
+    //     } else {
+    //       data.nominee_payment.create = {
+    //         payment_mode: data.nominee_payment.create.payment_mode,
+    //         nominee_name: data.nominee_payment.create.nominee_name || undefined,
+    //         nominee_relation: data.nominee_payment.create.nominee_relation || undefined,
+    //         nominee_dob: data.nominee_payment.create.nominee_dob || undefined,
+    //       };
+    //     }
+    //   }
+    //   // Fix members for nested create
+    //   if (data.members?.create && Array.isArray(data.members.create)) {
+    //     data.members.create = data.members.create.map((member: any) => {
+    //       if (member.documents?.create && Array.isArray(member.documents.create)) {
+    //         member.documents.create = member.documents.create.map((doc: any) =>
+    //           convertDocumentFields({
+    //             ...doc,
+    //             category: 'INSURED_MEMBER_DOCUMENT',
+    //           })
+    //         );
+    //       }
+    //       return {
+    //         ...member,
+    //         pre_existing: Boolean(member.pre_existing),
+    //         insured_member_medical_condition: Boolean(member.insured_member_medical_condition),
+    //         insured_member_medical_remarks: member.insured_member_medical_remarks === 'false' ? undefined : member.insured_member_medical_remarks,
+    //       };
+    //     });
+    //   }
+    //   // Fix main policy documents for nested create
+    //   if (data.documents?.create && Array.isArray(data.documents.create)) {
+    //     data.documents.create = data.documents.create.map(convertDocumentFields);
+    //     console.log('Keeping documents as prepared by service layer with categories:', data.documents.create.map((d: any) => d.category));
+    //   } else if (Array.isArray(data.documents)) {
+    //     data.documents = {
+    //       create: data.documents.map((doc: any) => convertDocumentFields({ ...doc, category: 'POLICY_DOCUMENT' })),
+    //     };
+    //   }
+    //   console.log('Creating policy with final data structure:', JSON.stringify(data, null, 2));
+    //   try {
+    //     const result = await prisma.policy.create({
+    //       data,
+    //       include: POLICY_FULL_INCLUDE,
+    //     });
+    //     console.log('Policy created successfully with nested relations');
+    //     return result;
+    //   } catch (error) {
+    //     console.error('Prisma error creating policy:', error);
+    //     throw new Error(`Failed to create policy: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+    //   }
+    // },
+    async bulkCreatePolicy(data) {
+        let insuredMembersToCreate = [];
+        console.log('🚀 [REPOSITORY] Bulk create policy data:', {
+            policy_number: data.policy_number,
+            customer_name: data.customer_name,
+            policy_salutation: data.policy_salutation,
+            nominee_payment: data.nominee_payment,
+            proposer: data.proposer
+        });
+        // Basic validation
+        if (!data.policy_number) {
+            throw new Error('Policy number is required');
+        }
+        if (!data.customer_name) {
+            throw new Error('Customer name is required');
+        }
+        // Extract and validate insured_members (from proposer.create)
+        if (data.proposer?.create?.insured_members?.create) {
+            const members = Array.isArray(data.proposer.create.insured_members.create)
+                ? data.proposer.create.insured_members.create
+                : [data.proposer.create.insured_members.create];
+            const invalidMembers = members.filter((member) => !member.name ||
+                !member.relation_to_proposer ||
+                member.relation_to_proposer === 'false' ||
+                !member.date_of_birth);
+            if (invalidMembers.length > 0) {
+                throw new Error(`Invalid insured members detected: ${JSON.stringify(invalidMembers)}`);
+            }
+            insuredMembersToCreate = members.map((member) => ({
+                ...member,
+                pre_existing: Boolean(member.pre_existing),
+                insured_member_medical_condition: Boolean(member.insured_member_medical_condition),
+                insured_member_medical_remarks: member.insured_member_medical_remarks === 'false' ? undefined : member.insured_member_medical_remarks,
+            }));
+            // Remove from nested proposer.create to avoid constraint error
+            delete data.proposer.create.insured_members;
+        }
+        // --- Company Mapping ---
+        let companyName = data.company_name || data.company;
+        if (companyName && !data.company_id) {
+            try {
+                const existingCompany = await prisma.company.findFirst({ where: { name: companyName } });
+                if (existingCompany) {
+                    data.company_id = existingCompany.id;
+                    console.log('Mapping company:', companyName, '→', existingCompany.id);
+                }
+                else {
+                    console.warn('Company not found:', companyName);
+                    delete data.company_name;
+                    delete data.company;
+                }
+            }
+            catch (error) {
+                console.warn('Error finding company:', error);
+            }
+        }
+        if (data.company_id) {
+            data.company = { connect: { id: data.company_id } };
+            delete data.company_id;
+        }
+        // --- Policy Name Mapping ---
+        let policyName = data.policy_name_name || data.policy_name;
+        if (policyName && !data.policy_name_id) {
+            try {
+                let existingPolicyName = null;
+                if (data.company_id && data.policy_group_id) {
+                    existingPolicyName = await prisma.policyName.findFirst({
+                        where: {
+                            name: policyName,
+                            company_id: data.company_id,
+                            policy_group_id: data.policy_group_id,
+                        },
+                    });
+                }
+                if (!existingPolicyName) {
+                    existingPolicyName = await prisma.policyName.findFirst({ where: { name: policyName } });
+                }
+                if (existingPolicyName) {
+                    data.policy_name_id = existingPolicyName.id;
+                }
+                else {
+                    console.warn('Policy name not found:', policyName);
+                }
+            }
+            catch (error) {
+                console.warn('Error finding policy name:', error);
+            }
+        }
+        if (data.policy_name_id) {
+            data.policyName = { connect: { id: data.policy_name_id } };
+            delete data.policy_name_id;
+        }
+        // --- Policy Type Mapping ---
+        if (data.policy_type_id) {
+            data.type = { connect: { id: data.policy_type_id } };
+            delete data.policy_type_id;
+        }
+        else if (data.policy_type_name) {
+            try {
+                const existingType = await prisma.policyType.findFirst({ where: { name: data.policy_type_name } });
+                if (existingType) {
+                    data.type = { connect: { id: existingType.id } };
+                }
+            }
+            catch (error) {
+                console.warn('Error finding policy type:', error);
+            }
+            delete data.policy_type_name;
+        }
+        // --- Policy Group Mapping ---
+        let policyGroupName = data.policy_group_name || data.policy_group;
+        if (policyGroupName && !data.policy_group_id) {
+            try {
+                const existingGroup = await prisma.policyGroup.findFirst({
+                    where: { name: policyGroupName.toUpperCase() },
+                });
+                if (existingGroup) {
+                    data.policy_group_id = existingGroup.id;
+                }
+            }
+            catch (error) {
+                console.warn('Error finding policy group:', error);
+            }
+        }
+        if (data.policy_group_id) {
+            data.policyGroup = { connect: { id: data.policy_group_id } };
+            delete data.policy_group_id;
+        }
+        // --- Document Conversion ---
+        function convertDocumentFields(doc) {
+            if (doc.file_url && !doc.relative_path) {
+                doc.relative_path = doc.file_url;
+                delete doc.file_url;
+            }
+            return doc;
+        }
+        // Proposer Documents
+        if (data.proposer?.create?.documents?.create) {
+            const docs = Array.isArray(data.proposer.create.documents.create)
+                ? data.proposer.create.documents.create
+                : [data.proposer.create.documents.create];
+            data.proposer.create.documents.create = docs.map((doc) => convertDocumentFields({ ...doc, category: 'PROPOSER_DOCUMENT' }));
+        }
+        // Nominee Fix
+        if (data.nominee_payment?.create) {
+            if (data.nominee_payment.create.payment_mode === 'false' ||
+                !data.nominee_payment.create.payment_mode) {
+                delete data.nominee_payment;
+            }
+            else {
+                data.nominee_payment.create = {
+                    payment_mode: data.nominee_payment.create.payment_mode,
+                    nominee_name: data.nominee_payment.create.nominee_name || undefined,
+                    nominee_salutation: data.nominee_payment.create.nominee_salutation || undefined,
+                    nominee_relation: data.nominee_payment.create.nominee_relation || undefined,
+                    nominee_dob: data.nominee_payment.create.nominee_dob || undefined,
+                    payment_reference: data.nominee_payment.create.payment_reference || undefined,
+                    bank_name: data.nominee_payment.create.bank_name || undefined,
+                    bank_account_number: data.nominee_payment.create.bank_account_number || undefined,
+                    bank_ifsc_code: data.nominee_payment.create.bank_ifsc_code || undefined,
+                    bank_branch_name: data.nominee_payment.create.bank_branch_name || undefined,
+                };
+            }
+        }
+        // Main Policy Documents
+        if (data.documents?.create && Array.isArray(data.documents.create)) {
+            data.documents.create = data.documents.create.map(convertDocumentFields);
+        }
+        else if (Array.isArray(data.documents)) {
+            data.documents = {
+                create: data.documents.map((doc) => convertDocumentFields({ ...doc, category: 'POLICY_DOCUMENT' })),
+            };
+        }
+        // Clean up string fields that don't belong in Prisma Policy model
+        delete data.company_name;
+        delete data.policy_type_name;
+        delete data.policy_name_name;
+        delete data.policy_group_name;
+        console.log('🚀 Creating policy with data:', JSON.stringify(data, null, 2));
+        console.log('🚀 [REPOSITORY] Commission amount in data:', data.calculated_commission_amount);
+        // const createPolicyData = {data.company_name, ...data}
+        try {
+            const result = await prisma.policy.create({
+                data,
+                include: exports.POLICY_FULL_INCLUDE,
+            });
+            // Create insured members separately
+            if (insuredMembersToCreate.length > 0) {
+                const proposerId = result.proposer?.id;
+                const policyId = result.id;
+                if (!proposerId || !policyId) {
+                    throw new Error('Missing proposer or policy ID to create insured members');
+                }
+                await prisma.insuredMember.createMany({
+                    data: insuredMembersToCreate.map((member) => ({
+                        ...member,
+                        proposer_id: proposerId,
+                        policy_id: policyId,
+                    })),
+                });
+                console.log(`✅ Created ${insuredMembersToCreate.length} insured members`);
+            }
+            return result;
+        }
+        catch (error) {
+            console.error('❌ Prisma error creating policy:', error);
+            throw new Error(`Failed to create policy: ${error instanceof Error ? error.message : JSON.stringify(error)}`);
+        }
+    },
+    // Get all policies with filters, pagination, and nested includes
+    async getAllPolicies(where, skip, take) {
+        // Fix: If where.type is a string, convert to relation filter
+        const processedWhere = { ...where };
+        if (processedWhere.type && typeof processedWhere.type === 'string') {
+            processedWhere.type = { name: processedWhere.type };
+        }
+        // Remove old status/date-based logic
+        // Filtering by policy_creation_status is handled by the where object
+        const [data, total] = await Promise.all([
+            prisma.policy.findMany({
+                where: processedWhere,
+                orderBy: { created_at: 'desc' },
+                skip,
+                take,
+                include: exports.POLICY_LIST_INCLUDE,
+            }),
+            prisma.policy.count({ where: processedWhere }),
+        ]);
+        return {
+            data,
+            total,
+            page: Math.floor(skip / take) + 1,
+            limit: take,
+            pages: Math.ceil(total / take),
+        };
+    },
+    // Get a single policy by ID
+    async getPolicyById(id) {
+        return prisma.policy.findUnique({
+            where: { id },
+            include: exports.POLICY_FULL_INCLUDE,
+        });
+    },
+    // Update a policy and all nested relations with robust approach
+    async updatePolicy(id, data) {
+        console.log('🔄 [REPOSITORY] Starting robust policy update...');
+        // Extract nested relations that need special handling
+        const proposerData = data.proposer;
+        // const membersData = (data as any).members;
+        const insuredMembersData = data.insured_members;
+        const nomineePaymentData = data.nominee_payment;
+        const documentsData = data.documents;
+        // Remove nested relations from the main data object
+        const updateData = { ...data };
+        delete updateData.proposer;
+        // delete (updateData as any).members;
+        delete updateData.insured_members;
+        delete updateData.nominee_payment;
+        delete updateData.documents;
+        // Build the proper Prisma update object
+        const prismaUpdateData = {
+            ...updateData,
+        };
+        // Handle foreign key fields properly
+        // Remove fields that should be handled as relations
+        delete prismaUpdateData.company_id;
+        delete prismaUpdateData.policy_type_id;
+        delete prismaUpdateData.policy_name_id;
+        delete prismaUpdateData.policy_group_id;
+        // Handle company relation
+        if (data.company_id) {
+            prismaUpdateData.company = {
+                connect: { id: data.company_id }
+            };
+        }
+        // Handle policy type relation
+        if (data.policy_type_id) {
+            prismaUpdateData.type = {
+                connect: { id: data.policy_type_id }
+            };
+        }
+        // Handle policy name relation
+        if (data.policy_name_id) {
+            prismaUpdateData.policyName = {
+                connect: { id: data.policy_name_id }
+            };
+        }
+        // Handle policy group relation
+        if (data.policy_group_id) {
+            prismaUpdateData.policyGroup = {
+                connect: { id: data.policy_group_id }
+            };
+        }
+        // Handle proposer update
+        if (proposerData) {
+            prismaUpdateData.proposer = {
+                upsert: {
+                    create: proposerData,
+                    update: proposerData,
+                },
+            };
+        }
+        // Handle nominee_payment update
+        if (nomineePaymentData) {
+            prismaUpdateData.nominee_payment = {
+                upsert: {
+                    create: nomineePaymentData,
+                    update: nomineePaymentData,
+                },
+            };
+        }
+        // Handle members update with robust approach
+        if (insuredMembersData) {
+            const membersToUpdate = insuredMembersData;
+            if (membersToUpdate && Array.isArray(membersToUpdate)) {
+                console.log('📋 [REPOSITORY] Updating members:', membersToUpdate.length);
+                // Get the proposer ID first
+                const existingPolicy = await prisma.policy.findUnique({
+                    where: { id },
+                    include: { proposer: true }
+                });
+                if (existingPolicy?.proposer?.id) {
+                    console.log('🔍 [REPOSITORY] Processing member updates for proposer:', existingPolicy.proposer.id);
+                    // Update each member
+                    for (const memberData of membersToUpdate) {
+                        console.log('🔍 [REPOSITORY] Processing member:', memberData.id ? 'UPDATE' : 'CREATE', memberData);
+                        if (memberData.id) {
+                            // Update existing member
+                            await prisma.insuredMember.update({
+                                where: { id: memberData.id },
+                                data: {
+                                    insured_member_salutation: memberData.insured_member_salutation,
+                                    name: memberData.name,
+                                    relation_to_proposer: memberData.relation_to_proposer,
+                                    date_of_birth: memberData.date_of_birth,
+                                    gender: memberData.gender,
+                                    pre_existing: memberData.pre_existing,
+                                    insured_member_medical_condition: memberData.insured_member_medical_condition,
+                                    insured_member_medical_remarks: memberData.insured_member_medical_remarks,
+                                }
+                            });
+                        }
+                        else {
+                            // Create new member
+                            await prisma.insuredMember.create({
+                                data: {
+                                    ...memberData,
+                                    proposer_id: existingPolicy.proposer.id,
+                                    policy_id: id,
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        // Handle documents update
+        if (documentsData) {
+            // Document linking will be handled by the service layer in Phase 2
+            console.log('📋 [REPOSITORY] Document linking will be handled by service layer');
+        }
+        // Remove memberDocsMeta from prismaUpdateData if present
+        if ('memberDocsMeta' in prismaUpdateData) {
+            delete prismaUpdateData.memberDocsMeta;
+        }
+        // Update the main policy
+        const result = await prisma.policy.update({
+            where: { id },
+            data: prismaUpdateData,
+            include: exports.POLICY_FULL_INCLUDE,
+        });
+        console.log('✅ [REPOSITORY] Policy updated successfully');
+        return result;
+    },
+    // Delete a policy with all related data
+    async deletePolicy(id) {
+        // Step 1: Delete references where this policy's documents are the source
+        await prisma.policyDocumentReference.deleteMany({
+            where: {
+                source_document: {
+                    policy_id: id
+                }
+            }
+        });
+        // Step 2: Delete references where this policy references ancestor documents
+        await prisma.policyDocumentReference.deleteMany({
+            where: {
+                policy_id: id
+            }
+        });
+        // Step 3: Now safe to delete
+        return prisma.policy.delete({
+            where: { id },
+            include: exports.POLICY_FULL_INCLUDE,
+        });
+    },
+    // Get policies by user ID
+    async getPoliciesByUserId(userId) {
+        return prisma.policy.findMany({
+            where: { created_by: userId },
+            orderBy: { created_at: 'desc' },
+            include: exports.POLICY_FULL_INCLUDE,
+        });
+    },
+    // Get document by ID
+    async getDocumentById(documentId) {
+        return prisma.uploadedDocument.findUnique({
+            where: { id: documentId },
+            include: {
+                policy: true,
+                proposer: {
+                    include: {
+                        policy: true,
+                    },
+                },
+                insured_member: {
+                    include: {
+                        proposer: {
+                            include: {
+                                policy: true,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+    },
+    // Delete document by ID
+    async deleteDocument(documentId) {
+        return prisma.uploadedDocument.delete({
+            where: { id: documentId },
+        });
+    },
+    // Helper method for two-phase approach: Create core entities only
+    async createCoreEntities(data) {
+        console.log('🚀 [REPOSITORY] Creating core entities...');
+        console.log("🔍 [Repository] Core Entities Input:", JSON.stringify({
+            policy_number: data.policy_number,
+            customer_name: data.customer_name,
+            policy_salutation: data.policy_salutation,
+            proposer: data.proposer ? {
+                full_name: data.proposer.full_name,
+                proposer_salutation: data.proposer.proposer_salutation,
+                email: data.proposer.email
+            } : null,
+            insured_members_count: data.insured_members?.length || data.members?.length || 0,
+            nominee_payment: data.nominee_payment
+        }, null, 2));
+        return await prisma.$transaction(async (tx) => {
+            // Create policy
+            const policyData = {
+                policy_number: data.policy_number,
+                customer_name: data.customer_name,
+                policy_salutation: data.policy_salutation,
+                created_by: data.created_by,
+                insurer_name: data.insurer_name,
+                product_name: data.product_name,
+                plan_type: data.plan_type,
+                sum_insured: data.sum_insured,
+                start_date: data.start_date,
+                end_date: data.end_date,
+                tenure_years: data.tenure_years,
+                issued_date: data.issued_date,
+                premium_amount: data.premium_amount,
+                declaration_accepted: data.declaration_accepted,
+                system_ip: data.system_ip,
+                medical_condition: data.medical_condition,
+                medical_remarks: data.medical_remarks,
+                deductible_amount: data.deductible_amount,
+                deductible_amount_status: data.deductible_amount_status,
+                policy_creation_status: data.policy_creation_status,
+            };
+            // Handle foreign key relations
+            if (data.company_id) {
+                policyData.company = { connect: { id: data.company_id } };
+            }
+            if (data.policy_type_id) {
+                policyData.type = { connect: { id: data.policy_type_id } };
+            }
+            if (data.policy_name_id) {
+                policyData.policyName = { connect: { id: data.policy_name_id } };
+            }
+            if (data.policy_group_id) {
+                policyData.policyGroup = { connect: { id: data.policy_group_id } };
+            }
+            const policy = await tx.policy.create({
+                data: policyData,
+            });
+            console.log("✅ [Repository] Policy Created:", { id: policy.id, policy_number: policy.policy_number });
+            // Create proposer
+            const proposer = await tx.proposer.create({
+                data: {
+                    ...data.proposer,
+                    policy_id: policy.id,
+                },
+            });
+            console.log("✅ [Repository] Proposer Created:", { id: proposer.id, full_name: proposer.full_name, proposer_salutation: proposer.proposer_salutation });
+            // Create insured members
+            const insuredMembers = [];
+            const membersToCreate = data.insured_members || data.members || [];
+            for (const memberData of membersToCreate) {
+                const member = await tx.insuredMember.create({
+                    data: {
+                        ...memberData,
+                        proposer_id: proposer.id,
+                    },
+                });
+                insuredMembers.push(member);
+            }
+            console.log("✅ [Repository] Insured Members Created:", insuredMembers.map(m => ({ id: m.id, name: m.name, insured_member_salutation: m.insured_member_salutation })));
+            // Create nominee payment if provided
+            let nomineePayment = null;
+            if (data.nominee_payment) {
+                nomineePayment = await tx.nomineeAndPayment.create({
+                    data: {
+                        ...data.nominee_payment,
+                        policy_id: policy.id,
+                    },
+                });
+                console.log("✅ [Repository] Nominee Payment Created:", {
+                    id: nomineePayment.id,
+                    nominee_salutation: nomineePayment.nominee_salutation,
+                    bank_name: nomineePayment.bank_name,
+                    bank_account_number: nomineePayment.bank_account_number,
+                    bank_ifsc_code: nomineePayment.bank_ifsc_code,
+                    bank_branch_name: nomineePayment.bank_branch_name
+                });
+            }
+            const result = {
+                policyId: policy.id,
+                proposerId: proposer.id,
+                insuredMemberIds: insuredMembers.map(m => m.id),
+                nomineePaymentId: nomineePayment?.id,
+            };
+            console.log("✅ [Repository] Core Entities Result:", result);
+            return result;
+        });
+    },
+    // Helper method for two-phase approach: Link documents
+    async linkDocuments(coreEntities, documents) {
+        console.log('🔗 [REPOSITORY] Linking documents...');
+        console.log("🔍 [Repository] Core Entities for Document Linking:", coreEntities);
+        console.log("📄 [Repository] Documents to Link:", {
+            policyDocs: documents.policyDocs?.length || 0,
+            proposerDocs: documents.proposerDocs?.length || 0,
+            memberDocs: documents.memberDocs?.length || 0
+        });
+        return await prisma.$transaction(async (tx) => {
+            // Link policy documents
+            if (documents.policyDocs && documents.policyDocs.length > 0) {
+                console.log("📄 [Repository] Linking Policy Documents:", documents.policyDocs.length);
+                await tx.uploadedDocument.createMany({
+                    data: documents.policyDocs.map((doc) => ({
+                        ...doc,
+                        policy_id: coreEntities.policyId,
+                    })),
+                });
+                console.log("✅ [Repository] Policy Documents Linked Successfully");
+            }
+            // Link proposer documents
+            if (documents.proposerDocs && documents.proposerDocs.length > 0) {
+                console.log("📄 [Repository] Linking Proposer Documents:", documents.proposerDocs.length);
+                await tx.uploadedDocument.createMany({
+                    data: documents.proposerDocs.map((doc) => ({
+                        ...doc,
+                        proposer_id: coreEntities.proposerId,
+                    })),
+                });
+                console.log("✅ [Repository] Proposer Documents Linked Successfully");
+            }
+            // Link member documents
+            if (documents.memberDocs && documents.memberDocs.length > 0) {
+                console.log("📄 [Repository] Linking Member Documents:", documents.memberDocs.length);
+                const memberDocsToCreate = documents.memberDocs.map((doc, index) => {
+                    let insured_member_id = doc.insured_member_id;
+                    // If no specific member ID, use index-based linking
+                    if (!insured_member_id && doc.member_index !== undefined) {
+                        insured_member_id = coreEntities.insuredMemberIds[doc.member_index];
+                        console.log(`🔗 [Repository] Member doc ${index}: Using index-based linking (index: ${doc.member_index} -> memberId: ${insured_member_id})`);
+                    }
+                    else if (insured_member_id) {
+                        console.log(`🔗 [Repository] Member doc ${index}: Using direct member ID linking (memberId: ${insured_member_id})`);
+                    }
+                    else {
+                        console.log(`❌ [Repository] Member doc ${index}: No member ID or index found!`);
+                    }
+                    console.log("🔗 [Repository] Member Document Mapping:", {
+                        originalDoc: doc,
+                        memberIndex: doc.member_index,
+                        insured_member_id: insured_member_id,
+                        availableMemberIds: coreEntities.insuredMemberIds
+                    });
+                    return {
+                        ...doc,
+                        insured_member_id,
+                    };
+                });
+                await tx.uploadedDocument.createMany({
+                    data: memberDocsToCreate,
+                });
+                console.log("✅ [Repository] Member Documents Linked Successfully");
+            }
+            console.log("✅ [Repository] All Documents Linked Successfully");
+        });
+    },
+    // Fetch a matching CommissionRule for commission calculation
+    async getMatchingCommissionRule(params) {
+        return prisma.commissionRule.findFirst({
+            where: {
+                policy_name_id: params.policy_name_id,
+                policyStatus: params.policy_creation_status,
+                ageCondition: params.ageCondition,
+                deductibleType: params.deductibleType,
+                is_active: true,
+            },
+        });
+    },
+};
