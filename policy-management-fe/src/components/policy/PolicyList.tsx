@@ -1672,8 +1672,6 @@ const PolicyList: React.FC<PolicyListProps> = ({
             <ClaimSheet
               policyId={selectedPolicyForClaim.id}
               insuredMembers={
-                selectedPolicyForClaim.proposer?.insured_members || 
-                selectedPolicyForClaim.insured_members || 
                 selectedPolicyForClaim.members || 
                 []
               }
