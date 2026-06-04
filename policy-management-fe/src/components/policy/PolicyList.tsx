@@ -156,6 +156,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
   loading: externalLoading, 
   onViewPolicy, 
   onEditPolicy, 
+  onDeletePolicy,
   onCreatePolicy 
 }) => {
   const navigate = useNavigate();
@@ -714,13 +715,16 @@ const PolicyList: React.FC<PolicyListProps> = ({
     console.log("Attempting to delete policy:", policyToDelete.id);
     
     try {
-      const token = localStorage.getItem("authToken");
-      await axios.delete(
-        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyToDelete.id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      if (onDeletePolicy) {
+        await onDeletePolicy(policyToDelete.id);
+      } else {
+        const token = localStorage.getItem("authToken");
+        await axios.delete(
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyToDelete.id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      }
       toast.success("Policy deleted successfully");
-    setIsDeleting(false);
       setDeleteDialogOpen(false);
       setPolicyToDelete(null);
       policiesQuery.refetch();
@@ -733,14 +737,13 @@ const PolicyList: React.FC<PolicyListProps> = ({
         setPolicyToDelete(null);
       } else if (status === 500) {
         toast.error("Failed to delete policy. Please try again.");
-        // Keep dialog open on 500 error
       } else {
         toast.error("Failed to delete policy");
         setDeleteDialogOpen(false);
-    setIsDeleting(false);
-    setIsDeleting(false);
         setPolicyToDelete(null);
       }
+    } finally {
+      setIsDeleting(false);
     }
   };
 

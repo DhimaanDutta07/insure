@@ -64,54 +64,17 @@ try {
 } catch (err) {}
 
 const storage = multer.diskStorage({
-  destination: async function (req, file, cb) {
+  destination: function (req, file, cb) {
     // Check if this is a policy-related upload
     if (req.originalUrl.includes('/policies')) {
-      let destination = path.join(uploadPath, 'policy-documents');
+      const destination = path.join(uploadPath, 'policy-documents');
       
-      try {
-        // If we have policy info in the request body, create a specific folder
-        if (req.body.policy_number || req.body.customer_name || req.body.company_id) {
-          const policyNumber = req.body.policy_number || 'unknown-policy';
-          const customerName = (req.body.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-          
-          // Get company name from database if company_id is provided
-          let companyName = 'unknown-company';
-          if (req.body.company_id && req.body.company_id.trim() !== '') {
-            try {
-              const { PrismaClient } = require('@prisma/client');
-              const prisma = new PrismaClient();
-              const company = await prisma.company.findUnique({
-                where: { id: req.body.company_id },
-                select: { name: true }
-              });
-              if (company?.name) {
-                companyName = company.name.replace(/[^a-zA-Z0-9\-]/g, '-');
-              }
-              await prisma.$disconnect();
-            } catch (error) {
-              console.error('Error fetching company name:', error);
-            }
-          }
-          
-          // Create sanitized folder name: policy-number-customer-name-company-name
-          const folderName = `${policyNumber}-${customerName}-${companyName}`;
-          destination = path.join(uploadPath, 'policy-documents', folderName);
-        }
-        
-        // Ensure directory exists
-        if (!fs.existsSync(destination)) {
-          fs.mkdirSync(destination, { recursive: true });
-          console.log(`Created policy-specific directory: ${destination}`);
-        }
-        
-        console.log(`Policy file upload destination: ${destination}`);
-        cb(null, destination);
-      } catch (error) {
-        console.error('Error creating destination directory:', error);
-        // Fallback to basic policy-documents folder
-        cb(null, path.join(uploadPath, 'policy-documents'));
+      // Ensure directory exists
+      if (!fs.existsSync(destination)) {
+        fs.mkdirSync(destination, { recursive: true });
       }
+      
+      cb(null, destination);
     } else {
       // Default to material receipts for other uploads
       const destination = path.join(uploadPath, 'material-receipts', 'images');
@@ -172,22 +135,6 @@ const importUpload = multer({
 });
 const router = express.Router();
 
-// CORS middleware for all uploads
-router.use('/uploads', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
-  res.header('Access-Control-Max-Age', '86400');
-  
-  // Handle preflight OPTIONS requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-  
-  next();
-}, express.static(uploadPath));
-
 // CORS middleware specifically for policy documents
 router.use('/uploads/policy-documents/*', (req, res, next) => {
   // Set CORS headers for all requests (including preflight OPTIONS)
@@ -205,7 +152,7 @@ router.use('/uploads/policy-documents/*', (req, res, next) => {
   next();
 });
 
-// Serve policy documents with policy-specific folder structure
+// Serve policy documents with policy-specific folder structure (MUST be before express.static)
 router.get('/uploads/policy-documents/*', (req, res) => {
   try {
     const params = req.params as any;
@@ -219,14 +166,21 @@ router.get('/uploads/policy-documents/*', (req, res) => {
       return;
     }
 
-    if (!fs.existsSync(fullPath)) {
-      console.log(`File not found: ${fullPath}`);
-      res.status(404).send('File not found');
-      return;
+    let resolvedPath = fullPath;
+    if (!fs.existsSync(resolvedPath)) {
+      // Fallback: some legacy uploads were stored flat due to multer body parsing order
+      const flatPath = path.join(uploadPath, 'policy-documents', path.basename(filePath));
+      if (fs.existsSync(flatPath)) {
+        resolvedPath = flatPath;
+      } else {
+        console.log(`File not found: ${fullPath} (also tried ${flatPath})`);
+        res.status(404).send('File not found');
+        return;
+      }
     }
 
     // Set correct content type
-    const ext = path.extname(fullPath).toLowerCase();
+    const ext = path.extname(resolvedPath).toLowerCase();
     const contentTypes = {
       '.jpeg': 'image/jpeg',
       '.jpg': 'image/jpeg',
@@ -243,10 +197,10 @@ router.get('/uploads/policy-documents/*', (req, res) => {
     res.setHeader('Content-Type', contentType);
 
     // Enable in-browser preview and caching
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(fullPath)}"`);
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(resolvedPath)}"`);
     res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
 
-    const fileStream = fs.createReadStream(fullPath);
+    const fileStream = fs.createReadStream(resolvedPath);
     fileStream.pipe(res);
 
   } catch (error) {
@@ -254,6 +208,22 @@ router.get('/uploads/policy-documents/*', (req, res) => {
     res.status(500).send('Error serving file');
   }
 });
+
+// CORS + static middleware for all other uploads (registered AFTER policy-documents route)
+router.use('/uploads', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+  res.header('Access-Control-Max-Age', '86400');
+  
+  // Handle preflight OPTIONS requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+  
+  next();
+}, express.static(uploadPath));
 
 // user Routes
 router.post("/auth/login", login);

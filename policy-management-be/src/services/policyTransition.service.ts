@@ -1,7 +1,6 @@
 import { PrismaClient, PolicyTransitionType, PolicyCreationStatus, UploadedDocument } from '@prisma/client';
 import { DocumentAccessService } from './documentAccess.service';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export interface CreatePolicyTransitionInput {
   parentPolicyId: string;
@@ -712,15 +711,16 @@ export class PolicyTransitionService {
       });
     });
     
-    // Enrich with claimsByYear per hierarchy item (best-effort)
-    for (let i = 0; i < completeHierarchy.length; i++) {
-      const item: any = completeHierarchy[i];
+    // Enrich with claimsByYear per hierarchy item (parallelized for performance)
+    const claimsPromises = completeHierarchy.map(async (item: any) => {
       try {
         item.claimsByYear = await this.buildClaimsByYear(item.policy);
       } catch (e) {
         console.warn('Failed to build claimsByYear for policy', item?.policy?.id, e);
+        item.claimsByYear = null;
       }
-    }
+    });
+    await Promise.all(claimsPromises);
 
     return {
       parentPolicy: policy.parent_policy,

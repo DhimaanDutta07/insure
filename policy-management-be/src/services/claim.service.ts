@@ -1,6 +1,5 @@
-import { PrismaClient, Claim, ClaimStatus, ClaimMember, DocumentCategory } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import { Claim, ClaimStatus, ClaimMember, DocumentCategory } from "@prisma/client";
+import prisma from '../utils/prismaClient';
 
 // Type definitions following policy service pattern
 type CreateClaimInput = {
@@ -65,7 +64,6 @@ function mapMimeTypeToFileType(mimeType: string): "PDF" | "JPG" | "PNG" | "XLSX"
 // Helper function to process uploaded files (following policy service pattern)
 function processClaimDocuments(
   files: { [key: string]: Express.Multer.File[] } | undefined,
-  folderName: string,
   uploadedBy?: string
 ): ProcessedClaimDocument[] {
   const claimDocs: ProcessedClaimDocument[] = [];
@@ -77,7 +75,7 @@ function processClaimDocuments(
       claimDocs.push({
         file_name: file.filename,
         original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+        relative_path: `/api/uploads/policy-documents/${file.filename}`,
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: 'OTHER',
         uploaded_by: uploadedBy,
@@ -90,7 +88,7 @@ function processClaimDocuments(
       claimDocs.push({
         file_name: file.filename,
         original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+        relative_path: `/api/uploads/policy-documents/${file.filename}`,
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: 'OTHER',
         uploaded_by: uploadedBy,
@@ -122,14 +120,8 @@ export class ClaimService {
       throw new Error('Policy not found');
     }
 
-    // Prepare folder name outside transaction
-    const policyNumber = policy.policy_number || 'unknown-policy';
-    const customerName = (policy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-    const companyName = (policy.company?.name || 'unknown-company').replace(/[^a-zA-Z0-9\-]/g, '-');
-    const folderName = `${policyNumber}-${customerName}-${companyName}`;
-
     // Process files outside transaction
-    const processedDocs = processClaimDocuments(files, folderName, userId);
+    const processedDocs = processClaimDocuments(files, userId);
 
     // ✅ OPTIMIZATION: Transaction now only does writes — much faster
     return await prisma.$transaction(async (tx) => {
@@ -288,14 +280,8 @@ export class ClaimService {
       throw new Error('Claim not found');
     }
 
-    const policy = existingClaim.policy;
-    const policyNumber = policy.policy_number || 'unknown-policy';
-    const customerName = (policy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-    const companyName = (policy.company?.name || 'unknown-company').replace(/[^a-zA-Z0-9\-]/g, '-');
-    const folderName = `${policyNumber}-${customerName}-${companyName}`;
-
     // Process files outside transaction
-    const processedDocs = processClaimDocuments(files, folderName, userId);
+    const processedDocs = processClaimDocuments(files, userId);
 
     // ✅ OPTIMIZATION: Transaction only does writes
     return await prisma.$transaction(async (tx) => {

@@ -106,6 +106,31 @@ export const documentService = {
     return fullUrl;
   },
 
+  // Fallback method to construct URL directly from relative path without API call
+  constructDirectUrl(relativePath: string): string {
+    if (!relativePath) {
+      throw new Error('Relative path is required to construct document URL');
+    }
+
+    // If the path already includes the full API path, return it as is with base URL
+    if (relativePath.startsWith('/api/v1/uploads/')) {
+      return `${API_BASE_URL}${relativePath}`;
+    }
+    
+    // If the path starts with /api/uploads/, convert to /api/v1/uploads/
+    if (relativePath.startsWith('/api/uploads/')) {
+      return `${API_BASE_URL}/api/v1/uploads/${relativePath.substring('/api/uploads/'.length)}`;
+    }
+    
+    // If the path starts with policy-documents/, construct the full path
+    if (relativePath.startsWith('policy-documents/')) {
+      return `${API_BASE_URL}/api/v1/uploads/${relativePath}`;
+    }
+    
+    // Otherwise, assume it's a relative path and construct the full path
+    return `${API_BASE_URL}/api/v1/uploads/policy-documents/${relativePath}`;
+  },
+
   async getCachedDocumentUrl(documentId: string): Promise<string | null> {
     // Check cache first
     const cached = urlCache.get(documentId);

@@ -189,6 +189,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const [existingPolicyDocs, setExistingPolicyDocs] = useState<PolicyDocument[]>([]);
   const [existingProposerDocs, setExistingProposerDocs] = useState<PolicyDocument[]>([]);
   const [existingMemberDocs, setExistingMemberDocs] = useState<{ [memberId: string]: PolicyDocument[] }>({});
+  const [deletedMemberIds, setDeletedMemberIds] = useState<string[]>([]);
 
   // Document preview modal state
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -250,6 +251,25 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     control,
     name: "members",
   });
+
+  // Custom remove function that also cleans up member documents
+  const handleRemoveMember = (index: number) => {
+    const member = watch(`members.${index}`);
+    if (member && member.id) {
+      // Track deleted member ID for submission
+      setDeletedMemberIds(prev => [...prev, member.id as string]);
+      // Remove member documents from state when member is deleted
+      setExistingMemberDocs(prev => {
+        const updated = { ...prev };
+        if (member.id) {
+          delete updated[member.id];
+        }
+        return updated;
+      });
+    }
+    // Call the original remove function
+    removeMember(index);
+  };
 
   // Dynamic API calls and policy data fetching
   useEffect(() => {
@@ -852,16 +872,9 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         formData.append("calculated_commission_amount", calculatedCommission.calculated_commission_amount.toString());
       }
 
-      // Add member deletion tracking
-      const currentMembers = data.members || [];
-      const existingMemberIds = currentMembers.filter(m => m.id).map(m => m.id!);
-      const existingMemberIdsFromState = Object.keys(existingMemberDocs);
-      const insured_members_to_delete = existingMemberIdsFromState.filter(
-        id => !existingMemberIds.includes(id)
-      );
-      
-      if (insured_members_to_delete.length > 0) {
-        formData.append("insured_members_to_delete", JSON.stringify(insured_members_to_delete));
+      // Add member deletion tracking - use tracked deleted member IDs
+      if (deletedMemberIds.length > 0) {
+        formData.append("insured_members_to_delete", JSON.stringify(deletedMemberIds));
       }
       
       // Attach files with metadata for member association
@@ -885,6 +898,45 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
 
       console.log('✅ [UPDATE] Policy updated successfully:', response.data);
       toast.success("Policy updated successfully!");
+      // Reset deleted member IDs after successful submission
+      setDeletedMemberIds([]);
+      // Clear new file uploads since they've been submitted
+      setPolicyDocs([]);
+      setProposerDocs([]);
+      setMemberDocs({});
+      // Re-fetch policy data to refresh document lists
+      const policyRes = await axios.get(
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`,
+        { headers }
+      );
+      const policy = policyRes.data.data || policyRes.data;
+      
+      // Re-process and categorize documents from the updated policy
+      const allDocs: PolicyDocument[] = policy.documents || [];
+      const referencedDocs: PolicyDocument[] = (policy.document_references || []).map((ref: { id: string; transition_type: string; source_document: PolicyDocument }) => ({
+        ...ref.source_document,
+        is_referenced: true,
+        reference_id: ref.id,
+        transition_type: ref.transition_type
+      }));
+      const combinedDocs = [...allDocs, ...referencedDocs];
+      
+      const proposerDocsFromPolicy: PolicyDocument[] = policy.proposer?.documents || [];
+      
+      const getProposerDocs = (docs: PolicyDocument[]) => 
+        docs.filter((doc: PolicyDocument) => 
+          doc.category === 'PROPOSER_DOCUMENT' || 
+          doc.document_type === 'PROPOSER_DOCUMENT' ||
+          doc.document_type === 'proposer' ||
+          doc.category === 'proposer'
+        );
+      
+      const combinedProposerDocs = [
+        ...getProposerDocs(combinedDocs),
+        ...getProposerDocs(proposerDocsFromPolicy),
+      ];
+      setExistingProposerDocs(combinedProposerDocs);
+      
       onSubmit();
       if (onClose) onClose();
     } catch (error) {
@@ -1005,7 +1057,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     }
   };
 
-  // Handle document preview - uses only documentService (no fallbacks)
+  // Handle document preview - uses documentService with fallback
   const handleViewDocument = async (doc: PolicyDocument) => {
     if (!doc.id) {
       console.error("Document ID is missing:", doc);
@@ -1025,12 +1077,37 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         });
         setPreviewModalOpen(true);
       } else {
-        console.error("Could not get document URL for:", doc);
-        // No fallbacks - rely entirely on backend service
+        console.error("Could not get document URL from service, trying fallback");
+        // Fallback: construct URL directly from relative_path
+        if (doc.relative_path) {
+          const fallbackUrl = documentService.constructDirectUrl(doc.relative_path);
+          console.log("Using fallback URL:", fallbackUrl);
+          setPreviewDocument({
+            url: fallbackUrl,
+            name: doc.original_name || doc.file_name || "Document",
+            type: doc.file_type,
+          });
+          setPreviewModalOpen(true);
+        } else {
+          console.error("No relative_path available for fallback");
+          toast.error("Could not load document");
+        }
       }
     } catch (error) {
       console.error("Error fetching document URL:", error);
-      // No fallbacks - rely entirely on backend service
+      // Fallback: construct URL directly from relative_path
+      if (doc.relative_path) {
+        const fallbackUrl = documentService.constructDirectUrl(doc.relative_path);
+        console.log("Using fallback URL from error handler:", fallbackUrl);
+        setPreviewDocument({
+          url: fallbackUrl,
+          name: doc.original_name || doc.file_name || "Document",
+          type: doc.file_type,
+        });
+        setPreviewModalOpen(true);
+      } else {
+        toast.error("Could not load document");
+      }
     }
   };
 
@@ -2110,7 +2187,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
                     type="button"
                     variant="destructive"
                     size="sm"
-                    onClick={() => removeMember(index)}
+                    onClick={() => handleRemoveMember(index)}
                     className="text-indigo-600 hover:bg-indigo-50 text-xs px-2 py-1"
                   >
                     <X className="w-4 h-4" />

@@ -277,6 +277,8 @@ model Proposer {
   documents           UploadedDocument[]
 
   @@map("proposers")
+  @@index([mobile])
+  @@index([email])
 }
 
 model InsuredMember {
@@ -300,6 +302,7 @@ model InsuredMember {
 
   @@index([policy_id])
   @@index([proposer_id])
+  @@index([name])
   @@map("insured_members")
 }
 
@@ -321,6 +324,7 @@ model NomineeAndPayment {
   policy              Policy?   @relation(fields: [policy_id], references: [id], onDelete: Cascade)
 
   @@map("nominee_and_payment")
+  @@index([policy_id])
 }
 
 model PolicyFormValue {
@@ -330,6 +334,8 @@ model PolicyFormValue {
   value      String? @map("value")
   policy     Policy? @relation(fields: [policy_id], references: [id])
 
+  @@index([policy_id])
+  @@index([policy_id, field_name])
   @@map("policy_form_value")
 }
 
@@ -349,7 +355,10 @@ model PolicyReceipt {
   policy             Policy?              @relation(fields: [policy_id], references: [id])
   user               User                 @relation(fields: [user_id], references: [id])
 
+  @@index([policy_id])
   @@index([user_id])
+  @@index([policy_number])
+  @@index([created_at])
   @@map("policy_receipts")
 }
 
@@ -393,6 +402,9 @@ model UploadedDocument {
   @@index([proposer_id])
   @@index([insured_member_id])
   @@index([claim_id])
+  @@index([policy_id, category])
+  @@index([proposer_id, category])
+  @@index([insured_member_id, category])
   @@map("uploaded_documents")
 }
 

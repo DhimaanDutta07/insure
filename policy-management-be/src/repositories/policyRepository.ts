@@ -1,6 +1,5 @@
-import { PrismaClient, Prisma } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { Prisma } from '@prisma/client';
+import prisma from '../utils/prismaClient';
 
 // Optimized include block - use select where possible for better performance
 export const POLICY_FULL_INCLUDE = {
@@ -68,6 +67,7 @@ export const POLICY_FULL_INCLUDE = {
           file_name: true,
           original_name: true,
           file_type: true,
+          relative_path: true,
         },
       },
       insured_members: {
@@ -83,6 +83,7 @@ export const POLICY_FULL_INCLUDE = {
               file_name: true,
               original_name: true,
               file_type: true,
+              relative_path: true,
             },
           },
         },
@@ -1100,102 +1101,73 @@ export const policyRepository = {
   async deletePolicy(id: string) {
     console.log(`🗑️ Starting deletion of policy ${id}`);
 
-    // Step 1: Delete document references where this policy's documents are the source
-    await prisma.policyDocumentReference.deleteMany({
-      where: {
-        source_document: {
-          policy_id: id
-        }
-      }
-    });
-    console.log(`✅ Deleted document references (source)`);
-
-    // Step 2: Delete document references where this policy references ancestor documents
-    await prisma.policyDocumentReference.deleteMany({
-      where: {
-        policy_id: id
-      }
-    });
-    console.log(`✅ Deleted document references (policy)`);
-
-    // Step 3: Delete commission journal entries
-    await prisma.commissionJournal.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted commission journal entries`);
-
-    // Step 4: Delete form values
-    await prisma.policyFormValue.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted form values`);
-
-    // Step 5: Delete receipts
-    await prisma.policyReceipt.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted receipts`);
-
-    // Step 6: Delete revenues
-    await prisma.revenue.deleteMany({
-      where: { policyId: id }
-    });
-    console.log(`✅ Deleted revenues`);
-
-    // Step 7: Delete reminders
-    await prisma.reminder.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted reminders`);
-
-    // Step 8: Delete claims
-    await prisma.claim.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted claims`);
-
-    // Step 9: Delete documents
-    await prisma.uploadedDocument.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted documents`);
-
-    // Step 10: Delete insured members
-    await prisma.insuredMember.deleteMany({
-      where: { policy_id: id }
-    });
-    console.log(`✅ Deleted insured members`);
-
-    // Step 11: Delete proposer (if exists)
-    const proposer = await prisma.proposer.findFirst({
-      where: { policy_id: id }
-    });
-    if (proposer) {
-      await prisma.proposer.delete({
-        where: { id: proposer.id }
+    return await prisma.$transaction(async (tx) => {
+      // Step 0: Detach children policies so FK constraint doesn't block deletion
+      await tx.policy.updateMany({
+        where: { parent_policy_id: id },
+        data: { parent_policy_id: null },
       });
-      console.log(`✅ Deleted proposer`);
-    }
 
-    // Step 12: Delete nominee payment (if exists)
-    const nomineePayment = await prisma.nomineeAndPayment.findFirst({
-      where: { policy_id: id }
-    });
-    if (nomineePayment) {
-      await prisma.nomineeAndPayment.delete({
-        where: { id: nomineePayment.id }
+      // Step 0.5: Clear parent_policy_id on this policy if it's a child
+      await tx.policy.update({
+        where: { id },
+        data: { parent_policy_id: null },
       });
-      console.log(`✅ Deleted nominee payment`);
-    }
 
-    // Step 13: Now safe to delete the policy
-    const deletedPolicy = await prisma.policy.delete({
-      where: { id },
-      include: POLICY_FULL_INCLUDE,
+      // Step 1 & 2: Delete document references (both directions in parallel)
+      await Promise.all([
+        tx.policyDocumentReference.deleteMany({
+          where: { source_document: { policy_id: id } }
+        }),
+        tx.policyDocumentReference.deleteMany({
+          where: { policy_id: id }
+        }),
+      ]);
+
+      // Step 3-8: Parallel delete of independent related records
+      await Promise.all([
+        tx.commissionJournal.deleteMany({ where: { policy_id: id } }),
+        tx.policyFormValue.deleteMany({ where: { policy_id: id } }),
+        tx.policyReceipt.deleteMany({ where: { policy_id: id } }),
+        tx.revenue.deleteMany({ where: { policyId: id } }),
+        tx.reminder.deleteMany({ where: { policy_id: id } }),
+        tx.claim.deleteMany({ where: { policy_id: id } }),
+      ]);
+
+      // Step 9: Delete documents (after claims & receipts to avoid FK races)
+      await tx.uploadedDocument.deleteMany({ where: { policy_id: id } });
+
+      // Step 10: Delete insured members (after documents)
+      await tx.insuredMember.deleteMany({ where: { policy_id: id } });
+
+      // Step 11: Delete proposer (if exists)
+      const proposer = await tx.proposer.findFirst({
+        where: { policy_id: id }
+      });
+      if (proposer) {
+        await tx.proposer.delete({ where: { id: proposer.id } });
+      }
+
+      // Step 12: Delete nominee payment (if exists)
+      const nomineePayment = await tx.nomineeAndPayment.findFirst({
+        where: { policy_id: id }
+      });
+      if (nomineePayment) {
+        await tx.nomineeAndPayment.delete({ where: { id: nomineePayment.id } });
+      }
+
+      // Step 13: Now safe to delete the policy
+      const deletedPolicy = await tx.policy.delete({
+        where: { id },
+        include: POLICY_FULL_INCLUDE,
+      });
+
+      console.log(`✅ Policy ${id} deleted successfully`);
+      return deletedPolicy;
+    }, {
+      maxWait: 10000,
+      timeout: 30000,
     });
-    console.log(`✅ Policy ${id} deleted successfully`);
-
-    return deletedPolicy;
   },
 
   // Get policies by user ID

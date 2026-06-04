@@ -3,9 +3,9 @@ import jwt from "jsonwebtoken";
 import { parse } from "csv-parse/sync";
 import * as xlsx from "xlsx";
 import * as fs from "fs";
-import { PrismaClient } from '@prisma/client';
 import { policyService } from "./../services/policy.service";
 import { calculateAndSetCommission } from '../services/policy.service';
+import prisma from '../utils/prismaClient';
 import { 
   insurancePolicySchema, 
   updatePolicySchema,
@@ -14,8 +14,6 @@ import {
   validateCoreEntities,
   validateDocumentLinking
 } from '../schemas/policy.schema';
-
-const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const extractUserId = (req: Request): string | null => {

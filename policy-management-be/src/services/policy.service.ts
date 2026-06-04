@@ -1,6 +1,5 @@
 import { dashboardCache } from '../utils/lruCache';
 import {
-  PrismaClient,
   Policy,
   PolicyFormValue,
   User,
@@ -8,11 +7,11 @@ import {
   AgeCondition,
   DeductibleType,
   PolicyCreationStatus,
+  DocumentCategory,
 } from "@prisma/client";
 import { policyRepository, POLICY_FULL_INCLUDE, POLICY_LIST_INCLUDE } from '../repositories/policyRepository';
+import prisma from '../utils/prismaClient';
 // import { uploadFile } from '../utils/fileStorage';
-
-const prisma = new PrismaClient();
 
 // Types for the two-phase approach
 type CoreEntitiesResult = {
@@ -161,7 +160,6 @@ function mapMimeTypeToFileType(mimeType: string): "PDF" | "JPG" | "PNG" | "XLSX"
 // Helper function to process uploaded files
 function processUploadedFiles(
   files: { [key: string]: Express.Multer.File[] } | undefined,
-  folderName: string,
   uploadedBy?: string
 ): {
   policyDocs: ProcessedDocument[];
@@ -176,22 +174,16 @@ function processUploadedFiles(
     console.log("📄 [FileProcessing] No files provided");
     return { policyDocs, proposerDocs, memberDocs };
   }
-  
-
-  console.log("📄 [FileProcessing] Processing files with keys:", Object.keys(files));
-  console.log("📄 [FileProcessing] Files structure:", JSON.stringify(files, null, 2));
 
   // Process policy documents
   if (files.policyDocs && Array.isArray(files.policyDocs)) {
-    console.log("📄 [FileProcessing] Processing policyDocs:", files.policyDocs.length);
-    files.policyDocs.forEach((file, index) => {
-      console.log(`📄 [FileProcessing] Policy doc ${index}:`, file.fieldname, file.originalname);
+    files.policyDocs.forEach((file) => {
       policyDocs.push({
         file_name: file.filename,
         original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+        relative_path: `/api/uploads/policy-documents/${file.filename}`,
         file_type: mapMimeTypeToFileType(file.mimetype),
-        category: 'POLICY_DOCUMENT',
+        category: DocumentCategory.POLICY_DOCUMENT,
         uploaded_by: uploadedBy,
       });
     });
@@ -199,15 +191,13 @@ function processUploadedFiles(
 
   // Process proposer documents
   if (files.proposerDocs && Array.isArray(files.proposerDocs)) {
-    console.log("📄 [FileProcessing] Processing proposerDocs:", files.proposerDocs.length);
-    files.proposerDocs.forEach((file, index) => {
-      console.log(`📄 [FileProcessing] Proposer doc ${index}:`, file.fieldname, file.originalname);
+    files.proposerDocs.forEach((file) => {
       proposerDocs.push({
         file_name: file.filename,
         original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+        relative_path: `/api/uploads/policy-documents/${file.filename}`,
         file_type: mapMimeTypeToFileType(file.mimetype),
-        category: 'PROPOSER_DOCUMENT',
+        category: DocumentCategory.PROPOSER_DOCUMENT,
         uploaded_by: uploadedBy,
       });
     });
@@ -215,54 +205,39 @@ function processUploadedFiles(
 
   // Process member documents with index-based linking (legacy)
   if (files.memberDocs && Array.isArray(files.memberDocs)) {
-    console.log("📄 [FileProcessing] Processing memberDocs (index-based):", files.memberDocs.length);
     files.memberDocs.forEach((file, index) => {
-      console.log(`📄 [FileProcessing] Member doc ${index}:`, file.fieldname, file.originalname);
       memberDocs.push({
         file_name: file.filename,
         original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+        relative_path: `/api/uploads/policy-documents/${file.filename}`,
         file_type: mapMimeTypeToFileType(file.mimetype),
-        category: 'INSURED_MEMBER_DOCUMENT',
+        category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
         uploaded_by: uploadedBy,
-        member_index: index, // Fallback for index-based linking
+        member_index: index,
       });
     });
   }
 
   // Process member-specific documents with dynamic field names
   Object.entries(files).forEach(([fieldName, fileList]) => {
-    console.log(`📄 [FileProcessing] Checking field: ${fieldName} with ${fileList.length} files`);
-    
     if (fieldName.startsWith('memberDocs_') && Array.isArray(fileList)) {
       const memberIdOrIndex = fieldName.split('memberDocs_')[1];
-      console.log(`📄 [FileProcessing] Processing memberDocs_${memberIdOrIndex}:`, fileList.length, "files");
-      
-      // Check if it's a UUID (member ID) or a number (index)
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(memberIdOrIndex);
       const memberIndex = parseInt(memberIdOrIndex);
       
-      fileList.forEach((file, fileIndex) => {
-        console.log(`📄 [FileProcessing] Member doc ${fileIndex}:`, file.fieldname, file.originalname, "->", isUUID ? `memberId: ${memberIdOrIndex}` : `index: ${memberIndex}`);
-        
+      fileList.forEach((file) => {
         memberDocs.push({
           file_name: file.filename,
           original_name: file.originalname,
-          relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+          relative_path: `/api/uploads/policy-documents/${file.filename}`,
           file_type: mapMimeTypeToFileType(file.mimetype),
-          category: 'INSURED_MEMBER_DOCUMENT',
+          category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
           uploaded_by: uploadedBy,
           member_index: isUUID ? undefined : memberIndex,
           insured_member_id: isUUID ? memberIdOrIndex : undefined,
         });
       });
     }
-  });
-
-  console.log("📄 [FileProcessing] Final processed documents:", {
-    policyDocs: policyDocs.length,
-    proposerDocs: proposerDocs.length,
-    memberDocs: memberDocs.length
   });
 
   return { policyDocs, proposerDocs, memberDocs };
@@ -598,26 +573,8 @@ export const policyService = {
     console.log("🧾 [Service] Members Input:", JSON.stringify(data.insured_members || data.members, null, 2));
     console.log("📄 [Service] Files Received:", files ? Object.keys(files) : 'No files');
 
-    // Get company name for folder structure
-    let companyName = 'unknown-company';
-    if (data.company_id) {
-      const company = await prisma.company.findUnique({
-        where: { id: data.company_id },
-        select: { name: true }
-      });
-      if (company?.name) {
-        companyName = company.name.replace(/[^a-zA-Z0-9\-]/g, '-');
-      }
-    }
-
-    // Prepare folder structure for file uploads
-    const customerName = (data.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-    const folderName = `${data.policy_number}-${customerName}-${companyName}`;
-
-    console.log(`Creating new policy with folder: ${folderName}`);
-
-    // Process uploaded files
-    const processedDocs = processUploadedFiles(files, folderName, userId);
+    // Process uploaded files (stored flat in policy-documents)
+    const processedDocs = processUploadedFiles(files, userId);
     
     console.log("📄 [Service] Processed Documents:", {
       policyDocs: processedDocs.policyDocs.length,
@@ -1408,26 +1365,8 @@ export const policyService = {
       memberDocCount: existingPolicy.proposer?.insured_members?.reduce((total: number, member: any) => total + (member.documents?.length || 0), 0) || 0
     });
 
-    // Get company name for folder structure
-    let companyName = 'unknown-company';
-    if (data.company_id || existingPolicy.company_id) {
-      const companyId = data.company_id || existingPolicy.company_id;
-      const company = await prisma.company.findUnique({
-        where: { id: companyId || undefined },
-        select: { name: true }
-      });
-      if (company?.name) {
-        companyName = company.name.replace(/[^a-zA-Z0-9\-]/g, '-');
-      }
-    }
-
-    // Prepare folder structure for file uploads
-    const policyNumber = data.policy_number || existingPolicy.policy_number;
-    const customerName = (data.customer_name || existingPolicy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-    const folderName = `${policyNumber}-${customerName}-${companyName}`;
-
-    // Process uploaded files
-    const processedDocs = processUploadedFiles(files, folderName, userId);
+    // Process uploaded files (stored flat in policy-documents)
+    const processedDocs = processUploadedFiles(files, userId);
     
     console.log("📄 [Service] Processed Update Documents:", {
       policyDocs: processedDocs.policyDocs.length,
@@ -1473,10 +1412,24 @@ export const policyService = {
     // Defensive: Merge with existing policy for full context
     const mergedData = { ...existingPolicy, ...updateData };
 
-    // Only recalculate commission if not manually provided in update
-    if (data.calculated_commission_amount === undefined) {
+    // Recalculate commission if GST status changed or if not manually provided
+    const gstStatusChanged = data.gst_status !== undefined && data.gst_status !== existingPolicy.gst_status;
+    const premiumAmountChanged = data.premium_amount !== undefined && data.premium_amount !== existingPolicy.premium_amount;
+    const shouldRecalculateCommission = data.calculated_commission_amount === undefined || gstStatusChanged || premiumAmountChanged;
+    
+    if (shouldRecalculateCommission) {
+      console.log('[UpdatePolicy] Recalculating commission due to:', {
+        noManualValue: data.calculated_commission_amount === undefined,
+        gstStatusChanged,
+        premiumAmountChanged,
+        oldGstStatus: existingPolicy.gst_status,
+        newGstStatus: data.gst_status,
+        oldPremium: existingPolicy.premium_amount,
+        newPremium: data.premium_amount,
+      });
       await calculateAndSetCommission(mergedData);
       updateData.calculated_commission_amount = mergedData.calculated_commission_amount;
+      updateData.commission_add_on_percentage = mergedData.commission_add_on_percentage;
     }
     if (typeof data.emi_amount !== 'undefined') {
       updateData.emi_amount = data.emi_amount;

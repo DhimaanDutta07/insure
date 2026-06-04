@@ -20,58 +20,17 @@ const claimController = new ClaimController();
 
 // Configure multer for file uploads - use same logic as policies
 const storage = multer.diskStorage({
-  destination: async function (req, file, cb) {
+  destination: function (req, file, cb) {
     // Check if this is a claim-related upload
     if (req.originalUrl.includes('/claims')) {
-      let destination = path.join(uploadPath, 'policy-documents');
+      const destination = path.join(uploadPath, 'policy-documents');
       
-      try {
-        // Get policy information to create the same folder structure as policies
-        const policyId = req.params.policyId as string || req.body.policy_id;
-        if (policyId) {
-          try {
-            const { PrismaClient } = require('@prisma/client');
-            const prisma = new PrismaClient();
-            const policy = await prisma.policy.findUnique({
-              where: { id: policyId },
-              select: { 
-                policy_number: true,
-                customer_name: true,
-                company: {
-                  select: { name: true }
-                }
-              }
-            });
-            
-            if (policy) {
-              const policyNumber = policy.policy_number || 'unknown-policy';
-              const customerName = (policy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-              const companyName = (policy.company?.name || 'unknown-company').replace(/[^a-zA-Z0-9\-]/g, '-');
-              
-              // Create same folder structure as policies: policy-number-customer-name-company-name
-              const folderName = `${policyNumber}-${customerName}-${companyName}`;
-              destination = path.join(uploadPath, 'policy-documents', folderName);
-            }
-            
-            await prisma.$disconnect();
-          } catch (error) {
-            console.error('Error fetching policy information:', error);
-          }
-        }
-        
-        // Ensure directory exists
-        if (!fs.existsSync(destination)) {
-          fs.mkdirSync(destination, { recursive: true });
-          console.log(`Created claim-specific directory: ${destination}`);
-        }
-        
-        console.log(`Claim file upload destination: ${destination}`);
-        cb(null, destination);
-      } catch (error) {
-        console.error('Error creating destination directory:', error);
-        // Fallback to basic policy-documents folder
-        cb(null, path.join(uploadPath, 'policy-documents'));
+      // Ensure directory exists
+      if (!fs.existsSync(destination)) {
+        fs.mkdirSync(destination, { recursive: true });
       }
+      
+      cb(null, destination);
     } else {
       // Default to policy documents folder
       const destination = path.join(uploadPath, 'policy-documents');
