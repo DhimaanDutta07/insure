@@ -76,13 +76,12 @@ function setupMiddleware(app) {
     const origin = process.env.FRONTEND_API || process.env.LOCALHOST_API;
     app.use((0, cors_1.default)({
         origin: [
+            "https://www.insurewelladvisory.in",
             "https://insurewelladvisory.in",
             "https://insure-rdo9.vercel.app",
             "https://policy.mindrops.com",
-            "https://insure-rdo9.vercel.app", // ✅ production frontend
-            "https://policy-management-frontend-coral.vercel.app", // ✅ production frontend
-            "https://insure-rdo9.vercel.app", // ✅ current frontend deployment
-            /https:\/\/policy-management-frontend.*\.vercel\.app$/, // ✅ all Vercel preview deployments
+            "https://policy-management-frontend-coral.vercel.app",
+            /https:\/\/policy-management-frontend.*\.vercel\.app$/,
             "http://localhost:5173",
             "http://localhost:3001",
             "http://192.168.1.15:3001"

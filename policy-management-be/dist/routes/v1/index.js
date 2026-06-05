@@ -188,7 +188,7 @@ router.get('/uploads/policy-documents/*', (req, res) => {
         // Security: Prevent directory traversal
         if (!fullPath.startsWith(path_1.default.join(uploadPath, 'policy-documents'))) {
             console.log(`Invalid file path attempt: ${fullPath}`);
-            res.status(400).send('Invalid file path');
+            res.status(400).json({ error: 'Invalid file path' });
             return;
         }
         let resolvedPath = fullPath;
@@ -200,7 +200,17 @@ router.get('/uploads/policy-documents/*', (req, res) => {
             }
             else {
                 console.log(`File not found: ${fullPath} (also tried ${flatPath})`);
-                res.status(404).send('File not found');
+                // On Vercel, /tmp is ephemeral - files may be lost after redeploy
+                if (process.env.VERCEL) {
+                    res.status(404).json({
+                        error: 'File not found',
+                        message: 'This file may have been lost due to Vercel serverless environment limitations. Please re-upload the document.',
+                        isEphemeral: true
+                    });
+                }
+                else {
+                    res.status(404).json({ error: 'File not found' });
+                }
                 return;
             }
         }
@@ -225,10 +235,16 @@ router.get('/uploads/policy-documents/*', (req, res) => {
         res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
         const fileStream = fs_1.default.createReadStream(resolvedPath);
         fileStream.pipe(res);
+        fileStream.on('error', (error) => {
+            console.error('Error streaming file:', error);
+            if (!res.headersSent) {
+                res.status(500).json({ error: 'Error serving file' });
+            }
+        });
     }
     catch (error) {
         console.error('Error serving policy document:', error);
-        res.status(500).send('Error serving file');
+        res.status(500).json({ error: 'Error serving file' });
     }
 });
 // CORS + static middleware for all other uploads (registered AFTER policy-documents route)
