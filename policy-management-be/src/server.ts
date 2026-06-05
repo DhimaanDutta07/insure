@@ -125,7 +125,7 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
 
   // Enable compression for all responses - significantly reduces payload size
   app.use(compression({
-    filter: (req, res) => {
+    filter: (req: Request, res: Response) => {
       if (req.headers['x-no-compression']) {
         return false;
       }
