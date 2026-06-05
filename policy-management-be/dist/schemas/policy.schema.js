@@ -146,10 +146,10 @@ exports.insurancePolicySchema = zod_1.z.object({
     deductible_amount: zod_1.z.number().min(0).optional(),
     deductible_amount_status: zod_1.z.boolean().optional(),
     sum_insured: zod_1.z.number().min(0).optional(),
-    start_date: zod_1.z.string().datetime().optional(),
-    end_date: zod_1.z.string().datetime().optional(),
+    start_date: dateOrDateTime.optional(),
+    end_date: dateOrDateTime.optional(),
     tenure_years: zod_1.z.number().min(0).max(100).optional(),
-    issued_date: zod_1.z.string().datetime().optional(),
+    issued_date: dateOrDateTime.optional(),
     premium_amount: zod_1.z.number().min(0).optional(),
     declaration_accepted: zod_1.z.boolean().optional(),
     system_ip: zod_1.z.string().ip().optional(),
@@ -269,7 +269,7 @@ const validateCoreEntities = (data) => {
     return zod_1.z.object({
         policy_number: zod_1.z.string().min(1, 'Policy number is required'),
         customer_name: zod_1.z.string().optional(),
-        proposer: exports.proposerSchema,
+        proposer: exports.proposerSchema.optional(),
         // insured_members: z.array(insuredMemberSchema).min(1, 'At least one insured member is required'),
         // nominee_payment: nomineeAndPaymentSchema.optional(),
     }).safeParse(data);

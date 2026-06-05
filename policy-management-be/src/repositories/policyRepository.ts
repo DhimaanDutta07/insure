@@ -34,6 +34,12 @@ export const POLICY_FULL_INCLUDE = {
       email: true,
       date_of_birth: true,
       gender: true,
+      marital_status: true,
+      alternate_mobile: true,
+      address: true,
+      kyc_id: true,
+      occupation: true,
+      nationality: true,
       proposer_salutation: true,
       documents: {
         select: {
@@ -42,6 +48,7 @@ export const POLICY_FULL_INCLUDE = {
           original_name: true,
           file_type: true,
           relative_path: true,
+          category: true,
         },
       },
       insured_members: {
@@ -51,6 +58,7 @@ export const POLICY_FULL_INCLUDE = {
           date_of_birth: true,
           gender: true,
           relation_to_proposer: true,
+          insured_member_salutation: true,
           documents: {
             select: {
               id: true,
@@ -69,8 +77,15 @@ export const POLICY_FULL_INCLUDE = {
     select: {
       id: true,
       nominee_name: true,
+      nominee_salutation: true,
       nominee_relation: true,
+      nominee_dob: true,
       payment_mode: true,
+      payment_reference: true,
+      bank_name: true,
+      bank_account_number: true,
+      bank_ifsc_code: true,
+      bank_branch_name: true,
     },
   },
   form_values: {
@@ -885,17 +900,48 @@ export const policyRepository = {
     }
     // Remove old status/date-based logic
     // Filtering by policy_creation_status is handled by the where object
+
+    // Optimized: Use select instead of include for better performance on list views
+    const optimizedInclude = {
+      company: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      type: { select: { name: true } },
+      policyName: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      policyGroup: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      proposer: {
+        select: {
+          id: true,
+          full_name: true,
+          mobile: true,
+        },
+      },
+    } as const;
+
     const [data, total] = await Promise.all([
       prisma.policy.findMany({
         where: processedWhere,
         orderBy: { created_at: 'desc' },
         skip,
         take,
-        include: POLICY_LIST_INCLUDE,
+        include: optimizedInclude,
       }),
       prisma.policy.count({ where: processedWhere }),
     ]);
-    
+
     return {
       data,
       total,
@@ -905,8 +951,9 @@ export const policyRepository = {
     };
   },
 
-  // Get a single policy by ID
+  // Get a single policy by ID with optimized includes
   async getPolicyById(id: string) {
+    // Use a more optimized include for single policy fetch
     return prisma.policy.findUnique({
       where: { id },
       include: POLICY_FULL_INCLUDE,

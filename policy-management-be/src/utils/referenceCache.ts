@@ -8,7 +8,7 @@ interface CacheEntry<T> {
 
 class ReferenceCache {
   private cache = new Map<string, CacheEntry<any>>();
-  private readonly TTL = 5 * 60 * 1000; // 5 minutes cache TTL
+  private readonly TTL = 10 * 60 * 1000; // 10 minutes cache TTL (increased for better performance)
 
   private isExpired(entry: CacheEntry<any>): boolean {
     return Date.now() - entry.timestamp > this.TTL;
@@ -123,6 +123,46 @@ class ReferenceCache {
       this.set(cacheKey, policyName);
     }
     return policyName;
+  }
+
+  // Bulk cache methods for faster lookups
+  async getAllCompanies(): Promise<{ id: string; name: string | null }[]> {
+    const cacheKey = 'companies:all';
+    const cached = this.get<{ id: string; name: string | null }[]>(cacheKey);
+    if (cached) return cached;
+
+    const companies = await prisma.company.findMany({
+      select: { id: true, name: true }
+    });
+
+    this.set(cacheKey, companies);
+    return companies;
+  }
+
+  async getAllPolicyTypes(): Promise<{ id: string; name: string }[]> {
+    const cacheKey = 'policyTypes:all';
+    const cached = this.get<{ id: string; name: string }[]>(cacheKey);
+    if (cached) return cached;
+
+    const policyTypes = await prisma.policyType.findMany({
+      select: { id: true, name: true }
+    });
+
+    this.set(cacheKey, policyTypes);
+    return policyTypes;
+  }
+
+  async getAllPolicyGroups(): Promise<{ id: string; name: string | null }[]> {
+    const cacheKey = 'policyGroups:all';
+    const cached = this.get<{ id: string; name: string | null }[]>(cacheKey);
+    if (cached) return cached;
+
+    const policyGroups = await prisma.policyGroup.findMany({
+      select: { id: true, name: true }
+    });
+
+    this.set(cacheKey, policyGroups);
+    return policyGroups;
   }
 
   // Clear cache (useful for testing or after manual data updates)

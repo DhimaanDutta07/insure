@@ -96,51 +96,15 @@ try {
 }
 catch (err) { }
 const storage = multer_1.default.diskStorage({
-    destination: async function (req, file, cb) {
+    destination: function (req, file, cb) {
         // Check if this is a policy-related upload
         if (req.originalUrl.includes('/policies')) {
-            let destination = path_1.default.join(uploadPath, 'policy-documents');
-            try {
-                // If we have policy info in the request body, create a specific folder
-                if (req.body.policy_number || req.body.customer_name || req.body.company_id) {
-                    const policyNumber = req.body.policy_number || 'unknown-policy';
-                    const customerName = (req.body.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-                    // Get company name from database if company_id is provided
-                    let companyName = 'unknown-company';
-                    if (req.body.company_id && req.body.company_id.trim() !== '') {
-                        try {
-                            const { PrismaClient } = require('@prisma/client');
-                            const prisma = new PrismaClient();
-                            const company = await prisma.company.findUnique({
-                                where: { id: req.body.company_id },
-                                select: { name: true }
-                            });
-                            if (company?.name) {
-                                companyName = company.name.replace(/[^a-zA-Z0-9\-]/g, '-');
-                            }
-                            await prisma.$disconnect();
-                        }
-                        catch (error) {
-                            console.error('Error fetching company name:', error);
-                        }
-                    }
-                    // Create sanitized folder name: policy-number-customer-name-company-name
-                    const folderName = `${policyNumber}-${customerName}-${companyName}`;
-                    destination = path_1.default.join(uploadPath, 'policy-documents', folderName);
-                }
-                // Ensure directory exists
-                if (!fs_1.default.existsSync(destination)) {
-                    fs_1.default.mkdirSync(destination, { recursive: true });
-                    console.log(`Created policy-specific directory: ${destination}`);
-                }
-                console.log(`Policy file upload destination: ${destination}`);
-                cb(null, destination);
+            const destination = path_1.default.join(uploadPath, 'policy-documents');
+            // Ensure directory exists
+            if (!fs_1.default.existsSync(destination)) {
+                fs_1.default.mkdirSync(destination, { recursive: true });
             }
-            catch (error) {
-                console.error('Error creating destination directory:', error);
-                // Fallback to basic policy-documents folder
-                cb(null, path_1.default.join(uploadPath, 'policy-documents'));
-            }
+            cb(null, destination);
         }
         else {
             // Default to material receipts for other uploads
@@ -201,19 +165,6 @@ const importUpload = (0, multer_1.default)({
     fileFilter: importFileFilter,
 });
 const router = express_1.default.Router();
-// CORS middleware for all uploads
-router.use('/uploads', (req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
-    res.header('Access-Control-Max-Age', '86400');
-    // Handle preflight OPTIONS requests
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
-    }
-    next();
-}, express_1.default.static(uploadPath));
 // CORS middleware specifically for policy documents
 router.use('/uploads/policy-documents/*', (req, res, next) => {
     // Set CORS headers for all requests (including preflight OPTIONS)
@@ -228,7 +179,7 @@ router.use('/uploads/policy-documents/*', (req, res, next) => {
     }
     next();
 });
-// Serve policy documents with policy-specific folder structure
+// Serve policy documents with policy-specific folder structure (MUST be before express.static)
 router.get('/uploads/policy-documents/*', (req, res) => {
     try {
         const params = req.params;
@@ -240,13 +191,21 @@ router.get('/uploads/policy-documents/*', (req, res) => {
             res.status(400).send('Invalid file path');
             return;
         }
-        if (!fs_1.default.existsSync(fullPath)) {
-            console.log(`File not found: ${fullPath}`);
-            res.status(404).send('File not found');
-            return;
+        let resolvedPath = fullPath;
+        if (!fs_1.default.existsSync(resolvedPath)) {
+            // Fallback: some legacy uploads were stored flat due to multer body parsing order
+            const flatPath = path_1.default.join(uploadPath, 'policy-documents', path_1.default.basename(filePath));
+            if (fs_1.default.existsSync(flatPath)) {
+                resolvedPath = flatPath;
+            }
+            else {
+                console.log(`File not found: ${fullPath} (also tried ${flatPath})`);
+                res.status(404).send('File not found');
+                return;
+            }
         }
         // Set correct content type
-        const ext = path_1.default.extname(fullPath).toLowerCase();
+        const ext = path_1.default.extname(resolvedPath).toLowerCase();
         const contentTypes = {
             '.jpeg': 'image/jpeg',
             '.jpg': 'image/jpeg',
@@ -262,9 +221,9 @@ router.get('/uploads/policy-documents/*', (req, res) => {
         const contentType = contentTypes[ext] || 'application/octet-stream';
         res.setHeader('Content-Type', contentType);
         // Enable in-browser preview and caching
-        res.setHeader('Content-Disposition', `inline; filename="${path_1.default.basename(fullPath)}"`);
+        res.setHeader('Content-Disposition', `inline; filename="${path_1.default.basename(resolvedPath)}"`);
         res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
-        const fileStream = fs_1.default.createReadStream(fullPath);
+        const fileStream = fs_1.default.createReadStream(resolvedPath);
         fileStream.pipe(res);
     }
     catch (error) {
@@ -272,6 +231,19 @@ router.get('/uploads/policy-documents/*', (req, res) => {
         res.status(500).send('Error serving file');
     }
 });
+// CORS + static middleware for all other uploads (registered AFTER policy-documents route)
+router.use('/uploads', (req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+    res.header('Access-Control-Max-Age', '86400');
+    // Handle preflight OPTIONS requests
+    if (req.method === 'OPTIONS') {
+        res.status(200).end();
+        return;
+    }
+    next();
+}, express_1.default.static(uploadPath));
 // user Routes
 router.post("/auth/login", userController_1.login);
 router.get("/user/validate", (0, AuthMiddleware_1.restrictTo)(['ADMIN', "OPERATIONS"]), userController_1.validateUser);

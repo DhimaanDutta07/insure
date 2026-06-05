@@ -5,6 +5,7 @@ import express, { Express, NextFunction, Request, Response } from "express";
 import prisma from "./utils/prismaClient";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import ApiRoutes from "./routes/routes";
 import { globalErrorHandler } from "./middlewares/GlobalErrorHandler";
 import { etagCache } from "./middlewares/etagCache";
@@ -121,10 +122,22 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false
   }));
-  
+
+  // Enable compression for all responses - significantly reduces payload size
+  app.use(compression({
+    filter: (req, res) => {
+      if (req.headers['x-no-compression']) {
+        return false;
+      }
+      return compression.filter(req, res);
+    },
+    threshold: 1024, // Only compress responses larger than 1KB
+    level: 6, // Balance between speed and compression ratio
+  }));
+
   // Set trust proxy to handle X-Forwarded-For header correctly when behind a proxy (like nginx)
   app.set('trust proxy', 1);
-  
+
   app.use(express.json({ limit: "10mb" }));
   app.use(express.urlencoded({ extended: true, limit: "10mb" }));
   // Remove redundant /uploads route

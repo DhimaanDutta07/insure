@@ -1,9 +1,11 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PolicyTransitionService = void 0;
-const client_1 = require("@prisma/client");
 const documentAccess_service_1 = require("./documentAccess.service");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 class PolicyTransitionService {
     static async createPolicyTransition(parentPolicyId, transitionType, newPolicyData) {
         const result = {
@@ -14,7 +16,7 @@ class PolicyTransitionService {
         };
         try {
             // 1. Get parent policy with all related data
-            const parentPolicy = await prisma.policy.findUnique({
+            const parentPolicy = await prismaClient_1.default.policy.findUnique({
                 where: { id: parentPolicyId },
                 include: {
                     proposer: true,
@@ -44,7 +46,7 @@ class PolicyTransitionService {
                 const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
                 result.newPolicy = newPolicy;
                 // 3. Set transition relationship
-                await prisma.policy.update({
+                await prismaClient_1.default.policy.update({
                     where: { id: newPolicy.id },
                     data: {
                         parent_policy_id: parentPolicyId,
@@ -112,7 +114,7 @@ class PolicyTransitionService {
             plan_type: newPolicyData.plan_type || parentPolicy.plan_type,
         };
         // Update the existing policy instead of creating a new one
-        const updatedPolicy = await prisma.policy.update({
+        const updatedPolicy = await prismaClient_1.default.policy.update({
             where: { id: parentPolicy.id },
             data: processedData
         });
@@ -207,7 +209,7 @@ class PolicyTransitionService {
             };
         }
         // First create the policy with proposer, nominee, and form values
-        const newPolicy = await prisma.policy.create({
+        const newPolicy = await prismaClient_1.default.policy.create({
             data: createData,
             include: {
                 proposer: true,
@@ -229,12 +231,12 @@ class PolicyTransitionService {
                 insured_member_medical_condition: member.insured_member_medical_condition || false,
                 insured_member_medical_remarks: member.insured_member_medical_remarks || null,
             }));
-            await prisma.insuredMember.createMany({
+            await prismaClient_1.default.insuredMember.createMany({
                 data: membersToCreate
             });
         }
         // Return the complete policy with all relations
-        return await prisma.policy.findUnique({
+        return await prismaClient_1.default.policy.findUnique({
             where: { id: newPolicy.id },
             include: {
                 proposer: true,
@@ -287,7 +289,7 @@ class PolicyTransitionService {
             policy_group_id: policyData.policy_group_id || null,
             policy_type_id: policyData.policy_type_id || null,
         };
-        return await prisma.policy.create({
+        return await prismaClient_1.default.policy.create({
             data: processedData,
             include: {
                 proposer: true,
@@ -348,13 +350,13 @@ class PolicyTransitionService {
             can_edit: false,
             can_delete: true // Allow users to remove references if not needed
         }));
-        const createdRefs = await prisma.policyDocumentReference.createMany({
+        const createdRefs = await prismaClient_1.default.policyDocumentReference.createMany({
             data: referenceData,
             skipDuplicates: true
         });
         console.log(`✅ [DocumentTransfer] Created ${createdRefs.count} document references`);
         // Return the created references
-        return await prisma.policyDocumentReference.findMany({
+        return await prismaClient_1.default.policyDocumentReference.findMany({
             where: {
                 policy_id: newPolicyId,
                 transition_type: transitionType
@@ -371,7 +373,7 @@ class PolicyTransitionService {
         const ancestors = [];
         let currentPolicyId = policyId;
         while (currentPolicyId) {
-            const policy = await prisma.policy.findUnique({
+            const policy = await prismaClient_1.default.policy.findUnique({
                 where: { id: currentPolicyId },
                 include: {
                     company: true,
@@ -453,7 +455,7 @@ class PolicyTransitionService {
             return [];
         const startYear = start.getFullYear();
         const endYear = end.getFullYear();
-        const claims = await prisma.claim.findMany({
+        const claims = await prismaClient_1.default.claim.findMany({
             where: {
                 policy_id: policy.id,
                 is_deleted: false,
@@ -492,7 +494,7 @@ class PolicyTransitionService {
     static async getPolicyTransitionHistory(policyId) {
         // Get all ancestor policies recursively
         const ancestorPolicies = await this.getAllAncestorPolicies(policyId);
-        const policy = await prisma.policy.findUnique({
+        const policy = await prismaClient_1.default.policy.findUnique({
             where: { id: policyId },
             include: {
                 company: true,
@@ -589,16 +591,17 @@ class PolicyTransitionService {
                 transition_type: child.transition_type
             });
         });
-        // Enrich with claimsByYear per hierarchy item (best-effort)
-        for (let i = 0; i < completeHierarchy.length; i++) {
-            const item = completeHierarchy[i];
+        // Enrich with claimsByYear per hierarchy item (parallelized for performance)
+        const claimsPromises = completeHierarchy.map(async (item) => {
             try {
                 item.claimsByYear = await this.buildClaimsByYear(item.policy);
             }
             catch (e) {
                 console.warn('Failed to build claimsByYear for policy', item?.policy?.id, e);
+                item.claimsByYear = null;
             }
-        }
+        });
+        await Promise.all(claimsPromises);
         return {
             parentPolicy: policy.parent_policy,
             childrenPolicies: policy.children_policies,
@@ -611,7 +614,7 @@ class PolicyTransitionService {
         };
     }
     static async validateTransitionEligibility(parentPolicyId, transitionType) {
-        const policy = await prisma.policy.findUnique({
+        const policy = await prismaClient_1.default.policy.findUnique({
             where: { id: parentPolicyId },
             include: {
                 documents: true,
@@ -639,7 +642,7 @@ class PolicyTransitionService {
     static async deleteDocumentReference(referenceId) {
         try {
             // Check if reference exists
-            const reference = await prisma.policyDocumentReference.findUnique({
+            const reference = await prismaClient_1.default.policyDocumentReference.findUnique({
                 where: { id: referenceId },
                 include: {
                     source_document: true,
@@ -653,7 +656,7 @@ class PolicyTransitionService {
             // This ensures existing references can be removed
             console.log(`🗑️ [DocumentReference] Deleting reference ${referenceId} (can_delete: ${reference.can_delete})`);
             // Delete the reference
-            await prisma.policyDocumentReference.delete({
+            await prismaClient_1.default.policyDocumentReference.delete({
                 where: { id: referenceId }
             });
             // Clear cache for the policy
@@ -673,7 +676,7 @@ class PolicyTransitionService {
      */
     static async updateExistingReferencesToDeletable() {
         try {
-            const result = await prisma.policyDocumentReference.updateMany({
+            const result = await prismaClient_1.default.policyDocumentReference.updateMany({
                 where: {
                     can_delete: false
                 },

@@ -10,6 +10,7 @@ const express_1 = __importDefault(require("express"));
 const prismaClient_1 = __importDefault(require("./utils/prismaClient"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
+const compression_1 = __importDefault(require("compression"));
 const routes_1 = __importDefault(require("./routes/routes"));
 const GlobalErrorHandler_1 = require("./middlewares/GlobalErrorHandler");
 const etagCache_1 = require("./middlewares/etagCache");
@@ -94,6 +95,17 @@ function setupMiddleware(app) {
     app.use((0, helmet_1.default)({
         crossOriginResourcePolicy: { policy: "cross-origin" },
         crossOriginEmbedderPolicy: false
+    }));
+    // Enable compression for all responses - significantly reduces payload size
+    app.use((0, compression_1.default)({
+        filter: (req, res) => {
+            if (req.headers['x-no-compression']) {
+                return false;
+            }
+            return compression_1.default.filter(req, res);
+        },
+        threshold: 1024, // Only compress responses larger than 1KB
+        level: 6, // Balance between speed and compression ratio
     }));
     // Set trust proxy to handle X-Forwarded-For header correctly when behind a proxy (like nginx)
     app.set('trust proxy', 1);

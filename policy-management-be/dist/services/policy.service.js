@@ -1,12 +1,14 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyService = void 0;
 exports.calculateAndSetCommission = calculateAndSetCommission;
 const lruCache_1 = require("../utils/lruCache");
 const client_1 = require("@prisma/client");
 const policyRepository_1 = require("../repositories/policyRepository");
-// import { uploadFile } from '../utils/fileStorage';
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 // Helper to map MIME type to FileType enum
 function mapMimeTypeToFileType(mimeType) {
     switch (mimeType) {
@@ -33,7 +35,7 @@ function mapMimeTypeToFileType(mimeType) {
     }
 }
 // Helper function to process uploaded files
-function processUploadedFiles(files, folderName, uploadedBy) {
+function processUploadedFiles(files, uploadedBy) {
     const policyDocs = [];
     const proposerDocs = [];
     const memberDocs = [];
@@ -41,82 +43,65 @@ function processUploadedFiles(files, folderName, uploadedBy) {
         console.log("📄 [FileProcessing] No files provided");
         return { policyDocs, proposerDocs, memberDocs };
     }
-    console.log("📄 [FileProcessing] Processing files with keys:", Object.keys(files));
-    console.log("📄 [FileProcessing] Files structure:", JSON.stringify(files, null, 2));
     // Process policy documents
     if (files.policyDocs && Array.isArray(files.policyDocs)) {
-        console.log("📄 [FileProcessing] Processing policyDocs:", files.policyDocs.length);
-        files.policyDocs.forEach((file, index) => {
-            console.log(`📄 [FileProcessing] Policy doc ${index}:`, file.fieldname, file.originalname);
+        files.policyDocs.forEach((file) => {
             policyDocs.push({
                 file_name: file.filename,
                 original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+                relative_path: `/api/uploads/policy-documents/${file.filename}`,
                 file_type: mapMimeTypeToFileType(file.mimetype),
-                category: 'POLICY_DOCUMENT',
+                category: client_1.DocumentCategory.POLICY_DOCUMENT,
                 uploaded_by: uploadedBy,
             });
         });
     }
     // Process proposer documents
     if (files.proposerDocs && Array.isArray(files.proposerDocs)) {
-        console.log("📄 [FileProcessing] Processing proposerDocs:", files.proposerDocs.length);
-        files.proposerDocs.forEach((file, index) => {
-            console.log(`📄 [FileProcessing] Proposer doc ${index}:`, file.fieldname, file.originalname);
+        files.proposerDocs.forEach((file) => {
             proposerDocs.push({
                 file_name: file.filename,
                 original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+                relative_path: `/api/uploads/policy-documents/${file.filename}`,
                 file_type: mapMimeTypeToFileType(file.mimetype),
-                category: 'PROPOSER_DOCUMENT',
+                category: client_1.DocumentCategory.PROPOSER_DOCUMENT,
                 uploaded_by: uploadedBy,
             });
         });
     }
     // Process member documents with index-based linking (legacy)
     if (files.memberDocs && Array.isArray(files.memberDocs)) {
-        console.log("📄 [FileProcessing] Processing memberDocs (index-based):", files.memberDocs.length);
         files.memberDocs.forEach((file, index) => {
-            console.log(`📄 [FileProcessing] Member doc ${index}:`, file.fieldname, file.originalname);
             memberDocs.push({
                 file_name: file.filename,
                 original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+                relative_path: `/api/uploads/policy-documents/${file.filename}`,
                 file_type: mapMimeTypeToFileType(file.mimetype),
-                category: 'INSURED_MEMBER_DOCUMENT',
+                category: client_1.DocumentCategory.INSURED_MEMBER_DOCUMENT,
                 uploaded_by: uploadedBy,
-                member_index: index, // Fallback for index-based linking
+                member_index: index,
             });
         });
     }
     // Process member-specific documents with dynamic field names
     Object.entries(files).forEach(([fieldName, fileList]) => {
-        console.log(`📄 [FileProcessing] Checking field: ${fieldName} with ${fileList.length} files`);
         if (fieldName.startsWith('memberDocs_') && Array.isArray(fileList)) {
             const memberIdOrIndex = fieldName.split('memberDocs_')[1];
-            console.log(`📄 [FileProcessing] Processing memberDocs_${memberIdOrIndex}:`, fileList.length, "files");
-            // Check if it's a UUID (member ID) or a number (index)
             const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(memberIdOrIndex);
             const memberIndex = parseInt(memberIdOrIndex);
-            fileList.forEach((file, fileIndex) => {
-                console.log(`📄 [FileProcessing] Member doc ${fileIndex}:`, file.fieldname, file.originalname, "->", isUUID ? `memberId: ${memberIdOrIndex}` : `index: ${memberIndex}`);
+            fileList.forEach((file) => {
                 memberDocs.push({
                     file_name: file.filename,
                     original_name: file.originalname,
-                    relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+                    relative_path: `/api/uploads/policy-documents/${file.filename}`,
                     file_type: mapMimeTypeToFileType(file.mimetype),
-                    category: 'INSURED_MEMBER_DOCUMENT',
+                    category: client_1.DocumentCategory.INSURED_MEMBER_DOCUMENT,
                     uploaded_by: uploadedBy,
                     member_index: isUUID ? undefined : memberIndex,
                     insured_member_id: isUUID ? memberIdOrIndex : undefined,
                 });
             });
         }
-    });
-    console.log("📄 [FileProcessing] Final processed documents:", {
-        policyDocs: policyDocs.length,
-        proposerDocs: proposerDocs.length,
-        memberDocs: memberDocs.length
     });
     return { policyDocs, proposerDocs, memberDocs };
 }
@@ -174,7 +159,7 @@ async function calculateAndSetCommission(policyInput) {
         return;
     }
     // Fetch ANY active commission rule for this policy name
-    const activeRule = await prisma.commissionRule.findFirst({
+    const activeRule = await prismaClient_1.default.commissionRule.findFirst({
         where: {
             policy_name_id: policyInput.policy_name_id,
             is_active: true,
@@ -231,14 +216,14 @@ exports.policyService = {
         console.log('🚀 Phase 1: Creating core entities...');
         // Validate policy number uniqueness
         if (data.policy_number) {
-            const existingPolicy = await prisma.policy.findUnique({
+            const existingPolicy = await prismaClient_1.default.policy.findUnique({
                 where: { policy_number: data.policy_number }
             });
             if (existingPolicy) {
                 throw new Error(`Policy with number ${data.policy_number} already exists`);
             }
         }
-        const result = await prisma.$transaction(async (tx) => {
+        const result = await prismaClient_1.default.$transaction(async (tx) => {
             const policy = await tx.policy.create({
                 data: {
                     // Policy fields
@@ -328,7 +313,7 @@ exports.policyService = {
         });
         // Validate document foreign keys before linking
         validateDocumentForeignKeys(processedDocs.memberDocs, coreEntities);
-        await prisma.$transaction(async (tx) => {
+        await prismaClient_1.default.$transaction(async (tx) => {
             // Link policy documents
             if (processedDocs.policyDocs.length > 0) {
                 console.log("📄 [LinkDocuments] Linking Policy Documents:", processedDocs.policyDocs.length);
@@ -410,23 +395,8 @@ exports.policyService = {
         console.log("🧾 [Service] Proposer Input:", JSON.stringify(data.proposer, null, 2));
         console.log("🧾 [Service] Members Input:", JSON.stringify(data.insured_members || data.members, null, 2));
         console.log("📄 [Service] Files Received:", files ? Object.keys(files) : 'No files');
-        // Get company name for folder structure
-        let companyName = 'unknown-company';
-        if (data.company_id) {
-            const company = await prisma.company.findUnique({
-                where: { id: data.company_id },
-                select: { name: true }
-            });
-            if (company?.name) {
-                companyName = company.name.replace(/[^a-zA-Z0-9\-]/g, '-');
-            }
-        }
-        // Prepare folder structure for file uploads
-        const customerName = (data.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-        const folderName = `${data.policy_number}-${customerName}-${companyName}`;
-        console.log(`Creating new policy with folder: ${folderName}`);
-        // Process uploaded files
-        const processedDocs = processUploadedFiles(files, folderName, userId);
+        // Process uploaded files (stored flat in policy-documents)
+        const processedDocs = processUploadedFiles(files, userId);
         console.log("📄 [Service] Processed Documents:", {
             policyDocs: processedDocs.policyDocs.length,
             proposerDocs: processedDocs.proposerDocs.length,
@@ -450,7 +420,7 @@ exports.policyService = {
             await calculateAndSetCommission(commissionData);
             // Update policy with calculated commission
             if (commissionData.calculated_commission_amount !== undefined) {
-                await prisma.policy.update({
+                await prismaClient_1.default.policy.update({
                     where: { id: coreEntities.policyId },
                     data: {
                         calculated_commission_amount: commissionData.calculated_commission_amount,
@@ -698,7 +668,7 @@ exports.policyService = {
             try {
                 // Check if policy number already exists
                 if (policy.policy_number) {
-                    const existingPolicy = await prisma.policy.findUnique({
+                    const existingPolicy = await prismaClient_1.default.policy.findUnique({
                         where: { policy_number: policy.policy_number },
                     });
                     if (existingPolicy) {
@@ -709,12 +679,12 @@ exports.policyService = {
                 let companyId = policy.company_id;
                 if (!companyId && (policy.company_name || policy.insurer_name)) {
                     const companyName = policy.company_name || policy.insurer_name;
-                    let company = await prisma.company.findFirst({
+                    let company = await prismaClient_1.default.company.findFirst({
                         where: { name: { contains: companyName } },
                     });
                     if (!company) {
                         try {
-                            company = await prisma.company.create({
+                            company = await prismaClient_1.default.company.create({
                                 data: {
                                     name: companyName,
                                 },
@@ -735,7 +705,7 @@ exports.policyService = {
                 let policyTypeId = policy.policy_type_id;
                 if (!policyTypeId && (policy.policy_type_name || policy.type)) {
                     const policyTypeName = policy.policy_type_name || policy.type;
-                    let policyType = await prisma.policyType.findFirst({
+                    let policyType = await prismaClient_1.default.policyType.findFirst({
                         where: { name: policyTypeName },
                     });
                     if (policyType) {
@@ -744,7 +714,7 @@ exports.policyService = {
                     }
                     else {
                         try {
-                            policyType = await prisma.policyType.create({
+                            policyType = await prismaClient_1.default.policyType.create({
                                 data: { name: policyTypeName },
                             });
                             policyTypeId = policyType.id;
@@ -765,12 +735,12 @@ exports.policyService = {
                 if (!policyGroupId && policy.policy_group_name) {
                     // Normalize policy group name to match database (uppercase)
                     const normalizedGroupName = policy.policy_group_name.toUpperCase();
-                    let policyGroup = await prisma.policyGroup.findFirst({
+                    let policyGroup = await prismaClient_1.default.policyGroup.findFirst({
                         where: { name: { contains: normalizedGroupName } },
                     });
                     if (!policyGroup) {
                         try {
-                            policyGroup = await prisma.policyGroup.create({
+                            policyGroup = await prismaClient_1.default.policyGroup.create({
                                 data: {
                                     name: normalizedGroupName,
                                     description: `Policy group: ${normalizedGroupName}`,
@@ -798,7 +768,7 @@ exports.policyService = {
                     let policyName = null;
                     if (companyId && policyGroupId) {
                         console.log(`Looking for policy name "${policyNameValue}" with company_id: ${companyId}, policy_group_id: ${policyGroupId}`);
-                        policyName = await prisma.policyName.findFirst({
+                        policyName = await prismaClient_1.default.policyName.findFirst({
                             where: {
                                 name: { contains: policyNameValue },
                                 company_id: companyId,
@@ -812,7 +782,7 @@ exports.policyService = {
                     // If not found, try just by name
                     if (!policyName) {
                         console.log(`Looking for policy name "${policyNameValue}" by name only`);
-                        policyName = await prisma.policyName.findFirst({
+                        policyName = await prismaClient_1.default.policyName.findFirst({
                             where: { name: { contains: policyNameValue } },
                         });
                         if (policyName) {
@@ -821,7 +791,7 @@ exports.policyService = {
                     }
                     if (!policyName && companyId) {
                         try {
-                            const company = await prisma.company.findUnique({
+                            const company = await prismaClient_1.default.company.findUnique({
                                 where: { id: companyId },
                             });
                             if (!company) {
@@ -833,13 +803,13 @@ exports.policyService = {
                                 let policyGroup = null;
                                 if (policy.policy_group_name) {
                                     const normalizedGroupName = policy.policy_group_name.toUpperCase();
-                                    policyGroup = await prisma.policyGroup.findFirst({
+                                    policyGroup = await prismaClient_1.default.policyGroup.findFirst({
                                         where: { name: { contains: normalizedGroupName } },
                                     });
                                 }
                                 if (!policyGroup) {
                                     const groupName = policy.policy_group_name ? policy.policy_group_name.toUpperCase() : `${company.name} Products`;
-                                    policyGroup = await prisma.policyGroup.create({
+                                    policyGroup = await prismaClient_1.default.policyGroup.create({
                                         data: {
                                             name: groupName,
                                             description: `Policy group: ${groupName}`,
@@ -849,7 +819,7 @@ exports.policyService = {
                                 }
                                 policyGroupId = policyGroup.id;
                             }
-                            policyName = await prisma.policyName.create({
+                            policyName = await prismaClient_1.default.policyName.create({
                                 data: {
                                     name: policyNameValue,
                                     description: `Product: ${policyNameValue}`,
@@ -1139,24 +1109,8 @@ exports.policyService = {
             proposerDocCount: existingPolicy.proposer?.documents?.length || 0,
             memberDocCount: existingPolicy.proposer?.insured_members?.reduce((total, member) => total + (member.documents?.length || 0), 0) || 0
         });
-        // Get company name for folder structure
-        let companyName = 'unknown-company';
-        if (data.company_id || existingPolicy.company_id) {
-            const companyId = data.company_id || existingPolicy.company_id;
-            const company = await prisma.company.findUnique({
-                where: { id: companyId || undefined },
-                select: { name: true }
-            });
-            if (company?.name) {
-                companyName = company.name.replace(/[^a-zA-Z0-9\-]/g, '-');
-            }
-        }
-        // Prepare folder structure for file uploads
-        const policyNumber = data.policy_number || existingPolicy.policy_number;
-        const customerName = (data.customer_name || existingPolicy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-        const folderName = `${policyNumber}-${customerName}-${companyName}`;
-        // Process uploaded files
-        const processedDocs = processUploadedFiles(files, folderName, userId);
+        // Process uploaded files (stored flat in policy-documents)
+        const processedDocs = processUploadedFiles(files, userId);
         console.log("📄 [Service] Processed Update Documents:", {
             policyDocs: processedDocs.policyDocs.length,
             proposerDocs: processedDocs.proposerDocs.length,
@@ -1165,7 +1119,7 @@ exports.policyService = {
         // Handle document deletions
         if (data.removedDocumentIds && data.removedDocumentIds.length > 0) {
             console.log("🗑️ [Service] Deleting Documents:", data.removedDocumentIds);
-            await prisma.uploadedDocument.deleteMany({
+            await prismaClient_1.default.uploadedDocument.deleteMany({
                 where: {
                     id: { in: data.removedDocumentIds }
                 }
@@ -1176,13 +1130,13 @@ exports.policyService = {
         if (membersToDelete.length > 0) {
             console.log("🗑️ [Service] Deleting Members:", membersToDelete);
             // Delete member documents first
-            await prisma.uploadedDocument.deleteMany({
+            await prismaClient_1.default.uploadedDocument.deleteMany({
                 where: {
                     insured_member_id: { in: membersToDelete }
                 }
             });
             // Delete members
-            await prisma.insuredMember.deleteMany({
+            await prismaClient_1.default.insuredMember.deleteMany({
                 where: {
                     id: { in: membersToDelete }
                 }
@@ -1195,10 +1149,23 @@ exports.policyService = {
         delete updateData.insured_members_to_delete;
         // Defensive: Merge with existing policy for full context
         const mergedData = { ...existingPolicy, ...updateData };
-        // Only recalculate commission if not manually provided in update
-        if (data.calculated_commission_amount === undefined) {
+        // Recalculate commission if GST status changed or if not manually provided
+        const gstStatusChanged = data.gst_status !== undefined && data.gst_status !== existingPolicy.gst_status;
+        const premiumAmountChanged = data.premium_amount !== undefined && data.premium_amount !== existingPolicy.premium_amount;
+        const shouldRecalculateCommission = data.calculated_commission_amount === undefined || gstStatusChanged || premiumAmountChanged;
+        if (shouldRecalculateCommission) {
+            console.log('[UpdatePolicy] Recalculating commission due to:', {
+                noManualValue: data.calculated_commission_amount === undefined,
+                gstStatusChanged,
+                premiumAmountChanged,
+                oldGstStatus: existingPolicy.gst_status,
+                newGstStatus: data.gst_status,
+                oldPremium: existingPolicy.premium_amount,
+                newPremium: data.premium_amount,
+            });
             await calculateAndSetCommission(mergedData);
             updateData.calculated_commission_amount = mergedData.calculated_commission_amount;
+            updateData.commission_add_on_percentage = mergedData.commission_add_on_percentage;
         }
         if (typeof data.emi_amount !== 'undefined') {
             updateData.emi_amount = data.emi_amount;
@@ -1286,28 +1253,28 @@ exports.policyService = {
         // Run all independent queries in parallel for better performance
         const [totalActive, totalRenewal, companyDistributionRaw, policyTypeDistributionRaw, premiumStats, sumInsuredStats, planTypeDistribution, genderDistribution, proposers, allPoliciesWithDates] = await Promise.all([
             // Main summary stats - no time filter
-            prisma.policy.count({ where: summaryWhere }),
-            prisma.policy.count({ where: renewalSummaryWhere }),
+            prismaClient_1.default.policy.count({ where: summaryWhere }),
+            prismaClient_1.default.policy.count({ where: renewalSummaryWhere }),
             // Distribution/charts - with time filter
-            prisma.policy.groupBy({
+            prismaClient_1.default.policy.groupBy({
                 by: ["company_id"],
                 where: chartWhere,
                 _count: { _all: true },
             }),
-            prisma.policy.groupBy({
+            prismaClient_1.default.policy.groupBy({
                 by: ["policy_type_id"],
                 where: chartWhere,
                 _count: { _all: true }
             }),
             // Main summary stats - no time filter
-            prisma.policy.aggregate({
+            prismaClient_1.default.policy.aggregate({
                 where: summaryWhere,
                 _sum: { premium_amount: true },
                 _avg: { premium_amount: true },
                 _min: { premium_amount: true },
                 _max: { premium_amount: true },
             }),
-            prisma.policy.aggregate({
+            prismaClient_1.default.policy.aggregate({
                 where: summaryWhere,
                 _sum: { sum_insured: true },
                 _avg: { sum_insured: true },
@@ -1315,12 +1282,12 @@ exports.policyService = {
                 _max: { sum_insured: true },
             }),
             // Distribution/charts - with time filter
-            prisma.policy.groupBy({
+            prismaClient_1.default.policy.groupBy({
                 by: ["plan_type"],
                 where: chartWhere,
                 _count: { _all: true },
             }),
-            prisma.proposer.groupBy({
+            prismaClient_1.default.proposer.groupBy({
                 by: ["gender"],
                 where: {
                     policy: {
@@ -1329,7 +1296,7 @@ exports.policyService = {
                 },
                 _count: { _all: true },
             }),
-            prisma.proposer.findMany({
+            prismaClient_1.default.proposer.findMany({
                 where: {
                     policy: {
                         created_at: fromDate ? { gte: fromDate } : undefined,
@@ -1337,7 +1304,7 @@ exports.policyService = {
                 },
                 select: { date_of_birth: true },
             }),
-            prisma.policy.findMany({
+            prismaClient_1.default.policy.findMany({
                 where: {
                     created_at: {
                         gte: twelveMonthsAgo,
@@ -1349,7 +1316,7 @@ exports.policyService = {
         ]);
         // Process company distribution
         const companyIds = companyDistributionRaw.map((c) => c.company_id).filter((id) => id !== null);
-        const companies = await prisma.company.findMany({
+        const companies = await prismaClient_1.default.company.findMany({
             where: { id: { in: companyIds } },
             select: { id: true, name: true },
         });
@@ -1359,7 +1326,7 @@ exports.policyService = {
         }));
         // Process policy type distribution
         const policyTypeIds = policyTypeDistributionRaw.map(pt => pt.policy_type_id).filter((id) => id !== null);
-        const policyTypes = await prisma.policyType.findMany({
+        const policyTypes = await prismaClient_1.default.policyType.findMany({
             where: { id: { in: policyTypeIds } },
             select: { id: true, name: true }
         });
@@ -1417,13 +1384,13 @@ exports.policyService = {
             }
         });
         // Top performing companies by premium
-        const topCompaniesByPremium = await prisma.policy.groupBy({
+        const topCompaniesByPremium = await prismaClient_1.default.policy.groupBy({
             by: ["company_id"],
             where: summaryWhere,
             _sum: { premium_amount: true },
         });
         const topCompanyIds = topCompaniesByPremium.map(c => c.company_id).filter((id) => id !== null);
-        const topCompaniesData = await prisma.company.findMany({
+        const topCompaniesData = await prismaClient_1.default.company.findMany({
             where: { id: { in: topCompanyIds } },
             select: { id: true, name: true }
         });

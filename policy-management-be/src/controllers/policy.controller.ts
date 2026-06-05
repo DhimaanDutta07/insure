@@ -158,6 +158,59 @@ function convertDataTypes(data: any) {
       result.gst_status = result.gst_status === 'true' || result.gst_status === '1';
     }
     
+    // Handle individual form fields that should be nested objects
+    // If proposer fields exist as individual fields but proposer is not an object, construct it
+    const proposerFields = [
+      'proposer_salutation', 'full_name', 'date_of_birth', 'gender', 'marital_status',
+      'mobile', 'alternate_mobile', 'email', 'address', 'kyc_id', 'occupation', 'nationality'
+    ];
+    const hasProposerFields = proposerFields.some(field => result[field] !== undefined && result[field] !== '');
+    if (hasProposerFields && typeof result.proposer !== 'object') {
+      result.proposer = {};
+      proposerFields.forEach(field => {
+        if (result[field] !== undefined && result[field] !== '') {
+          result.proposer[field] = result[field];
+          delete result[field];
+        }
+      });
+    }
+
+    // Handle individual insured member fields (for single member case)
+    const memberFields = [
+      'insured_member_salutation', 'name', 'relation_to_proposer', 'date_of_birth',
+      'gender', 'pre_existing', 'insured_member_medical_condition', 'insured_member_medical_remarks'
+    ];
+    const hasMemberFields = memberFields.some(field => result[field] !== undefined && result[field] !== '');
+    if (hasMemberFields && !Array.isArray(result.insured_members) && !Array.isArray(result.members)) {
+      const member: any = {};
+      memberFields.forEach(field => {
+        if (result[field] !== undefined && result[field] !== '') {
+          member[field] = result[field];
+          delete result[field];
+        }
+      });
+      if (Object.keys(member).length > 0) {
+        result.insured_members = [member];
+      }
+    }
+
+    // Handle individual nominee/payment fields
+    const nomineeFields = [
+      'nominee_salutation', 'nominee_name', 'nominee_relation', 'nominee_dob',
+      'payment_mode', 'payment_reference', 'bank_name', 'bank_account_number',
+      'bank_ifsc_code', 'bank_branch_name'
+    ];
+    const hasNomineeFields = nomineeFields.some(field => result[field] !== undefined && result[field] !== '');
+    if (hasNomineeFields && typeof result.nominee_payment !== 'object') {
+      result.nominee_payment = {};
+      nomineeFields.forEach(field => {
+        if (result[field] !== undefined && result[field] !== '') {
+          result.nominee_payment[field] = result[field];
+          delete result[field];
+        }
+      });
+    }
+
     // Convert JSON strings for nested objects with better error handling
     const jsonFields = ['proposer', 'members', 'insured_members', 'nominee_payment', 'documents_to_delete', 'members_to_delete', 'insured_members_to_delete', 'removedDocumentIds'];
     jsonFields.forEach((field) => {
@@ -170,6 +223,32 @@ function convertDataTypes(data: any) {
         }
       }
     });
+
+    // Remove empty string values from enum fields to avoid validation errors
+    console.log('🧹 [convertDataTypes] Before cleaning - proposer:', JSON.stringify(result.proposer));
+    if (result.proposer && typeof result.proposer === 'object') {
+      if (result.proposer.gender === '') {
+        console.log('🧹 [convertDataTypes] Deleting empty proposer.gender');
+        delete result.proposer.gender;
+      }
+      if (result.proposer.marital_status === '') {
+        console.log('🧹 [convertDataTypes] Deleting empty proposer.marital_status');
+        delete result.proposer.marital_status;
+      }
+    }
+    console.log('🧹 [convertDataTypes] After cleaning - proposer:', JSON.stringify(result.proposer));
+
+    if (Array.isArray(result.insured_members)) {
+      result.insured_members.forEach((member: any) => {
+        if (member.gender === '') delete member.gender;
+      });
+    }
+
+    if (Array.isArray(result.members)) {
+      result.members.forEach((member: any) => {
+        if (member.gender === '') delete member.gender;
+      });
+    }
 
     // Handle form_values separately to ensure it's always an array or undefined
     if (typeof result.form_values === 'string') {

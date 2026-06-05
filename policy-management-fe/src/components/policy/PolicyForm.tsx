@@ -497,44 +497,17 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
         );
       });
 
-      // Clean up proposer data - remove empty fields
+      // Clean up proposer data - keep all fields including empty ones to ensure they're saved
       const cleanedProposer = { ...data.proposer };
-      Object.keys(cleanedProposer).forEach((key) => {
-        const value = cleanedProposer[key as keyof typeof cleanedProposer];
-        if (value === "" || value === null || value === undefined) {
-          delete cleanedProposer[key as keyof typeof cleanedProposer];
-        }
-      });
+      // Only remove documents array if empty, keep all other fields
+      if (cleanedProposer.documents && (!cleanedProposer.documents || cleanedProposer.documents.length === 0)) {
+        delete cleanedProposer.documents;
+      }
 
-      // Clean up nominee data - only include if it has meaningful data
+      // Clean up nominee data - keep all fields including empty ones to ensure they're saved
       let cleanedNominee = null;
       if (data.nominee_payment) {
-        const nomineeData = { ...data.nominee_payment };
-        const nomineeFields = [
-          "nominee_salutation",
-          "nominee_name",
-          "nominee_relation",
-          "nominee_dob",
-          "payment_mode",
-          "payment_reference",
-          "bank_name",
-          "bank_account_number",
-          "bank_ifsc_code",
-          "bank_branch_name",
-        ];
-
-        // Remove empty fields
-        nomineeFields.forEach((field) => {
-          const value = nomineeData[field as keyof typeof nomineeData];
-          if (value === "" || value === null || value === undefined) {
-            delete nomineeData[field as keyof typeof nomineeData];
-          }
-        });
-
-        // Only keep nominee data if it has at least one meaningful field
-        if (Object.keys(nomineeData).length > 0) {
-          cleanedNominee = nomineeData;
-        }
+        cleanedNominee = { ...data.nominee_payment };
       }
 
       // Ensure all members have medical condition fields

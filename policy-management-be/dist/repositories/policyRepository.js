@@ -1,38 +1,14 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyRepository = exports.POLICY_LIST_INCLUDE = exports.POLICY_FULL_INCLUDE = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
+const referenceCache_1 = require("../utils/referenceCache");
 // Optimized include block - use select where possible for better performance
+// Reduced nested includes to improve query performance
 exports.POLICY_FULL_INCLUDE = {
-    documents: {
-        select: {
-            id: true,
-            file_name: true,
-            original_name: true,
-            relative_path: true,
-            file_type: true,
-            category: true,
-            uploaded_at: true,
-        },
-    },
-    document_references: {
-        select: {
-            id: true,
-            source_document_id: true,
-            transition_type: true,
-            transition_date: true,
-            can_edit: true,
-            can_delete: true,
-            source_document: {
-                select: {
-                    id: true,
-                    file_name: true,
-                    original_name: true,
-                },
-            },
-        },
-    },
     company: {
         select: {
             id: true,
@@ -62,6 +38,12 @@ exports.POLICY_FULL_INCLUDE = {
             email: true,
             date_of_birth: true,
             gender: true,
+            marital_status: true,
+            alternate_mobile: true,
+            address: true,
+            kyc_id: true,
+            occupation: true,
+            nationality: true,
             proposer_salutation: true,
             documents: {
                 select: {
@@ -69,6 +51,8 @@ exports.POLICY_FULL_INCLUDE = {
                     file_name: true,
                     original_name: true,
                     file_type: true,
+                    relative_path: true,
+                    category: true,
                 },
             },
             insured_members: {
@@ -78,12 +62,14 @@ exports.POLICY_FULL_INCLUDE = {
                     date_of_birth: true,
                     gender: true,
                     relation_to_proposer: true,
+                    insured_member_salutation: true,
                     documents: {
                         select: {
                             id: true,
                             file_name: true,
                             original_name: true,
                             file_type: true,
+                            relative_path: true,
                         },
                     },
                 },
@@ -95,8 +81,15 @@ exports.POLICY_FULL_INCLUDE = {
         select: {
             id: true,
             nominee_name: true,
+            nominee_salutation: true,
             nominee_relation: true,
+            nominee_dob: true,
             payment_mode: true,
+            payment_reference: true,
+            bank_name: true,
+            bank_account_number: true,
+            bank_ifsc_code: true,
+            bank_branch_name: true,
         },
     },
     form_values: {
@@ -129,6 +122,17 @@ exports.POLICY_FULL_INCLUDE = {
             remind_on: true,
             type: true,
             status: true,
+        },
+    },
+    documents: {
+        select: {
+            id: true,
+            file_name: true,
+            original_name: true,
+            relative_path: true,
+            file_type: true,
+            category: true,
+            uploaded_at: true,
         },
     },
 };
@@ -171,11 +175,9 @@ exports.policyRepository = {
         // --- Company mapping logic ---
         let companyName = data.company_name || data.company;
         if (companyName && !data.company_id) {
-            // Use Prisma to find existing company by name instead of hardcoded mapping
+            // Use cache for fast company lookup
             try {
-                const existingCompany = await prisma.company.findFirst({
-                    where: { name: companyName }
-                });
+                const existingCompany = await referenceCache_1.referenceCache.getCompanyByName(companyName);
                 if (existingCompany) {
                     data.company_id = existingCompany.id;
                     console.log('Mapping company name:', companyName, 'to company_id:', data.company_id);
@@ -211,7 +213,7 @@ exports.policyRepository = {
                 let existingPolicyName = null;
                 if (data.company_id && data.policy_group_id) {
                     console.log(`🔍 Searching with company and policy group constraints`);
-                    existingPolicyName = await prisma.policyName.findFirst({
+                    existingPolicyName = await prismaClient_1.default.policyName.findFirst({
                         where: {
                             name: policyName,
                             company_id: data.company_id,
@@ -222,7 +224,7 @@ exports.policyRepository = {
                 // If not found, try just by name
                 if (!existingPolicyName) {
                     console.log(`🔍 Searching by name only`);
-                    existingPolicyName = await prisma.policyName.findFirst({
+                    existingPolicyName = await prismaClient_1.default.policyName.findFirst({
                         where: { name: policyName }
                     });
                 }
@@ -257,11 +259,9 @@ exports.policyRepository = {
             delete data.policy_type_id;
         }
         else if (data.policy_type_name && typeof data.policy_type_name === 'string') {
-            // Try to find existing policy type by name instead of hardcoded mapping
+            // Use cache for fast policy type lookup
             try {
-                const existingType = await prisma.policyType.findFirst({
-                    where: { name: data.policy_type_name }
-                });
+                const existingType = await referenceCache_1.referenceCache.getPolicyTypeByName(data.policy_type_name);
                 if (existingType) {
                     data.type = { connect: { id: existingType.id } };
                 }
@@ -276,11 +276,9 @@ exports.policyRepository = {
             }
         }
         else if (data.type && typeof data.type === 'string') {
-            // Try to find existing policy type by name instead of hardcoded mapping
+            // Use cache for fast policy type lookup
             try {
-                const existingType = await prisma.policyType.findFirst({
-                    where: { name: data.type }
-                });
+                const existingType = await referenceCache_1.referenceCache.getPolicyTypeByName(data.type);
                 if (existingType) {
                     data.type = { connect: { id: existingType.id } };
                 }
@@ -304,11 +302,9 @@ exports.policyRepository = {
         if (policyGroupName && !data.policy_group_id) {
             // Normalize policy group name to match database (uppercase)
             const normalizedGroupName = policyGroupName.toUpperCase();
-            // Use Prisma to find existing policy group by name
+            // Use cache for fast policy group lookup
             try {
-                const existingPolicyGroup = await prisma.policyGroup.findFirst({
-                    where: { name: normalizedGroupName }
-                });
+                const existingPolicyGroup = await referenceCache_1.referenceCache.getPolicyGroupByName(normalizedGroupName);
                 if (existingPolicyGroup) {
                     data.policy_group_id = existingPolicyGroup.id;
                     console.log('Mapping policy group name:', policyGroupName, 'to policy_group_id:', data.policy_group_id);
@@ -379,7 +375,7 @@ exports.policyRepository = {
         }
         console.log('Creating policy with final data structure:', JSON.stringify(data, null, 2));
         // Create the policy with all nested relations
-        const result = await prisma.policy.create({
+        const result = await prismaClient_1.default.policy.create({
             data,
             include: exports.POLICY_FULL_INCLUDE,
         });
@@ -687,7 +683,7 @@ exports.policyRepository = {
         let companyName = data.company_name || data.company;
         if (companyName && !data.company_id) {
             try {
-                const existingCompany = await prisma.company.findFirst({ where: { name: companyName } });
+                const existingCompany = await referenceCache_1.referenceCache.getCompanyByName(companyName);
                 if (existingCompany) {
                     data.company_id = existingCompany.id;
                     console.log('Mapping company:', companyName, '→', existingCompany.id);
@@ -712,7 +708,7 @@ exports.policyRepository = {
             try {
                 let existingPolicyName = null;
                 if (data.company_id && data.policy_group_id) {
-                    existingPolicyName = await prisma.policyName.findFirst({
+                    existingPolicyName = await prismaClient_1.default.policyName.findFirst({
                         where: {
                             name: policyName,
                             company_id: data.company_id,
@@ -721,7 +717,7 @@ exports.policyRepository = {
                     });
                 }
                 if (!existingPolicyName) {
-                    existingPolicyName = await prisma.policyName.findFirst({ where: { name: policyName } });
+                    existingPolicyName = await prismaClient_1.default.policyName.findFirst({ where: { name: policyName } });
                 }
                 if (existingPolicyName) {
                     data.policy_name_id = existingPolicyName.id;
@@ -745,7 +741,7 @@ exports.policyRepository = {
         }
         else if (data.policy_type_name) {
             try {
-                const existingType = await prisma.policyType.findFirst({ where: { name: data.policy_type_name } });
+                const existingType = await referenceCache_1.referenceCache.getPolicyTypeByName(data.policy_type_name);
                 if (existingType) {
                     data.type = { connect: { id: existingType.id } };
                 }
@@ -759,9 +755,7 @@ exports.policyRepository = {
         let policyGroupName = data.policy_group_name || data.policy_group;
         if (policyGroupName && !data.policy_group_id) {
             try {
-                const existingGroup = await prisma.policyGroup.findFirst({
-                    where: { name: policyGroupName.toUpperCase() },
-                });
+                const existingGroup = await referenceCache_1.referenceCache.getPolicyGroupByName(policyGroupName.toUpperCase());
                 if (existingGroup) {
                     data.policy_group_id = existingGroup.id;
                 }
@@ -828,7 +822,7 @@ exports.policyRepository = {
         console.log('🚀 [REPOSITORY] Commission amount in data:', data.calculated_commission_amount);
         // const createPolicyData = {data.company_name, ...data}
         try {
-            const result = await prisma.policy.create({
+            const result = await prismaClient_1.default.policy.create({
                 data,
                 include: exports.POLICY_FULL_INCLUDE,
             });
@@ -839,7 +833,7 @@ exports.policyRepository = {
                 if (!proposerId || !policyId) {
                     throw new Error('Missing proposer or policy ID to create insured members');
                 }
-                await prisma.insuredMember.createMany({
+                await prismaClient_1.default.insuredMember.createMany({
                     data: insuredMembersToCreate.map((member) => ({
                         ...member,
                         proposer_id: proposerId,
@@ -864,15 +858,44 @@ exports.policyRepository = {
         }
         // Remove old status/date-based logic
         // Filtering by policy_creation_status is handled by the where object
+        // Optimized: Use select instead of include for better performance on list views
+        const optimizedInclude = {
+            company: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
+            type: { select: { name: true } },
+            policyName: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
+            policyGroup: {
+                select: {
+                    id: true,
+                    name: true,
+                },
+            },
+            proposer: {
+                select: {
+                    id: true,
+                    full_name: true,
+                    mobile: true,
+                },
+            },
+        };
         const [data, total] = await Promise.all([
-            prisma.policy.findMany({
+            prismaClient_1.default.policy.findMany({
                 where: processedWhere,
                 orderBy: { created_at: 'desc' },
                 skip,
                 take,
-                include: exports.POLICY_LIST_INCLUDE,
+                include: optimizedInclude,
             }),
-            prisma.policy.count({ where: processedWhere }),
+            prismaClient_1.default.policy.count({ where: processedWhere }),
         ]);
         return {
             data,
@@ -882,9 +905,10 @@ exports.policyRepository = {
             pages: Math.ceil(total / take),
         };
     },
-    // Get a single policy by ID
+    // Get a single policy by ID with optimized includes
     async getPolicyById(id) {
-        return prisma.policy.findUnique({
+        // Use a more optimized include for single policy fetch
+        return prismaClient_1.default.policy.findUnique({
             where: { id },
             include: exports.POLICY_FULL_INCLUDE,
         });
@@ -963,7 +987,7 @@ exports.policyRepository = {
             if (membersToUpdate && Array.isArray(membersToUpdate)) {
                 console.log('📋 [REPOSITORY] Updating members:', membersToUpdate.length);
                 // Get the proposer ID first
-                const existingPolicy = await prisma.policy.findUnique({
+                const existingPolicy = await prismaClient_1.default.policy.findUnique({
                     where: { id },
                     include: { proposer: true }
                 });
@@ -974,7 +998,7 @@ exports.policyRepository = {
                         console.log('🔍 [REPOSITORY] Processing member:', memberData.id ? 'UPDATE' : 'CREATE', memberData);
                         if (memberData.id) {
                             // Update existing member
-                            await prisma.insuredMember.update({
+                            await prismaClient_1.default.insuredMember.update({
                                 where: { id: memberData.id },
                                 data: {
                                     insured_member_salutation: memberData.insured_member_salutation,
@@ -990,7 +1014,7 @@ exports.policyRepository = {
                         }
                         else {
                             // Create new member
-                            await prisma.insuredMember.create({
+                            await prismaClient_1.default.insuredMember.create({
                                 data: {
                                     ...memberData,
                                     proposer_id: existingPolicy.proposer.id,
@@ -1013,7 +1037,7 @@ exports.policyRepository = {
         }
         // Update the main policy - use minimal include to avoid timeout
         // Full data is fetched separately by the service layer via getPolicyById
-        const result = await prisma.policy.update({
+        const result = await prismaClient_1.default.policy.update({
             where: { id },
             data: prismaUpdateData,
             select: {
@@ -1030,96 +1054,98 @@ exports.policyRepository = {
         console.log('✅ [REPOSITORY] Policy updated successfully');
         return result;
     },
-    // Delete a policy with all related data
+    // Delete a policy with all related data including the entire policy chain (parent and children)
     async deletePolicy(id) {
-        console.log(`🗑️ Starting deletion of policy ${id}`);
-        // Step 1: Delete document references where this policy's documents are the source
-        await prisma.policyDocumentReference.deleteMany({
-            where: {
-                source_document: {
-                    policy_id: id
-                }
-            }
-        });
-        console.log(`✅ Deleted document references (source)`);
-        // Step 2: Delete document references where this policy references ancestor documents
-        await prisma.policyDocumentReference.deleteMany({
-            where: {
-                policy_id: id
-            }
-        });
-        console.log(`✅ Deleted document references (policy)`);
-        // Step 3: Delete commission journal entries
-        await prisma.commissionJournal.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted commission journal entries`);
-        // Step 4: Delete form values
-        await prisma.policyFormValue.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted form values`);
-        // Step 5: Delete receipts
-        await prisma.policyReceipt.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted receipts`);
-        // Step 6: Delete revenues
-        await prisma.revenue.deleteMany({
-            where: { policyId: id }
-        });
-        console.log(`✅ Deleted revenues`);
-        // Step 7: Delete reminders
-        await prisma.reminder.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted reminders`);
-        // Step 8: Delete claims
-        await prisma.claim.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted claims`);
-        // Step 9: Delete documents
-        await prisma.uploadedDocument.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted documents`);
-        // Step 10: Delete insured members
-        await prisma.insuredMember.deleteMany({
-            where: { policy_id: id }
-        });
-        console.log(`✅ Deleted insured members`);
-        // Step 11: Delete proposer (if exists)
-        const proposer = await prisma.proposer.findFirst({
-            where: { policy_id: id }
-        });
-        if (proposer) {
-            await prisma.proposer.delete({
-                where: { id: proposer.id }
+        console.log(`🗑️ Starting deletion of policy ${id} and its entire chain`);
+        return await prismaClient_1.default.$transaction(async (tx) => {
+            // Step 0: Find all related policies in the chain (both parents and children)
+            const allPolicyIds = new Set();
+            const policyIdsToProcess = [id];
+            // Traverse up to find all parent policies
+            let currentPolicy = await tx.policy.findUnique({
+                where: { id },
+                select: { id: true, parent_policy_id: true }
             });
-            console.log(`✅ Deleted proposer`);
-        }
-        // Step 12: Delete nominee payment (if exists)
-        const nomineePayment = await prisma.nomineeAndPayment.findFirst({
-            where: { policy_id: id }
-        });
-        if (nomineePayment) {
-            await prisma.nomineeAndPayment.delete({
-                where: { id: nomineePayment.id }
+            while (currentPolicy?.parent_policy_id) {
+                allPolicyIds.add(currentPolicy.parent_policy_id);
+                const parentPolicy = await tx.policy.findUnique({
+                    where: { id: currentPolicy.parent_policy_id },
+                    select: { id: true, parent_policy_id: true }
+                });
+                currentPolicy = parentPolicy;
+            }
+            // Traverse down to find all child policies recursively
+            const childIds = [id];
+            while (childIds.length > 0) {
+                const currentId = childIds.pop();
+                allPolicyIds.add(currentId);
+                const children = await tx.policy.findMany({
+                    where: { parent_policy_id: currentId },
+                    select: { id: true }
+                });
+                children.forEach(child => {
+                    if (!allPolicyIds.has(child.id)) {
+                        childIds.push(child.id);
+                    }
+                });
+            }
+            const policyIdsArray = Array.from(allPolicyIds);
+            console.log(`🔗 Found ${policyIdsArray.length} related policies to delete:`, policyIdsArray);
+            // Step 1: Clear all parent_policy_id references in the chain
+            await tx.policy.updateMany({
+                where: { id: { in: policyIdsArray } },
+                data: { parent_policy_id: null },
             });
-            console.log(`✅ Deleted nominee payment`);
-        }
-        // Step 13: Now safe to delete the policy
-        const deletedPolicy = await prisma.policy.delete({
-            where: { id },
-            include: exports.POLICY_FULL_INCLUDE,
+            // Step 2: Delete document references for all policies in the chain
+            await Promise.all([
+                tx.policyDocumentReference.deleteMany({
+                    where: { source_document: { policy_id: { in: policyIdsArray } } }
+                }),
+                tx.policyDocumentReference.deleteMany({
+                    where: { policy_id: { in: policyIdsArray } }
+                }),
+            ]);
+            // Step 3: Delete independent related records for all policies in the chain
+            await Promise.all([
+                tx.commissionJournal.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.policyFormValue.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.policyReceipt.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.revenue.deleteMany({ where: { policyId: { in: policyIdsArray } } }),
+                tx.reminder.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.claim.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+            ]);
+            // Step 4: Delete documents for all policies in the chain
+            await tx.uploadedDocument.deleteMany({ where: { policy_id: { in: policyIdsArray } } });
+            // Step 5: Delete insured members for all policies in the chain
+            await tx.insuredMember.deleteMany({ where: { policy_id: { in: policyIdsArray } } });
+            // Step 6: Delete proposers for all policies in the chain
+            const proposers = await tx.proposer.findMany({
+                where: { policy_id: { in: policyIdsArray } }
+            });
+            for (const proposer of proposers) {
+                await tx.proposer.delete({ where: { id: proposer.id } });
+            }
+            // Step 7: Delete nominee payments for all policies in the chain
+            const nomineePayments = await tx.nomineeAndPayment.findMany({
+                where: { policy_id: { in: policyIdsArray } }
+            });
+            for (const nomineePayment of nomineePayments) {
+                await tx.nomineeAndPayment.delete({ where: { id: nomineePayment.id } });
+            }
+            // Step 8: Delete all policies in the chain
+            const deletedPolicies = await tx.policy.deleteMany({
+                where: { id: { in: policyIdsArray } }
+            });
+            console.log(`✅ Successfully deleted ${deletedPolicies.count} policies in the chain`);
+            return { deletedCount: deletedPolicies.count, policyIds: policyIdsArray };
+        }, {
+            maxWait: 10000,
+            timeout: 30000,
         });
-        console.log(`✅ Policy ${id} deleted successfully`);
-        return deletedPolicy;
     },
     // Get policies by user ID
     async getPoliciesByUserId(userId) {
-        return prisma.policy.findMany({
+        return prismaClient_1.default.policy.findMany({
             where: { created_by: userId },
             orderBy: { created_at: 'desc' },
             include: exports.POLICY_FULL_INCLUDE,
@@ -1127,7 +1153,7 @@ exports.policyRepository = {
     },
     // Get document by ID
     async getDocumentById(documentId) {
-        return prisma.uploadedDocument.findUnique({
+        return prismaClient_1.default.uploadedDocument.findUnique({
             where: { id: documentId },
             include: {
                 policy: true,
@@ -1150,7 +1176,7 @@ exports.policyRepository = {
     },
     // Delete document by ID
     async deleteDocument(documentId) {
-        return prisma.uploadedDocument.delete({
+        return prismaClient_1.default.uploadedDocument.delete({
             where: { id: documentId },
         });
     },
@@ -1169,7 +1195,7 @@ exports.policyRepository = {
             insured_members_count: data.insured_members?.length || data.members?.length || 0,
             nominee_payment: data.nominee_payment
         }, null, 2));
-        return await prisma.$transaction(async (tx) => {
+        return await prismaClient_1.default.$transaction(async (tx) => {
             // Create policy
             const policyData = {
                 policy_number: data.policy_number,
@@ -1268,7 +1294,7 @@ exports.policyRepository = {
             proposerDocs: documents.proposerDocs?.length || 0,
             memberDocs: documents.memberDocs?.length || 0
         });
-        return await prisma.$transaction(async (tx) => {
+        return await prismaClient_1.default.$transaction(async (tx) => {
             // Link policy documents
             if (documents.policyDocs && documents.policyDocs.length > 0) {
                 console.log("📄 [Repository] Linking Policy Documents:", documents.policyDocs.length);
@@ -1328,7 +1354,7 @@ exports.policyRepository = {
     },
     // Fetch a matching CommissionRule for commission calculation
     async getMatchingCommissionRule(params) {
-        return prisma.commissionRule.findFirst({
+        return prismaClient_1.default.commissionRule.findFirst({
             where: {
                 policy_name_id: params.policy_name_id,
                 policyStatus: params.policy_creation_status,

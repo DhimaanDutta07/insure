@@ -1,8 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.claimService = exports.ClaimService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 // Helper to map MIME type to FileType enum (same as policy service)
 function mapMimeTypeToFileType(mimeType) {
     switch (mimeType) {
@@ -29,7 +31,7 @@ function mapMimeTypeToFileType(mimeType) {
     }
 }
 // Helper function to process uploaded files (following policy service pattern)
-function processClaimDocuments(files, folderName, uploadedBy) {
+function processClaimDocuments(files, uploadedBy) {
     const claimDocs = [];
     if (!files)
         return claimDocs;
@@ -38,7 +40,7 @@ function processClaimDocuments(files, folderName, uploadedBy) {
             claimDocs.push({
                 file_name: file.filename,
                 original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+                relative_path: `/api/uploads/policy-documents/${file.filename}`,
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: 'OTHER',
                 uploaded_by: uploadedBy,
@@ -50,7 +52,7 @@ function processClaimDocuments(files, folderName, uploadedBy) {
             claimDocs.push({
                 file_name: file.filename,
                 original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${folderName}/${file.filename}`,
+                relative_path: `/api/uploads/policy-documents/${file.filename}`,
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: 'OTHER',
                 uploaded_by: uploadedBy,
@@ -64,7 +66,7 @@ class ClaimService {
         const { members, ...claimData } = data;
         console.log('🚀 Starting claim creation...');
         // ✅ OPTIMIZATION: Fetch policy OUTSIDE the transaction — no need to hold a transaction open for a read
-        const policy = await prisma.policy.findUnique({
+        const policy = await prismaClient_1.default.policy.findUnique({
             where: { id: claimData.policy_id },
             select: {
                 policy_number: true,
@@ -76,15 +78,10 @@ class ClaimService {
         if (!policy) {
             throw new Error('Policy not found');
         }
-        // Prepare folder name outside transaction
-        const policyNumber = policy.policy_number || 'unknown-policy';
-        const customerName = (policy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-        const companyName = (policy.company?.name || 'unknown-company').replace(/[^a-zA-Z0-9\-]/g, '-');
-        const folderName = `${policyNumber}-${customerName}-${companyName}`;
         // Process files outside transaction
-        const processedDocs = processClaimDocuments(files, folderName, userId);
+        const processedDocs = processClaimDocuments(files, userId);
         // ✅ OPTIMIZATION: Transaction now only does writes — much faster
-        return await prisma.$transaction(async (tx) => {
+        return await prismaClient_1.default.$transaction(async (tx) => {
             // Create the main claim
             const claim = await tx.claim.create({
                 data: {
@@ -145,7 +142,7 @@ class ClaimService {
         });
     }
     async getClaimsByPolicy(policyId) {
-        return await prisma.claim.findMany({
+        return await prismaClient_1.default.claim.findMany({
             where: {
                 policy_id: policyId,
                 is_deleted: false
@@ -168,7 +165,7 @@ class ClaimService {
         });
     }
     async getClaimById(id) {
-        return await prisma.claim.findUnique({
+        return await prismaClient_1.default.claim.findUnique({
             where: { id, is_deleted: false },
             include: {
                 claim_members: {
@@ -190,7 +187,7 @@ class ClaimService {
         });
     }
     async updateClaimStatus(id, status, userId, rejectionReason) {
-        return await prisma.claim.update({
+        return await prismaClient_1.default.claim.update({
             where: { id },
             data: {
                 claim_status: status,
@@ -212,7 +209,7 @@ class ClaimService {
         const { members, members_to_delete, removedDocumentIds, ...claimData } = data;
         console.log('🔄 Starting claim update...');
         // ✅ OPTIMIZATION: Fetch existing claim + policy OUTSIDE transaction
-        const existingClaim = await prisma.claim.findUnique({
+        const existingClaim = await prismaClient_1.default.claim.findUnique({
             where: { id },
             include: {
                 policy: {
@@ -227,15 +224,10 @@ class ClaimService {
         if (!existingClaim) {
             throw new Error('Claim not found');
         }
-        const policy = existingClaim.policy;
-        const policyNumber = policy.policy_number || 'unknown-policy';
-        const customerName = (policy.customer_name || 'unknown-customer').replace(/[^a-zA-Z0-9\-]/g, '-');
-        const companyName = (policy.company?.name || 'unknown-company').replace(/[^a-zA-Z0-9\-]/g, '-');
-        const folderName = `${policyNumber}-${customerName}-${companyName}`;
         // Process files outside transaction
-        const processedDocs = processClaimDocuments(files, folderName, userId);
+        const processedDocs = processClaimDocuments(files, userId);
         // ✅ OPTIMIZATION: Transaction only does writes
-        return await prisma.$transaction(async (tx) => {
+        return await prismaClient_1.default.$transaction(async (tx) => {
             // ✅ Run all deletes in parallel
             await Promise.all([
                 removedDocumentIds && removedDocumentIds.length > 0
@@ -312,7 +304,7 @@ class ClaimService {
         });
     }
     async deleteClaim(id) {
-        return await prisma.claim.update({
+        return await prismaClient_1.default.claim.update({
             where: { id },
             data: { is_deleted: true },
         });

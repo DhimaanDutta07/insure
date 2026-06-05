@@ -16,12 +16,44 @@ function globalErrorHandler(err, req, res, next) {
             message = 'Invalid Data - ' + errorMessages;
         }
         errorResponse.message = message;
+        errorResponse.details = err.errorObject || undefined;
         res.status(err.statusCode).json(errorResponse);
         return;
     }
     // Handle regular Error objects
     if (err instanceof Error) {
         errorResponse.message = err.message;
+        errorResponse.details = {
+            name: err.name,
+            code: err.code,
+        };
+        // Include stack trace in development for debugging
+        if (process.env.NODE_ENV === 'development') {
+            errorResponse.stack = err.stack;
+        }
+        res.status(400).json(errorResponse);
+        return;
+    }
+    // Handle Prisma errors with specific messages
+    if (err.code) {
+        switch (err.code) {
+            case 'P2002':
+                errorResponse.message = 'Duplicate entry: A record with this value already exists';
+                errorResponse.details = { fields: err.meta?.target };
+                break;
+            case 'P2025':
+                errorResponse.message = 'Record not found';
+                break;
+            case 'P2003':
+                errorResponse.message = 'Foreign key constraint failed: Related record does not exist';
+                errorResponse.details = { field: err.meta?.field_name };
+                break;
+            case 'P2014':
+                errorResponse.message = 'The change would violate a required relation';
+                break;
+            default:
+                errorResponse.message = err.message || 'Database error occurred';
+        }
         res.status(400).json(errorResponse);
         return;
     }
