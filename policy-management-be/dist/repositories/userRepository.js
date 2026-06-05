@@ -103,9 +103,6 @@ async function createUserWithRole(userData) {
 async function getUsersWithPagination(limit, offset, orderBy) {
     try {
         return await prismaClient_1.default.user.findMany({
-            where: {
-                is_deleted: false
-            },
             take: limit,
             skip: offset,
             orderBy,
@@ -167,11 +164,8 @@ async function findUserById(id) {
 }
 async function deleteUser(id) {
     try {
-        return await prismaClient_1.default.user.update({
-            where: { id },
-            data: {
-                is_deleted: true
-            }
+        return await prismaClient_1.default.user.delete({
+            where: { id }
         });
     }
     catch (err) {

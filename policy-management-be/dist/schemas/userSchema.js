@@ -34,7 +34,7 @@ exports.userSchema = zod_1.z.object({
     //   .regex(/\d/, 'Password must contain at least one number')
     //   .regex(/[@$!%*?&.#,^\-]/, 'Password must contain at least one special character.')
     //   .max(255, 'Password must be at most 255 characters'),
-    // site_ids: z.array(z.string().uuid()).optional(),
+    site_ids: zod_1.z.array(zod_1.z.string()).optional(),
     status: exports.UserStatusEnum.default("Active"),
     web_access: zod_1.z.boolean().default(true),
     app_access: zod_1.z.boolean().default(true),
@@ -44,13 +44,14 @@ exports.userSchema = zod_1.z.object({
     updated_at: zod_1.z.date().default(new Date()),
 });
 // ✅ Schema for creating users (omit system fields and role if handled separately)
-exports.userCreateSchema = exports.userSchema.omit({
-    id: true,
-    created_at: true,
-    updated_at: true,
-    status: true,
-    role_id: true,
-    // site_ids: true, // Uncomment if needed
+exports.userCreateSchema = zod_1.z.object({
+    name: zod_1.z.string().min(1, "Name is required").max(255, "Name must be at most 255 characters"),
+    email: zod_1.z.union([zod_1.z.string().email("Invalid email format").max(255, "Email must be at most 255 characters"), zod_1.z.literal(null), zod_1.z.literal("")]).optional(),
+    phone: zod_1.z.string().min(10, "Phone number must be at least 10 digits").max(15, "Phone number must be at most 15 digits"),
+    site_ids: zod_1.z.array(zod_1.z.string()).optional(),
+    web_access: zod_1.z.boolean().default(true),
+    app_access: zod_1.z.boolean().default(true),
+    permissions: exports.permissionsSchema.default({ app: [], web: [] }),
 });
 // ✅ Output schema (e.g., for API responses)
 exports.userDtoSchema = exports.userSchema.omit({

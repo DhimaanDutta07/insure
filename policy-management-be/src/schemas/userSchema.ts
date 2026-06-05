@@ -34,7 +34,7 @@ export const userSchema = z.object({
   //   .regex(/\d/, 'Password must contain at least one number')
   //   .regex(/[@$!%*?&.#,^\-]/, 'Password must contain at least one special character.')
   //   .max(255, 'Password must be at most 255 characters'),
-  // site_ids: z.array(z.string().uuid()).optional(),
+  site_ids: z.array(z.string()).optional(),
   status: UserStatusEnum.default("Active"),
   web_access: z.boolean().default(true),
   app_access: z.boolean().default(true),
@@ -45,13 +45,14 @@ export const userSchema = z.object({
 });
 
 // ✅ Schema for creating users (omit system fields and role if handled separately)
-export const userCreateSchema = userSchema.omit({
-  id: true,
-  created_at: true,
-  updated_at: true,
-  status: true,
-  role_id: true,
-  // site_ids: true, // Uncomment if needed
+export const userCreateSchema = z.object({
+  name: z.string().min(1, "Name is required").max(255, "Name must be at most 255 characters"),
+  email: z.union([z.string().email("Invalid email format").max(255, "Email must be at most 255 characters"), z.literal(null), z.literal("")]).optional(),
+  phone: z.string().min(10, "Phone number must be at least 10 digits").max(15, "Phone number must be at most 15 digits"),
+  site_ids: z.array(z.string()).optional(),
+  web_access: z.boolean().default(true),
+  app_access: z.boolean().default(true),
+  permissions: permissionsSchema.default({ app: [], web: [] }),
 });
 
 // ✅ Output schema (e.g., for API responses)

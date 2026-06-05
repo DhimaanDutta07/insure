@@ -118,7 +118,7 @@ async function validateUserToken(token) {
     }
 }
 async function createUser(userData, roleName) {
-    const { name, email, phone, permissions } = userData;
+    const { name, email, phone, permissions, site_ids } = userData;
     // Check if user already exists by phone
     const existingUser = await (0, roleRepository_1.findUserByPhone)(phone);
     if (existingUser) {
@@ -129,10 +129,12 @@ async function createUser(userData, roleName) {
     if (!role) {
         role = await (0, roleRepository_1.createRole)(roleName, {});
     }
+    // Handle email - convert empty string to null
+    const emailValue = (email === "" || email === undefined) ? null : email;
     // Create user with permissions
     const user = await (0, userRepository_1.createUserWithRole)({
         name,
-        email: email || null,
+        email: emailValue,
         phone,
         permissions: permissions || { app: [], web: [] }, // Set default permissions if not provided
         role_id: role ? role.id : null,

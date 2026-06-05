@@ -80,6 +80,7 @@ import {
   updatePolicyReceipt,
   deletePolicyReceipt,
 } from '../services/policyReceipt.service';
+import { PolicyTransitionService } from '../services/policyTransition.service';
 import { useCallback } from 'react';
 
 // Query key factories - centralized for consistency
@@ -111,6 +112,7 @@ export const queryKeys = {
   policyReceipts: () => ['policyReceipts'] as const,
   policyReceipt: (id: string) => ['policyReceipt', id] as const,
   dashboard: (timeRange?: string) => ['dashboard', timeRange] as const,
+  policyTransitionHistory: (policyId: string) => ['policyTransitionHistory', policyId] as const,
 };
 
 // ─── POLICIES ───────────────────────────────────────────
@@ -119,9 +121,10 @@ export function usePolicies(params?: Record<string, unknown>) {
   return useQuery({
     queryKey: queryKeys.policies(params),
     queryFn: () => getAllPolicies(params),
-    staleTime: 15_000,
-    gcTime: 5 * 60_000,
+    staleTime: 5_000, // Shorter stale time for more freshness
+    gcTime: 10 * 60_000,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: false, // Don't refetch on window focus to avoid jank
   });
 }
 
@@ -153,7 +156,19 @@ export function useCreatePolicy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: createPolicy,
-    onSuccess: () => {
+    onMutate: async (newPolicy) => {
+      await qc.cancelQueries({ queryKey: ['policies'] });
+      const previousPolicies = qc.getQueryData(['policies']);
+      qc.setQueryData(['policies'], (old: any) => {
+        if (!old) return [newPolicy];
+        return [newPolicy, ...old];
+      });
+      return { previousPolicies };
+    },
+    onError: (_err, _newPolicy, context) => {
+      qc.setQueryData(['policies'], context?.previousPolicies);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['policies'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
@@ -164,8 +179,29 @@ export function useUpdatePolicy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: FormData }) => updatePolicy(id, data),
-    onSuccess: (_, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.policy(variables.id) });
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: ['policies'] });
+      await qc.cancelQueries({ queryKey: queryKeys.policy(id) });
+      const previousPolicies = qc.getQueryData(['policies']);
+      const previousPolicy = qc.getQueryData(queryKeys.policy(id));
+      qc.setQueryData(['policies'], (old: any) => {
+        if (!old) return old;
+        return old.map((p: any) => p.id === id ? { ...p, ...data } : p);
+      });
+      qc.setQueryData(queryKeys.policy(id), (old: any) => {
+        if (!old) return old;
+        return { ...old, ...data };
+      });
+      return { previousPolicies, previousPolicy, id };
+    },
+    onError: (_err, _variables, context) => {
+      qc.setQueryData(['policies'], context?.previousPolicies);
+      qc.setQueryData(queryKeys.policy(context?.id || ''), context?.previousPolicy);
+    },
+    onSettled: (_err, variables) => {
+      if (variables && typeof variables === 'object' && 'id' in variables && variables.id) {
+        qc.invalidateQueries({ queryKey: queryKeys.policy(variables.id as string) });
+      }
       qc.invalidateQueries({ queryKey: ['policies'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
@@ -176,7 +212,19 @@ export function useDeletePolicy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: deletePolicy,
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['policies'] });
+      const previousPolicies = qc.getQueryData(['policies']);
+      qc.setQueryData(['policies'], (old: any) => {
+        if (!old) return old;
+        return old.filter((p: any) => p.id !== id);
+      });
+      return { previousPolicies };
+    },
+    onError: (_err, _id, context) => {
+      qc.setQueryData(['policies'], context?.previousPolicies);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['policies'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
@@ -395,8 +443,22 @@ export function useCreateClaim() {
   return useMutation({
     mutationFn: ({ policyId, data, files }: { policyId: string; data: Parameters<typeof createClaim>[1]; files?: File[] }) =>
       createClaim(policyId, data, files),
-    onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: queryKeys.policyClaims(vars.policyId) });
+    onMutate: async ({ policyId, data }) => {
+      await qc.cancelQueries({ queryKey: queryKeys.policyClaims(policyId) });
+      const previousClaims = qc.getQueryData(queryKeys.policyClaims(policyId));
+      qc.setQueryData(queryKeys.policyClaims(policyId), (old: any) => {
+        if (!old) return [data];
+        return [data, ...old];
+      });
+      return { previousClaims };
+    },
+    onError: (_err, { policyId }, context) => {
+      qc.setQueryData(queryKeys.policyClaims(policyId), context?.previousClaims);
+    },
+    onSettled: (_err, vars) => {
+      if (vars && typeof vars === 'object' && 'policyId' in vars) {
+        qc.invalidateQueries({ queryKey: queryKeys.policyClaims(vars.policyId as string) });
+      }
     },
   });
 }
@@ -427,7 +489,19 @@ export function useDeleteClaim() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: deleteClaim,
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['claims'] });
+      const previousClaims = qc.getQueryData(['claims']);
+      qc.setQueryData(['claims'], (old: any) => {
+        if (!old) return old;
+        return old.filter((c: any) => c.id !== id);
+      });
+      return { previousClaims };
+    },
+    onError: (_err, _id, context) => {
+      qc.setQueryData(['claims'], context?.previousClaims);
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: ['claims'] });
     },
   });
@@ -650,6 +724,89 @@ export function useDeletePolicyReceipt() {
   return useMutation({
     mutationFn: deletePolicyReceipt,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['policyReceipts'] }),
+  });
+}
+
+// ─── POLICY TRANSITIONS (RENEWAL, MIGRATION, PORTABILITY) ───
+
+export function usePolicyTransitionHistory(policyId: string) {
+  return useQuery({
+    queryKey: queryKeys.policyTransitionHistory(policyId),
+    queryFn: () => PolicyTransitionService.getTransitionHistory(policyId),
+    staleTime: 30_000,
+    enabled: !!policyId,
+  });
+}
+
+export function useCreateRenewal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ parentPolicyId, data }: { parentPolicyId: string; data: Parameters<typeof PolicyTransitionService.createRenewal>[1] }) =>
+      PolicyTransitionService.createRenewal(parentPolicyId, data),
+    onMutate: async ({ data }) => {
+      await qc.cancelQueries({ queryKey: ['policies'] });
+      const previousPolicies = qc.getQueryData(['policies']);
+      qc.setQueryData(['policies'], (old: any) => {
+        if (!old) return old;
+        return [data, ...old];
+      });
+      return { previousPolicies };
+    },
+    onError: (_err, _vars, context) => {
+      qc.setQueryData(['policies'], context?.previousPolicies);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['policies'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+export function useCreateMigration() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ parentPolicyId, data }: { parentPolicyId: string; data: Parameters<typeof PolicyTransitionService.createMigration>[1] }) =>
+      PolicyTransitionService.createMigration(parentPolicyId, data),
+    onMutate: async ({ data }) => {
+      await qc.cancelQueries({ queryKey: ['policies'] });
+      const previousPolicies = qc.getQueryData(['policies']);
+      qc.setQueryData(['policies'], (old: any) => {
+        if (!old) return old;
+        return [data, ...old];
+      });
+      return { previousPolicies };
+    },
+    onError: (_err, _vars, context) => {
+      qc.setQueryData(['policies'], context?.previousPolicies);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['policies'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+export function useCreatePortability() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ parentPolicyId, data }: { parentPolicyId: string; data: Parameters<typeof PolicyTransitionService.createPortability>[1] }) =>
+      PolicyTransitionService.createPortability(parentPolicyId, data),
+    onMutate: async ({ data }) => {
+      await qc.cancelQueries({ queryKey: ['policies'] });
+      const previousPolicies = qc.getQueryData(['policies']);
+      qc.setQueryData(['policies'], (old: any) => {
+        if (!old) return old;
+        return [data, ...old];
+      });
+      return { previousPolicies };
+    },
+    onError: (_err, _vars, context) => {
+      qc.setQueryData(['policies'], context?.previousPolicies);
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ['policies'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
   });
 }
 

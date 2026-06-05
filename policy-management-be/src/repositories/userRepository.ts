@@ -120,9 +120,6 @@ export async function createUserWithRole(userData: any) {
 export async function getUsersWithPagination(limit: number, offset: number, orderBy: any): Promise<UserWithSitesAndRole[]> {
   try {
     return await prisma.user.findMany({
-      where: {
-        is_deleted: false
-      },
       take: limit,
       skip: offset,
       orderBy,
@@ -184,11 +181,8 @@ export async function findUserById(id: string) {
 
 export async function deleteUser(id: string) {
   try {
-    return await prisma.user.update({
-      where: { id },
-      data: {
-        is_deleted: true
-      }
+    return await prisma.user.delete({
+      where: { id }
     });
   } catch (err) {
     if ((err as any).code === 'P2025') {

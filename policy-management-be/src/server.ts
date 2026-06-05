@@ -90,6 +90,9 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
   res.set('X-Sendfile', filePath);
   res.set('Content-Type', contentType);
   res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, role');
+  res.set('Access-Control-Allow-Credentials', 'true');
   res.set('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
   
   // Force download
@@ -101,17 +104,7 @@ app.get('/api/files/material-receipts/images/:fileName', (req: Request, res: Res
   // Basic middleware
   const origin = process.env.FRONTEND_API || process.env.LOCALHOST_API;
   app.use(cors({ 
-    origin: [
-      "https://www.insurewelladvisory.in",
-      "https://insurewelladvisory.in",
-      "https://insure-rdo9.vercel.app",
-      "https://policy.mindrops.com",
-      "https://policy-management-frontend-coral.vercel.app",
-      /https:\/\/policy-management-frontend.*\.vercel\.app$/,
-      "http://localhost:5173",
-      "http://localhost:3001",
-      "http://192.168.1.15:3001"
-    ],
+    origin: "*",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization", "role"],
     credentials: true,

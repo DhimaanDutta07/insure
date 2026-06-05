@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { User, Role, AuthContextType } from '../types';
 import { useNavigate } from 'react-router-dom';
+import { usePrefetchAll } from '../hooks/useApi';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -20,6 +21,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const absoluteLogoutTimerRef = useRef<number | null>(null);
   const logoutRef = useRef<() => void>(() => {});
   const CLOSED_GRACE_MS = 15 * 60 * 1000; // 15 minutes buffer for closed tab
+  const prefetchAll = usePrefetchAll();
   const recordActivity = useCallback(() => {
     try {
       localStorage.setItem('lastActivityAt', String(Date.now()));
@@ -109,6 +111,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setSessionExpiresAt(expMs);
               scheduleAbsoluteLogout(expMs);
             }
+            // Preload all reference data for instant page loads
+            prefetchAll();
           } else {
             // Clear invalid token
             localStorage.removeItem('authToken');
@@ -156,6 +160,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setSessionExpiresAt(finalExp);
         scheduleAbsoluteLogout(finalExp);
       }
+      
+      // Preload all reference data for instant page loads
+      prefetchAll();
       
       // Fix: Use setTimeout instead of setInterval and navigate immediately
       setTimeout(() => {

@@ -125,125 +125,138 @@ export default function AdminUserPanel() {
       setShowLoadingSpinner: React.Dispatch<React.SetStateAction<boolean>>
     ): Promise<void> => {
       return (async () => {
-        try {
-          if (action === "delete") {
-            await axios.delete(
-              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-                },
-              }
-            );
-            // Refresh the users list after deletion
-            fetchUsers(true, currentPage);
-          } else if (action === "toggle") {
-            const payload = { status: user.status };
-            await axios.patch(
-              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/status`,
-              JSON.stringify(payload),
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-                  "Content-Type": "application/json",
-                },
-              }
-            );
-            fetchUsers(true, currentPage);
-          } else if (action === "toggleApp") {
-            const payload = { app_access: user.app_access };
-            await axios.patch(
-              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/app-access`,
-              JSON.stringify(payload),
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-                  "Content-Type": "application/json",
-                },
-              }
-            );
-            fetchUsers(true, currentPage);
-          } else if (action === "toggleWeb") {
-            const payload = { web_access: user.web_access };
-            await axios.patch(
-              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/web-access`,
-              JSON.stringify(payload),
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-                  "Content-Type": "application/json",
-                },
-              }
-            );
-            fetchUsers(true, currentPage);
-          } else {
-            const payload: {
-              name: string | undefined;
-              phone: string | undefined;
-              role: string | undefined;
-              site_ids: string[];
-              permissions: {
-                app: string[];
-                web: string[];
-              };
-              app_access: boolean;
-              web_access: boolean;
-              email?: string | null;
-            } = {
-              name: user.name,
-              phone: user.phone?.toString(),
-              role: user.role,
-              site_ids: (user.sites || []).map(site => site.id),
-              permissions: {
-                app: user.app_access ? user.permissions?.app ?? [] : [],
-                web: user.web_access ? user.permissions?.web ?? [] : [],
-              },
-              app_access: user.app_access ?? false,
-              web_access: user.web_access ?? false,
-            };
-            // Always include email field, even if it's null (to clear it)
-            payload.email = user.email;
-
-            await axios.patch(
-              `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}`,
-              JSON.stringify(payload),
-              {
-                headers: {
-                  Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-                  "Content-Type": "application/json",
-                },
-              }
-            );
-            fetchUsers(true, currentPage);
-          }
-
-          let successMessage = "User action completed successfully";
-          if (action === "toggle") successMessage = "User status updated successfully";
-          if (action === "toggleApp") successMessage = "App access updated successfully";
-          if (action === "toggleWeb") successMessage = "Web access updated successfully";
-          if (action === "delete") successMessage = "User deleted successfully";
-          if (action === "update") successMessage = "User updated successfully";
-
-          toast.success("Success", {
-            description: successMessage,
-          });
-        } catch (err) {
-          console.log(err);
-          if (axios.isAxiosError(err) && err.response) {
-            const errorMessage =
-              err.response.data?.message || 
-              err.response.data?.details?.[0]?.message || 
-              "Something went wrong.";
-            
-            toast.error("Error", { description: errorMessage });
-          } else {
-            toast.error("Error", { description: "An unexpected error occurred." });
-          }
-          // Re-throw the error so the calling function can catch it
-          throw err;
-        } finally {
-          setShowLoadingSpinner(false);
+        // Optimistic update - update local state immediately
+        if (action === "delete") {
+          setUsers(prevUsers => prevUsers.filter(u => u.id !== user.id));
+          setTotalItemsCount(prev => Math.max(0, prev - 1));
+        } else if (action === "toggle") {
+          const newStatus = user.status === "Active" ? "Inactive" : "Active";
+          setUsers(prevUsers => prevUsers.map(u => u.id === user.id ? { ...u, status: newStatus as "Active" | "Inactive" } : u));
+        } else if (action === "toggleApp") {
+          setUsers(prevUsers => prevUsers.map(u => u.id === user.id ? { ...u, app_access: !user.app_access } : u));
+        } else if (action === "toggleWeb") {
+          setUsers(prevUsers => prevUsers.map(u => u.id === user.id ? { ...u, web_access: !user.web_access } : u));
+        } else if (action === "update") {
+          setUsers(prevUsers => prevUsers.map(u => u.id === user.id ? { ...user } : u));
         }
+
+        // Fire API call in background without awaiting
+        (async () => {
+          try {
+            if (action === "delete") {
+              await axios.delete(
+                `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}`,
+                {
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+                  },
+                }
+              );
+            } else if (action === "toggle") {
+              const newStatus = user.status === "Active" ? "Inactive" : "Active";
+              const payload = { status: newStatus };
+              await axios.patch(
+                `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/status`,
+                JSON.stringify(payload),
+                {
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+            } else if (action === "toggleApp") {
+              const payload = { app_access: !user.app_access };
+              await axios.patch(
+                `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/app-access`,
+                JSON.stringify(payload),
+                {
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+            } else if (action === "toggleWeb") {
+              const payload = { web_access: !user.web_access };
+              await axios.patch(
+                `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}/web-access`,
+                JSON.stringify(payload),
+                {
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+            } else {
+              const payload: {
+                name: string | undefined;
+                phone: string | undefined;
+                role: string | undefined;
+                site_ids: string[];
+                permissions: {
+                  app: string[];
+                  web: string[];
+                };
+                app_access: boolean;
+                web_access: boolean;
+                email?: string | null;
+              } = {
+                name: user.name,
+                phone: user.phone?.toString(),
+                role: user.role,
+                site_ids: (user.sites || []).map(site => site.id),
+                permissions: {
+                  app: user.app_access ? user.permissions?.app ?? [] : [],
+                  web: user.web_access ? user.permissions?.web ?? [] : [],
+                },
+                app_access: user.app_access ?? false,
+                web_access: user.web_access ?? false,
+              };
+              payload.email = user.email;
+
+              await axios.patch(
+                `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/user/${user.id}`,
+                JSON.stringify(payload),
+                {
+                  headers: {
+                    Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+            }
+
+            let successMessage = "User action completed successfully";
+            if (action === "toggle") successMessage = "User status updated successfully";
+            if (action === "toggleApp") successMessage = "App access updated successfully";
+            if (action === "toggleWeb") successMessage = "Web access updated successfully";
+            if (action === "delete") successMessage = "User deleted successfully";
+            if (action === "update") successMessage = "User updated successfully";
+
+            toast.success("Success", {
+              description: successMessage,
+            });
+          } catch (err) {
+            console.log(err);
+            // Revert optimistic update on error
+            fetchUsers(true, currentPage);
+            
+            if (axios.isAxiosError(err) && err.response) {
+              const errorMessage =
+                err.response.data?.message || 
+                err.response.data?.details?.[0]?.message || 
+                "Something went wrong.";
+              
+              toast.error("Error", { description: errorMessage });
+            } else {
+              toast.error("Error", { description: "An unexpected error occurred." });
+            }
+          }
+        })();
+
+        setShowLoadingSpinner(false);
       })();
     },
     [currentPage, fetchUsers]

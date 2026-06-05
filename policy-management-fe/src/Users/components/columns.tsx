@@ -107,7 +107,6 @@
 import { ColumnDef } from "@tanstack/react-table";
 import { UserData } from "./data";
 import { Badge } from "../../components/ui/badge";
-import { Switch } from "../../components/ui/switch";
 import { DataTableRowActions } from "./data-table-row-actions";
 
 interface GetUserColumnsProps {
@@ -167,44 +166,20 @@ export const getUserColumns = ({ onAction, readOnly = false }: GetUserColumnsPro
     size: readOnly ? 0 : 50,
   },
   {
-    accessorKey: "status",
-    header: () => <div className={`text-left ${readOnly ? "invisible" : ""}`}>Status</div>,
-    cell: ({ row }) => {
-      const user = row.original;
-      const isActive = user.status === "Active";
-
-      const handleToggle = async (checked: boolean) => {
-        if (readOnly) return;
-        const newStatus = checked ? "Active" : "Inactive";
-        onAction({ ...user, status: newStatus }, "toggle", () => {});
-      };
-
-      return (
-        <div>
-          <Switch
-            checked={isActive}
-            onCheckedChange={handleToggle}
-            disabled={readOnly}
-            className={readOnly ? "invisible" : undefined}
-            aria-label="Toggle user active status"
-          />
-        </div>
-      );
-    },
-    size: readOnly ? 0 : 80,
-  },
-  {
     id: "actions",
     header: () => <div className={`text-left ${readOnly ? "invisible" : ""}`}>Action</div>,
     cell: ({ row }) => (
-      <div className="flex justify-start">
+      <div className="flex justify-start gap-2">
         {readOnly ? (
           <div className="h-10 w-10 invisible" />
         ) : (
-          <DataTableRowActions row={row} columnName="edit" onAction={onAction} readOnly={readOnly} />
+          <>
+            <DataTableRowActions row={row} columnName="edit" onAction={onAction} readOnly={readOnly} />
+            <DataTableRowActions row={row} columnName="delete" onAction={onAction} readOnly={readOnly} />
+          </>
         )}
       </div>
     ),
-    size: readOnly ? 0 : 80,
+    size: readOnly ? 0 : 160,
   },
 ];
