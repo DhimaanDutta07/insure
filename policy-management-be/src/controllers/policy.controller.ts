@@ -748,11 +748,13 @@ export const policyController = {
 
       const policyId = req.params.id as string;
 
-      // Repository handles all deletion steps including related data
-      await policyService.deletePolicy(policyId);
+      // Repository handles all deletion steps including related data and entire policy chain
+      const result = await policyService.deletePolicy(policyId);
       res.status(200).json({
         success: true,
-        message: 'Policy deleted successfully'
+        message: `Successfully deleted ${result.deletedCount} policy(ies) and all related data`,
+        deletedCount: result.deletedCount,
+        deletedPolicyIds: result.policyIds
       });
     } catch (error) {
       console.error("Error deleting policy:", error);

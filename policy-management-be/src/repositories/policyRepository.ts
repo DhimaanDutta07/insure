@@ -1,36 +1,10 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../utils/prismaClient';
+import { referenceCache } from '../utils/referenceCache';
 
 // Optimized include block - use select where possible for better performance
+// Reduced nested includes to improve query performance
 export const POLICY_FULL_INCLUDE = {
-  documents: {
-    select: {
-      id: true,
-      file_name: true,
-      original_name: true,
-      relative_path: true,
-      file_type: true,
-      category: true,
-      uploaded_at: true,
-    },
-  },
-  document_references: {
-    select: {
-      id: true,
-      source_document_id: true,
-      transition_type: true,
-      transition_date: true,
-      can_edit: true,
-      can_delete: true,
-      source_document: {
-        select: {
-          id: true,
-          file_name: true,
-          original_name: true,
-        },
-      },
-    },
-  },
   company: {
     select: {
       id: true,
@@ -131,6 +105,17 @@ export const POLICY_FULL_INCLUDE = {
       status: true,
     },
   },
+  documents: {
+    select: {
+      id: true,
+      file_name: true,
+      original_name: true,
+      relative_path: true,
+      file_type: true,
+      category: true,
+      uploaded_at: true,
+    },
+  },
 } as const;
 
 // Lightweight include for list views - only essential fields for display
@@ -175,11 +160,9 @@ export const policyRepository = {
     // --- Company mapping logic ---
     let companyName = (data as any).company_name || (data as any).company;
     if (companyName && !(data as any).company_id) {
-      // Use Prisma to find existing company by name instead of hardcoded mapping
+      // Use cache for fast company lookup
       try {
-        const existingCompany = await prisma.company.findFirst({
-          where: { name: companyName }
-        });
+        const existingCompany = await referenceCache.getCompanyByName(companyName);
         if (existingCompany) {
           (data as any).company_id = existingCompany.id;
           console.log('Mapping company name:', companyName, 'to company_id:', (data as any).company_id);
@@ -259,11 +242,9 @@ export const policyRepository = {
       (data as any).type = { connect: { id: (data as any).policy_type_id } };
       delete (data as any).policy_type_id;
     } else if ((data as any).policy_type_name && typeof (data as any).policy_type_name === 'string') {
-      // Try to find existing policy type by name instead of hardcoded mapping
+      // Use cache for fast policy type lookup
       try {
-        const existingType = await prisma.policyType.findFirst({
-          where: { name: (data as any).policy_type_name }
-        });
+        const existingType = await referenceCache.getPolicyTypeByName((data as any).policy_type_name);
         if (existingType) {
           (data as any).type = { connect: { id: existingType.id } };
         } else {
@@ -275,11 +256,9 @@ export const policyRepository = {
         delete (data as any).policy_type_name;
       }
     } else if ((data as any).type && typeof (data as any).type === 'string') {
-      // Try to find existing policy type by name instead of hardcoded mapping
+      // Use cache for fast policy type lookup
       try {
-        const existingType = await prisma.policyType.findFirst({
-          where: { name: (data as any).type }
-        });
+        const existingType = await referenceCache.getPolicyTypeByName((data as any).type);
         if (existingType) {
           (data as any).type = { connect: { id: existingType.id } };
         } else {
@@ -302,11 +281,9 @@ export const policyRepository = {
       // Normalize policy group name to match database (uppercase)
       const normalizedGroupName = policyGroupName.toUpperCase();
       
-      // Use Prisma to find existing policy group by name
+      // Use cache for fast policy group lookup
       try {
-        const existingPolicyGroup = await prisma.policyGroup.findFirst({
-          where: { name: normalizedGroupName }
-        });
+        const existingPolicyGroup = await referenceCache.getPolicyGroupByName(normalizedGroupName);
         if (existingPolicyGroup) {
           (data as any).policy_group_id = existingPolicyGroup.id;
           console.log('Mapping policy group name:', policyGroupName, 'to policy_group_id:', (data as any).policy_group_id);
@@ -721,7 +698,7 @@ export const policyRepository = {
     let companyName = (data as any).company_name || (data as any).company;
     if (companyName && !(data as any).company_id) {
       try {
-        const existingCompany = await prisma.company.findFirst({ where: { name: companyName } });
+        const existingCompany = await referenceCache.getCompanyByName(companyName);
         if (existingCompany) {
           (data as any).company_id = existingCompany.id;
           console.log('Mapping company:', companyName, '→', existingCompany.id);
@@ -776,7 +753,7 @@ export const policyRepository = {
       delete (data as any).policy_type_id;
     } else if ((data as any).policy_type_name) {
       try {
-        const existingType = await prisma.policyType.findFirst({ where: { name: (data as any).policy_type_name } });
+        const existingType = await referenceCache.getPolicyTypeByName((data as any).policy_type_name);
         if (existingType) {
           (data as any).type = { connect: { id: existingType.id } };
         }
@@ -790,9 +767,7 @@ export const policyRepository = {
     let policyGroupName = (data as any).policy_group_name || (data as any).policy_group;
     if (policyGroupName && !(data as any).policy_group_id) {
       try {
-        const existingGroup = await prisma.policyGroup.findFirst({
-          where: { name: policyGroupName.toUpperCase() },
-        });
+        const existingGroup = await referenceCache.getPolicyGroupByName(policyGroupName.toUpperCase());
         if (existingGroup) {
           (data as any).policy_group_id = existingGroup.id;
         }
@@ -1097,73 +1072,106 @@ export const policyRepository = {
     return result;
   },
 
-  // Delete a policy with all related data
+  // Delete a policy with all related data including the entire policy chain (parent and children)
   async deletePolicy(id: string) {
-    console.log(`🗑️ Starting deletion of policy ${id}`);
+    console.log(`🗑️ Starting deletion of policy ${id} and its entire chain`);
 
     return await prisma.$transaction(async (tx) => {
-      // Step 0: Detach children policies so FK constraint doesn't block deletion
-      await tx.policy.updateMany({
-        where: { parent_policy_id: id },
-        data: { parent_policy_id: null },
-      });
+      // Step 0: Find all related policies in the chain (both parents and children)
+      const allPolicyIds = new Set<string>();
+      const policyIdsToProcess = [id];
 
-      // Step 0.5: Clear parent_policy_id on this policy if it's a child
-      await tx.policy.update({
+      // Traverse up to find all parent policies
+      let currentPolicy = await tx.policy.findUnique({
         where: { id },
+        select: { id: true, parent_policy_id: true }
+      });
+
+      while (currentPolicy?.parent_policy_id) {
+        allPolicyIds.add(currentPolicy.parent_policy_id);
+        const parentPolicy = await tx.policy.findUnique({
+          where: { id: currentPolicy.parent_policy_id },
+          select: { id: true, parent_policy_id: true }
+        });
+        currentPolicy = parentPolicy;
+      }
+
+      // Traverse down to find all child policies recursively
+      const childIds = [id];
+      while (childIds.length > 0) {
+        const currentId = childIds.pop()!;
+        allPolicyIds.add(currentId);
+
+        const children = await tx.policy.findMany({
+          where: { parent_policy_id: currentId },
+          select: { id: true }
+        });
+
+        children.forEach(child => {
+          if (!allPolicyIds.has(child.id)) {
+            childIds.push(child.id);
+          }
+        });
+      }
+
+      const policyIdsArray = Array.from(allPolicyIds);
+      console.log(`🔗 Found ${policyIdsArray.length} related policies to delete:`, policyIdsArray);
+
+      // Step 1: Clear all parent_policy_id references in the chain
+      await tx.policy.updateMany({
+        where: { id: { in: policyIdsArray } },
         data: { parent_policy_id: null },
       });
 
-      // Step 1 & 2: Delete document references (both directions in parallel)
+      // Step 2: Delete document references for all policies in the chain
       await Promise.all([
         tx.policyDocumentReference.deleteMany({
-          where: { source_document: { policy_id: id } }
+          where: { source_document: { policy_id: { in: policyIdsArray } } }
         }),
         tx.policyDocumentReference.deleteMany({
-          where: { policy_id: id }
+          where: { policy_id: { in: policyIdsArray } }
         }),
       ]);
 
-      // Step 3-8: Parallel delete of independent related records
+      // Step 3: Delete independent related records for all policies in the chain
       await Promise.all([
-        tx.commissionJournal.deleteMany({ where: { policy_id: id } }),
-        tx.policyFormValue.deleteMany({ where: { policy_id: id } }),
-        tx.policyReceipt.deleteMany({ where: { policy_id: id } }),
-        tx.revenue.deleteMany({ where: { policyId: id } }),
-        tx.reminder.deleteMany({ where: { policy_id: id } }),
-        tx.claim.deleteMany({ where: { policy_id: id } }),
+        tx.commissionJournal.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+        tx.policyFormValue.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+        tx.policyReceipt.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+        tx.revenue.deleteMany({ where: { policyId: { in: policyIdsArray } } }),
+        tx.reminder.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+        tx.claim.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
       ]);
 
-      // Step 9: Delete documents (after claims & receipts to avoid FK races)
-      await tx.uploadedDocument.deleteMany({ where: { policy_id: id } });
+      // Step 4: Delete documents for all policies in the chain
+      await tx.uploadedDocument.deleteMany({ where: { policy_id: { in: policyIdsArray } } });
 
-      // Step 10: Delete insured members (after documents)
-      await tx.insuredMember.deleteMany({ where: { policy_id: id } });
+      // Step 5: Delete insured members for all policies in the chain
+      await tx.insuredMember.deleteMany({ where: { policy_id: { in: policyIdsArray } } });
 
-      // Step 11: Delete proposer (if exists)
-      const proposer = await tx.proposer.findFirst({
-        where: { policy_id: id }
+      // Step 6: Delete proposers for all policies in the chain
+      const proposers = await tx.proposer.findMany({
+        where: { policy_id: { in: policyIdsArray } }
       });
-      if (proposer) {
+      for (const proposer of proposers) {
         await tx.proposer.delete({ where: { id: proposer.id } });
       }
 
-      // Step 12: Delete nominee payment (if exists)
-      const nomineePayment = await tx.nomineeAndPayment.findFirst({
-        where: { policy_id: id }
+      // Step 7: Delete nominee payments for all policies in the chain
+      const nomineePayments = await tx.nomineeAndPayment.findMany({
+        where: { policy_id: { in: policyIdsArray } }
       });
-      if (nomineePayment) {
+      for (const nomineePayment of nomineePayments) {
         await tx.nomineeAndPayment.delete({ where: { id: nomineePayment.id } });
       }
 
-      // Step 13: Now safe to delete the policy
-      const deletedPolicy = await tx.policy.delete({
-        where: { id },
-        include: POLICY_FULL_INCLUDE,
+      // Step 8: Delete all policies in the chain
+      const deletedPolicies = await tx.policy.deleteMany({
+        where: { id: { in: policyIdsArray } }
       });
 
-      console.log(`✅ Policy ${id} deleted successfully`);
-      return deletedPolicy;
+      console.log(`✅ Successfully deleted ${deletedPolicies.count} policies in the chain`);
+      return { deletedCount: deletedPolicies.count, policyIds: policyIdsArray };
     }, {
       maxWait: 10000,
       timeout: 30000,
