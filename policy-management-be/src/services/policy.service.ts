@@ -1,3 +1,5 @@
+import fs from 'fs';
+
 import { dashboardCache } from '../utils/lruCache';
 import {
   Policy,
@@ -25,6 +27,7 @@ type ProcessedDocument = {
   file_name: string;
   original_name: string;
   relative_path: string;
+  file_data?: any;
   file_type: string;
   category: 'POLICY_DOCUMENT' | 'PROPOSER_DOCUMENT' | 'INSURED_MEMBER_DOCUMENT';
   uploaded_by?: string;
@@ -182,6 +185,7 @@ function processUploadedFiles(
         file_name: file.filename,
         original_name: file.originalname,
         relative_path: `/api/uploads/policy-documents/${file.filename}`,
+        file_data: fs.readFileSync(file.path),
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: DocumentCategory.POLICY_DOCUMENT,
         uploaded_by: uploadedBy,
@@ -196,6 +200,7 @@ function processUploadedFiles(
         file_name: file.filename,
         original_name: file.originalname,
         relative_path: `/api/uploads/policy-documents/${file.filename}`,
+        file_data: fs.readFileSync(file.path),
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: DocumentCategory.PROPOSER_DOCUMENT,
         uploaded_by: uploadedBy,
@@ -210,6 +215,7 @@ function processUploadedFiles(
         file_name: file.filename,
         original_name: file.originalname,
         relative_path: `/api/uploads/policy-documents/${file.filename}`,
+        file_data: fs.readFileSync(file.path),
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
         uploaded_by: uploadedBy,
@@ -230,6 +236,7 @@ function processUploadedFiles(
           file_name: file.filename,
           original_name: file.originalname,
           relative_path: `/api/uploads/policy-documents/${file.filename}`,
+          file_data: fs.readFileSync(file.path),
           file_type: mapMimeTypeToFileType(file.mimetype),
           category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
           uploaded_by: uploadedBy,

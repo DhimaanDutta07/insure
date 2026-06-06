@@ -384,6 +384,7 @@ model UploadedDocument {
   file_name             String?
   original_name         String?
   relative_path         String?
+  file_data             Bytes?
   category              DocumentCategory?
   created_at            DateTime?                 @default(now())
   file_type             FileType?

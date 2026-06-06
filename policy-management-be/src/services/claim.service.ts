@@ -1,3 +1,5 @@
+import fs from 'fs';
+
 import { Claim, ClaimStatus, ClaimMember, DocumentCategory } from "@prisma/client";
 import prisma from '../utils/prismaClient';
 
@@ -30,6 +32,7 @@ type ProcessedClaimDocument = {
   file_name: string;
   original_name: string;
   relative_path: string;
+  file_data?: any;
   file_type: "PDF" | "JPG" | "PNG" | "XLSX" | "CSV" | "DOC" | "IMAGE" | "OTHER";
   category: "OTHER";
   uploaded_by?: string;
@@ -76,6 +79,7 @@ function processClaimDocuments(
         file_name: file.filename,
         original_name: file.originalname,
         relative_path: `/api/uploads/policy-documents/${file.filename}`,
+        file_data: fs.readFileSync(file.path),
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: 'OTHER',
         uploaded_by: uploadedBy,
@@ -89,6 +93,7 @@ function processClaimDocuments(
         file_name: file.filename,
         original_name: file.originalname,
         relative_path: `/api/uploads/policy-documents/${file.filename}`,
+        file_data: fs.readFileSync(file.path),
         file_type: mapMimeTypeToFileType(file.mimetype),
         category: 'OTHER',
         uploaded_by: uploadedBy,

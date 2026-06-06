@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyService = void 0;
 exports.calculateAndSetCommission = calculateAndSetCommission;
+const fs_1 = __importDefault(require("fs"));
 const lruCache_1 = require("../utils/lruCache");
 const client_1 = require("@prisma/client");
 const policyRepository_1 = require("../repositories/policyRepository");
@@ -50,6 +51,7 @@ function processUploadedFiles(files, uploadedBy) {
                 file_name: file.filename,
                 original_name: file.originalname,
                 relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                file_data: fs_1.default.readFileSync(file.path),
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: client_1.DocumentCategory.POLICY_DOCUMENT,
                 uploaded_by: uploadedBy,
@@ -63,6 +65,7 @@ function processUploadedFiles(files, uploadedBy) {
                 file_name: file.filename,
                 original_name: file.originalname,
                 relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                file_data: fs_1.default.readFileSync(file.path),
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: client_1.DocumentCategory.PROPOSER_DOCUMENT,
                 uploaded_by: uploadedBy,
@@ -76,6 +79,7 @@ function processUploadedFiles(files, uploadedBy) {
                 file_name: file.filename,
                 original_name: file.originalname,
                 relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                file_data: fs_1.default.readFileSync(file.path),
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: client_1.DocumentCategory.INSURED_MEMBER_DOCUMENT,
                 uploaded_by: uploadedBy,
@@ -94,6 +98,7 @@ function processUploadedFiles(files, uploadedBy) {
                     file_name: file.filename,
                     original_name: file.originalname,
                     relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                    file_data: fs_1.default.readFileSync(file.path),
                     file_type: mapMimeTypeToFileType(file.mimetype),
                     category: client_1.DocumentCategory.INSURED_MEMBER_DOCUMENT,
                     uploaded_by: uploadedBy,

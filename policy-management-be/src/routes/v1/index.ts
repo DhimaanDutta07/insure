@@ -8,6 +8,7 @@ import { createUserByAdmin, deleteUser, getAllUsers, login, register, sendUserOT
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import prisma from '../../utils/prismaClient';
 // import { assignMultipleSitesToUser, assignSiteToUser, createSite, getAllSites, updateSite } from "../../controllers/siteController";
 // import { createItemGroup, createItemName, deleteItemGroup, deleteItemName, getAllItemGroups, getAllItemNames, getItemGroup, getItemName, getItemNames, updateItemGroup, updateItemName } from "../../controllers/itemGroupController";
 // import { createMaterialReceipt, deleteMaterialReceipt, getAllMaterialReceipts, getMaterialReceipt, updateMaterialReceipt,
@@ -154,10 +155,41 @@ router.use('/uploads/policy-documents/*', (req, res, next) => {
 });
 
 // Serve policy documents with policy-specific folder structure (MUST be before express.static)
-router.get('/uploads/policy-documents/*', (req, res) => {
+router.get('/uploads/policy-documents/*', async (req, res) => {
   try {
     const params = req.params as any;
     const filePath = params[0]; // Gets everything after /uploads/policy-documents/
+    const fileName = path.basename(filePath);
+
+    // 1. Try to serve from database first (works on Vercel and persistent)
+    const doc = await prisma.uploadedDocument.findFirst({
+      where: { file_name: fileName }
+    });
+
+    if (doc?.file_data) {
+      const ext = path.extname(fileName).toLowerCase();
+      const contentTypes: Record<string, string> = {
+        '.jpeg': 'image/jpeg',
+        '.jpg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.xls': 'application/vnd.ms-excel',
+        '.csv': 'text/csv'
+      };
+      const contentType = contentTypes[ext] || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="${doc.original_name || fileName}"`);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      const buffer = Buffer.from(doc.file_data);
+      res.send(buffer);
+      return;
+    }
+
+    // 2. Fallback to disk for legacy files
     const fullPath = path.join(uploadPath, 'policy-documents', filePath);
 
     // Security: Prevent directory traversal
@@ -169,13 +201,11 @@ router.get('/uploads/policy-documents/*', (req, res) => {
 
     let resolvedPath = fullPath;
     if (!fs.existsSync(resolvedPath)) {
-      // Fallback: some legacy uploads were stored flat due to multer body parsing order
-      const flatPath = path.join(uploadPath, 'policy-documents', path.basename(filePath));
+      const flatPath = path.join(uploadPath, 'policy-documents', fileName);
       if (fs.existsSync(flatPath)) {
         resolvedPath = flatPath;
       } else {
         console.log(`File not found: ${fullPath} (also tried ${flatPath})`);
-        // On Vercel, /tmp is ephemeral - files may be lost after redeploy
         if (process.env.VERCEL) {
           res.status(404).json({
             error: 'File not found',
@@ -189,9 +219,8 @@ router.get('/uploads/policy-documents/*', (req, res) => {
       }
     }
 
-    // Set correct content type
     const ext = path.extname(resolvedPath).toLowerCase();
-    const contentTypes = {
+    const contentTypes: Record<string, string> = {
       '.jpeg': 'image/jpeg',
       '.jpg': 'image/jpeg',
       '.png': 'image/png',
@@ -203,12 +232,10 @@ router.get('/uploads/policy-documents/*', (req, res) => {
       '.xls': 'application/vnd.ms-excel',
       '.csv': 'text/csv'
     };
-    const contentType = contentTypes[ext as keyof typeof contentTypes] || 'application/octet-stream';
+    const contentType = contentTypes[ext] || 'application/octet-stream';
     res.setHeader('Content-Type', contentType);
-
-    // Enable in-browser preview and caching
     res.setHeader('Content-Disposition', `inline; filename="${path.basename(resolvedPath)}"`);
-    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+    res.setHeader('Cache-Control', 'public, max-age=3600');
 
     const fileStream = fs.createReadStream(resolvedPath);
     fileStream.pipe(res);

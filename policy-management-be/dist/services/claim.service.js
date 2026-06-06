@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.claimService = exports.ClaimService = void 0;
+const fs_1 = __importDefault(require("fs"));
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 // Helper to map MIME type to FileType enum (same as policy service)
 function mapMimeTypeToFileType(mimeType) {
@@ -41,6 +42,7 @@ function processClaimDocuments(files, uploadedBy) {
                 file_name: file.filename,
                 original_name: file.originalname,
                 relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                file_data: fs_1.default.readFileSync(file.path),
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: 'OTHER',
                 uploaded_by: uploadedBy,
@@ -53,6 +55,7 @@ function processClaimDocuments(files, uploadedBy) {
                 file_name: file.filename,
                 original_name: file.originalname,
                 relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                file_data: fs_1.default.readFileSync(file.path),
                 file_type: mapMimeTypeToFileType(file.mimetype),
                 category: 'OTHER',
                 uploaded_by: uploadedBy,
