@@ -38,7 +38,7 @@ export const commissionCalculationService = {
     }
   },
 
-  // Calculate commission amount using simplified lookup
+  // Calculate commission amount using full classification logic (status, SI)
   async calculateCommission(params: CommissionCalculationParams): Promise<{
     calculated_commission_amount: number;
     base_percentage: number;
@@ -54,31 +54,32 @@ export const commissionCalculationService = {
         };
       }
 
-      // Simplified lookup: just get commission percent for this product
-      const commissionPercent = await this.getCommissionPercent(params.policy_name_id);
-
-      if (commissionPercent === 0) {
-        return {
-          calculated_commission_amount: 0,
-          base_percentage: 0,
-          rule_found: false,
-        };
-      }
-
-      // Calculate commission
-      const calculatedCommission = (params.premium_amount * commissionPercent) / 100;
+      // Use the new calculate endpoint that considers status and SI
+      const response = await axios.post(
+        `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/calculate`,
+        {
+          policy_name_id: params.policy_name_id,
+          policy_creation_status: params.policy_creation_status,
+          sum_insured: params.sum_insured,
+          premium_amount: params.premium_amount,
+          gst_status: params.deductible_amount_status,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('authToken')}`,
+          },
+        }
+      );
 
       console.log('🔍 [Service Debug] Commission calculation:', {
-        commissionPercent,
-        premiumAmount: params.premium_amount,
-        calculatedCommission,
+        policy_name_id: params.policy_name_id,
+        policy_creation_status: params.policy_creation_status,
+        sum_insured: params.sum_insured,
+        premium_amount: params.premium_amount,
+        result: response.data,
       });
 
-      return {
-        calculated_commission_amount: calculatedCommission,
-        base_percentage: commissionPercent,
-        rule_found: true,
-      };
+      return response.data;
     } catch (error) {
       console.error('Error calculating commission:', error);
       return {

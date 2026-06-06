@@ -137,15 +137,15 @@ export async function getCommissionByProduct(policyNameId: string): Promise<{ co
   return response.json();
 }
 
-// Simplified: upsert commission percentage for a product
-export async function upsertCommissionByProduct(policyNameId: string, commissionPercent: number): Promise<{ success: boolean; rule: CommissionRule }> {
+// Simplified: upsert commission percentage for a product with optional sub-classifications
+export async function upsertCommissionByProduct(policyNameId: string, commissionPercent: number, productType?: string, policyStatus?: string, siCondition?: string): Promise<{ success: boolean; rule: CommissionRule }> {
   const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/product/${policyNameId}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${localStorage.getItem('authToken')}`,
     },
-    body: JSON.stringify({ commissionPercent }),
+    body: JSON.stringify({ commissionPercent, productType, policyStatus, siCondition }),
   });
   if (!response.ok) {
     throw new Error('Failed to update commission for product');

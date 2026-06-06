@@ -1,9 +1,46 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.commissionRuleService = void 0;
 const commissionRuleRepository_1 = require("../repositories/commissionRuleRepository");
 const AppError_1 = require("../utils/AppError");
 const lruCache_1 = require("../utils/lruCache");
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 exports.commissionRuleService = {
     async createCommissionRule(data) {
         // Check for duplicate rule with targeted DB query instead of loading all rules
@@ -12,6 +49,8 @@ exports.commissionRuleService = {
             policyStatus: data.policyStatus,
             deductibleType: data.deductibleType,
             ageCondition: data.ageCondition,
+            productType: data.productType,
+            siCondition: data.siCondition,
         });
         if (existing) {
             throw new Error('A commission rule with the same conditions already exists.');
@@ -31,7 +70,20 @@ exports.commissionRuleService = {
         return commissionRuleRepository_1.commissionRuleRepository.findById(id);
     },
     async updateCommissionRule(id, data) {
-        return commissionRuleRepository_1.commissionRuleRepository.update(id, data);
+        const rule = await commissionRuleRepository_1.commissionRuleRepository.update(id, data);
+        // Invalidate cache to ensure fresh data
+        lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
+        // If commissionPercent was updated, recalculate commissions for all policies with this policy_name_id
+        if (data.commissionPercent !== undefined && rule.policy_name_id) {
+            try {
+                const recalcResult = await this.recalculateCommissionsForPolicyName(rule.policy_name_id);
+                console.log(`[Commission] Auto-recalculated commissions after rule update for policyNameId ${rule.policy_name_id}:`, recalcResult);
+            }
+            catch (error) {
+                console.error(`[Commission] Error auto-recalculating commissions after rule update for policyNameId ${rule.policy_name_id}:`, error);
+            }
+        }
+        return rule;
     },
     async deleteCommissionRule(id) {
         return commissionRuleRepository_1.commissionRuleRepository.delete(id);
@@ -75,8 +127,83 @@ exports.commissionRuleService = {
     async getCommissionByProduct(policyNameId) {
         return commissionRuleRepository_1.commissionRuleRepository.findFirstByPolicyName(policyNameId);
     },
-    // Simplified: upsert commission percentage for a product
-    async upsertCommissionByProduct(policyNameId, commissionPercent) {
-        return commissionRuleRepository_1.commissionRuleRepository.upsertByProduct(policyNameId, commissionPercent);
+    // Simplified: upsert commission percentage for a product with optional sub-classifications
+    async upsertCommissionByProduct(policyNameId, commissionPercent, productType, policyStatus, siCondition) {
+        const rule = await commissionRuleRepository_1.commissionRuleRepository.upsertByProduct(policyNameId, commissionPercent, productType, policyStatus, siCondition);
+        // Invalidate cache to ensure fresh data
+        lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
+        // Automatically recalculate commissions for all existing policies with this policy_name_id
+        try {
+            const recalcResult = await this.recalculateCommissionsForPolicyName(policyNameId);
+            console.log(`[Commission] Auto-recalculated commissions for policyNameId ${policyNameId}:`, recalcResult);
+        }
+        catch (error) {
+            console.error(`[Commission] Error auto-recalculating commissions for policyNameId ${policyNameId}:`, error);
+        }
+        return rule;
+    },
+    // Recalculate commissions for all policies with a given policy_name_id
+    async recalculateCommissionsForPolicyName(policyNameId) {
+        const { calculateAndSetCommission } = await Promise.resolve().then(() => __importStar(require('./policy.service')));
+        // Find all policies with the given policy_name_id
+        const policies = await prismaClient_1.default.policy.findMany({
+            where: {
+                policy_name_id: policyNameId,
+                status: 'Active', // Only update active policies
+            },
+            select: {
+                id: true,
+                policy_name_id: true,
+                policy_creation_status: true,
+                sum_insured: true,
+                premium_amount: true,
+                gst_status: true,
+                calculated_commission_amount: true,
+                commission_add_on_percentage: true,
+            },
+        });
+        if (policies.length === 0) {
+            return { updatedCount: 0, message: 'No active policies found for this product' };
+        }
+        let updatedCount = 0;
+        for (const policy of policies) {
+            try {
+                // Create a policy input object for commission calculation
+                const policyInput = {
+                    policy_name_id: policy.policy_name_id,
+                    policy_creation_status: policy.policy_creation_status || 'Fresh',
+                    sum_insured: policy.sum_insured || 0,
+                    premium_amount: policy.premium_amount,
+                    gst_status: policy.gst_status,
+                };
+                console.log('[Recalculate] Processing policy:', {
+                    policyId: policy.id,
+                    status: policy.policy_creation_status,
+                    sumInsured: policy.sum_insured,
+                });
+                // Calculate new commission
+                await calculateAndSetCommission(policyInput);
+                // Update the policy with new commission values
+                await prismaClient_1.default.policy.update({
+                    where: { id: policy.id },
+                    data: {
+                        calculated_commission_amount: policyInput.calculated_commission_amount,
+                        commission_add_on_percentage: policyInput._commissionPercent,
+                    },
+                });
+                updatedCount++;
+                console.log('[Recalculate] Updated policy:', policy.id, 'New commission:', policyInput.calculated_commission_amount);
+            }
+            catch (error) {
+                console.error(`Error recalculating commission for policy ${policy.id}:`, error);
+            }
+        }
+        // Invalidate policy list cache to ensure fresh data
+        lruCache_1.policyListCache.clear();
+        return {
+            updatedCount,
+            totalPolicies: policies.length,
+            message: `Successfully updated ${updatedCount} out of ${policies.length} policies`,
+        };
     },
 };

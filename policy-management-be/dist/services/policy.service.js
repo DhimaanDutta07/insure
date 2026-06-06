@@ -156,17 +156,19 @@ function validateDocumentForeignKeys(docs, availableIds) {
     });
 }
 /**
- * Calculates and sets the commission amount on the policy input using simplified CommissionRule logic.
- * Looks up ANY active commission rule for the policy_name_id and uses its commissionPercent.
+ * Calculates and sets the commission amount on the policy input using CommissionRule logic.
+ * Supports HDFC ERGO specific rules with product types and SI conditions.
  * Mutates policyInput.calculated_commission_amount in place.
  */
 async function calculateAndSetCommission(policyInput) {
-    console.log('[Commission] Starting simplified commission calculation with input:', {
+    console.log('[Commission] Starting commission calculation with input:', {
         hasPolicyInput: !!policyInput,
         hasPolicyNameId: !!policyInput?.policy_name_id,
         premiumAmount: policyInput?.premium_amount,
+        sumInsured: policyInput?.sum_insured,
         gstStatus: policyInput?.gst_status,
         policyNameId: policyInput?.policy_name_id,
+        policyStatus: policyInput?.policy_creation_status,
     });
     // Defensive: Only run if required fields are present
     if (!policyInput || !policyInput.policy_name_id || !policyInput.premium_amount) {
@@ -175,32 +177,192 @@ async function calculateAndSetCommission(policyInput) {
         console.log('[Commission] Missing required fields, commission set to 0');
         return;
     }
-    // Fetch ANY active commission rule for this policy name
-    const activeRule = await prismaClient_1.default.commissionRule.findFirst({
-        where: {
-            policy_name_id: policyInput.policy_name_id,
-            is_active: true,
-        },
-        orderBy: {
-            createdAt: 'desc',
-        },
+    // Get the policy name to check if it's an HDFC ERGO product
+    const policyName = await prismaClient_1.default.policyName.findUnique({
+        where: { id: policyInput.policy_name_id },
+        select: { name: true, company: { select: { name: true } } },
     });
+    const productName = policyName?.name?.toUpperCase().trim() || '';
+    const companyName = policyName?.company?.name?.trim() || '';
+    console.log('[Commission] Raw product data:', {
+        policyName: policyName?.name,
+        companyName: policyName?.company?.name,
+        productNameUpper: productName,
+        companyNameTrimmed: companyName,
+    });
+    // If this is an HDFC ERGO product name, use the HDFC ERGO product ID for commission lookup
+    const hdfcProducts = [
+        'OPTIMA RESTORE',
+        'OPTIMA SECURE',
+        'OPTIMA SUPER SECURE',
+        'ENERGY',
+        'EASY HEALTH',
+        'KOTI SURAKSHA',
+        'IPA',
+        'TRAVEL',
+        'OTHERS',
+        'STU',
+        'PA',
+        'SME',
+    ];
+    let effectivePolicyNameId = policyInput.policy_name_id;
+    if (hdfcProducts.includes(productName)) {
+        const hdfcCompany = await prismaClient_1.default.company.findFirst({
+            where: { name: 'HDFC ERGO' },
+        });
+        if (hdfcCompany) {
+            const hdfcProduct = await prismaClient_1.default.policyName.findFirst({
+                where: {
+                    company_id: hdfcCompany.id,
+                    name: policyName?.name,
+                },
+            });
+            if (hdfcProduct) {
+                effectivePolicyNameId = hdfcProduct.id;
+                console.log('[Commission] Using HDFC ERGO product ID for commission lookup:', {
+                    originalId: policyInput.policy_name_id,
+                    hdfcId: hdfcProduct.id,
+                    productName: hdfcProduct.name,
+                });
+            }
+        }
+    }
+    // Detect product type by name pattern
+    const isOptimaSecure = productName.includes('OPTIMA SECURE');
+    const isOtherRetailHealth = companyName === 'HDFC ERGO' && productName === 'OTHERS';
+    const isSTU = companyName === 'HDFC ERGO' && productName === 'STU';
+    const isPA = companyName === 'HDFC ERGO' && productName === 'PA';
+    const isSME = companyName === 'HDFC ERGO' && productName === 'SME';
+    const isTravel = companyName === 'HDFC ERGO' && productName === 'TRAVEL';
+    const hasSIClassification = isOptimaSecure || isOtherRetailHealth;
+    const hasStatusClassification = isOptimaSecure || isOtherRetailHealth || isSTU || isPA || isSME || isTravel;
+    console.log('[Commission] Product classification:', {
+        policyName: policyName?.name,
+        company: companyName,
+        isOptimaSecure,
+        isOtherRetailHealth,
+        isSTU,
+        isPA,
+        isSME,
+        isTravel,
+        hasSIClassification,
+        hasStatusClassification,
+        policy_creation_status: policyInput.policy_creation_status,
+        sum_insured: policyInput.sum_insured,
+        willUseSIPath: hasSIClassification,
+        willUseStatusPath: hasStatusClassification,
+    });
+    let activeRule = null;
+    if (hasStatusClassification) {
+        // Products with status-based classification
+        const policyStatus = policyInput.policy_creation_status || 'Fresh';
+        // Map Migration (Internal Portability) to Portablity for commission lookup
+        const statusForLookup = policyStatus === 'Migration' ? 'Portablity' : policyStatus;
+        const whereClause = {
+            policy_name_id: effectivePolicyNameId,
+            is_active: true,
+            policyStatus: statusForLookup,
+        };
+        console.log('[Commission] Status lookup:', { originalStatus: policyStatus, lookupStatus: statusForLookup });
+        if (hasSIClassification) {
+            // Products with SI classification (Optima Secure, Other Retail Health)
+            const sumInsured = policyInput.sum_insured || 0;
+            let siCondition = null;
+            if (sumInsured > 0 && sumInsured < 1000000) {
+                siCondition = 'LESS_THAN_10_LAKHS';
+            }
+            else if (sumInsured >= 1000000) {
+                siCondition = 'GREATER_EQUAL_10_LAKHS';
+            }
+            else {
+                // Default to LESS_THAN_10_LAKHS when sum_insured is 0 or undefined for SI-classified products
+                siCondition = 'LESS_THAN_10_LAKHS';
+            }
+            console.log('[Commission] SI Classification:', { sumInsured, siCondition });
+            whereClause.siCondition = siCondition;
+            console.log('[Commission] Searching for rule with SI:', whereClause);
+            activeRule = await prismaClient_1.default.commissionRule.findFirst({
+                where: whereClause,
+                orderBy: { createdAt: 'desc' },
+            });
+            console.log('[Commission] Found rule with SI:', activeRule?.id, activeRule?.commissionPercent);
+            // Fallback to null SI condition if no match
+            if (!activeRule && siCondition !== null) {
+                console.log('[Commission] No rule found with SI, trying without SI');
+                whereClause.siCondition = null;
+                activeRule = await prismaClient_1.default.commissionRule.findFirst({
+                    where: whereClause,
+                    orderBy: { createdAt: 'desc' },
+                });
+                console.log('[Commission] Found rule without SI:', activeRule?.id, activeRule?.commissionPercent, 'Status:', activeRule?.policyStatus);
+            }
+        }
+        else {
+            // Products without SI classification (STU, PA, SME, Travel)
+            console.log('[Commission] Searching for rule without SI:', whereClause);
+            activeRule = await prismaClient_1.default.commissionRule.findFirst({
+                where: whereClause,
+                orderBy: { createdAt: 'desc' },
+            });
+            console.log('[Commission] Found rule without SI:', activeRule?.id, activeRule?.commissionPercent, 'Status:', activeRule?.policyStatus);
+        }
+    }
+    else {
+        // Products without any classification (simple lookup with status)
+        const policyStatus = policyInput.policy_creation_status || 'Fresh';
+        const statusForLookup = policyStatus === 'Migration' ? 'Portablity' : policyStatus;
+        activeRule = await prismaClient_1.default.commissionRule.findFirst({
+            where: {
+                policy_name_id: effectivePolicyNameId,
+                is_active: true,
+                policyStatus: statusForLookup,
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+    }
+    // Final fallback: any active rule for this policy with the same status
+    if (!activeRule) {
+        const policyStatus = policyInput.policy_creation_status || 'Fresh';
+        const statusForLookup = policyStatus === 'Migration' ? 'Portablity' : policyStatus;
+        activeRule = await prismaClient_1.default.commissionRule.findFirst({
+            where: {
+                policy_name_id: effectivePolicyNameId,
+                is_active: true,
+                policyStatus: statusForLookup,
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+    }
     console.log('[Commission] CommissionRule lookup:', {
-        policy_name_id: policyInput.policy_name_id,
+        policy_name_id: effectivePolicyNameId,
         matchedRuleId: activeRule?.id,
         commissionPercent: activeRule?.commissionPercent,
     });
+    let basePercent = 0;
     if (!activeRule) {
-        // No commission rule found - set commission to 0 (no error thrown)
-        policyInput.calculated_commission_amount = 0;
-        policyInput.commission_add_on_percentage = 0;
-        policyInput._commissionPercent = 0;
-        policyInput._commissionRuleId = null;
-        console.log('[Commission] No commission rule found for product, commission set to 0');
-        return;
+        // No commission rule found - check if Renewal status, default to 15%
+        if (policyInput.policy_creation_status === 'Renewal') {
+            basePercent = 15.0;
+            console.log('[Commission] No commission rule found for Renewal, using default 15%');
+        }
+        else {
+            // No commission rule found - set commission to 0 (no error thrown)
+            policyInput.calculated_commission_amount = 0;
+            policyInput.commission_add_on_percentage = 0;
+            policyInput._commissionPercent = 0;
+            policyInput._commissionRuleId = null;
+            console.log('[Commission] No commission rule found for product, commission set to 0');
+            return;
+        }
     }
-    // Calculate commission based on CommissionRule percentage
-    const basePercent = activeRule.commissionPercent || 0;
+    else {
+        // Calculate commission based on CommissionRule percentage
+        basePercent = activeRule.commissionPercent || 0;
+    }
     // ✅ GST Logic: If GST Status is ON, deduct 18% from premium before commission calculation
     let premiumForCommission = policyInput.premium_amount;
     if (policyInput.gst_status === true) {
@@ -214,14 +376,24 @@ async function calculateAndSetCommission(policyInput) {
     else {
         console.log('[Commission] GST Status OFF - Using full premium amount');
     }
-    policyInput.calculated_commission_amount = (premiumForCommission * basePercent) / 100;
-    policyInput.commission_add_on_percentage = basePercent;
-    policyInput._commissionPercent = basePercent;
-    policyInput._commissionRuleId = activeRule.id;
+    // ✅ Deductible Amount Status Logic: If Deductible Amount Status is ON, increase commission by 2%
+    let finalPercent = basePercent;
+    if (policyInput.deductible_amount_status === true) {
+        finalPercent = basePercent + 2;
+        console.log('[Commission] Deductible Amount Status ON - Increasing commission by 2%:', {
+            originalPercent: basePercent,
+            finalPercent: finalPercent,
+        });
+    }
+    policyInput.calculated_commission_amount = (premiumForCommission * finalPercent) / 100;
+    policyInput.commission_add_on_percentage = finalPercent;
+    policyInput._commissionPercent = finalPercent;
+    policyInput._commissionRuleId = activeRule?.id || null;
     console.log('[Commission] Commission calculated successfully:', {
-        commissionPercent: basePercent,
+        commissionPercent: finalPercent,
         calculatedAmount: policyInput.calculated_commission_amount,
         gstStatus: policyInput.gst_status,
+        deductibleStatus: policyInput.deductible_amount_status,
         premiumUsed: premiumForCommission,
     });
 }

@@ -7,6 +7,7 @@ exports.commissionRuleRepository = void 0;
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 const client_1 = require("@prisma/client");
 const AppError_1 = require("../utils/AppError");
+const lruCache_1 = require("../utils/lruCache");
 exports.commissionRuleRepository = {
     findAll: async (limit = 100) => prismaClient_1.default.commissionRule.findMany({ take: limit, orderBy: { createdAt: 'desc' } }),
     // Fast duplicate check using composite fields
@@ -17,12 +18,19 @@ exports.commissionRuleRepository = {
                 policyStatus: params.policyStatus,
                 deductibleType: params.deductibleType,
                 ageCondition: params.ageCondition,
+                ...(params.productType !== undefined && { productType: params.productType }),
+                ...(params.siCondition !== undefined && { siCondition: params.siCondition }),
             },
         });
     },
     findById: async (id) => prismaClient_1.default.commissionRule.findUnique({ where: { id } }),
     create: async (data) => prismaClient_1.default.commissionRule.create({ data }),
-    update: async (id, data) => prismaClient_1.default.commissionRule.update({ where: { id }, data }),
+    update: async (id, data) => {
+        const result = await prismaClient_1.default.commissionRule.update({ where: { id }, data });
+        // Invalidate cache when rule is updated
+        lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
+        return result;
+    },
     // New method for updating CommissionRule status
     updateCommissionRuleStatus: async (ruleId, isActive) => {
         try {
@@ -40,7 +48,7 @@ exports.commissionRuleRepository = {
     },
     // New search and pagination method - OPTIMIZED with inline search
     searchAndPaginate: async (params) => {
-        const { search, policyStatus, deductibleType, ageCondition, page = 1, limit = 10 } = params;
+        const { search, policyStatus, deductibleType, ageCondition, productType, siCondition, page = 1, limit = 10 } = params;
         try {
             const whereClauses = [];
             if (search) {
@@ -54,6 +62,12 @@ exports.commissionRuleRepository = {
             }
             if (ageCondition && ageCondition !== 'all') {
                 whereClauses.push(client_1.Prisma.sql `cr."ageCondition" = ${ageCondition}`);
+            }
+            if (productType && productType !== 'all') {
+                whereClauses.push(client_1.Prisma.sql `cr."productType" = ${productType}`);
+            }
+            if (siCondition && siCondition !== 'all') {
+                whereClauses.push(client_1.Prisma.sql `cr."siCondition" = ${siCondition}`);
             }
             const whereSql = whereClauses.length > 0 ? client_1.Prisma.sql `WHERE ${client_1.Prisma.join(whereClauses, ' AND ')}` : client_1.Prisma.sql ``;
             const skip = (page - 1) * limit;
@@ -142,33 +156,48 @@ exports.commissionRuleRepository = {
             },
         });
     },
-    // Upsert a commission rule for a product (simplified - uses defaults for other fields)
-    upsertByProduct: async (policyNameId, commissionPercent) => {
+    // Upsert a commission rule for a product with optional sub-classifications
+    upsertByProduct: async (policyNameId, commissionPercent, productType, policyStatus, siCondition) => {
+        const whereClause = { policy_name_id: policyNameId };
+        if (productType !== undefined && productType !== null && productType !== '')
+            whereClause.productType = productType;
+        if (policyStatus !== undefined && policyStatus !== null && policyStatus !== '')
+            whereClause.policyStatus = policyStatus;
+        // Only add siCondition to whereClause if it's explicitly provided (not empty string)
+        if (siCondition !== undefined && siCondition !== null && siCondition !== '')
+            whereClause.siCondition = siCondition;
+        console.log('[Upsert] Where clause:', whereClause);
         const existing = await prismaClient_1.default.commissionRule.findFirst({
-            where: { policy_name_id: policyNameId },
+            where: whereClause,
         });
         if (existing) {
-            // Update all rules for this product with the new percentage
-            await prismaClient_1.default.commissionRule.updateMany({
-                where: { policy_name_id: policyNameId },
+            // Update the specific rule
+            const result = await prismaClient_1.default.commissionRule.update({
+                where: { id: existing.id },
                 data: { commissionPercent },
             });
-            // Return the first updated rule
-            return prismaClient_1.default.commissionRule.findFirst({
-                where: { policy_name_id: policyNameId },
-            });
+            console.log('[Upsert] Updated existing rule:', { id: existing.id, newPercent: commissionPercent });
+            // Invalidate cache
+            lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
+            return result;
         }
-        // Create a default rule if none exists
-        return prismaClient_1.default.commissionRule.create({
+        // Create a new rule with the specified parameters or defaults
+        const result = await prismaClient_1.default.commissionRule.create({
             data: {
                 policy_name_id: policyNameId,
-                policyStatus: 'Fresh',
+                policyStatus: (policyStatus && policyStatus !== '' ? policyStatus : 'Fresh'),
                 deductibleType: 'ALL_SI',
                 ageCondition: 'LESS_THAN_60',
                 commissionPercent,
+                productType: (productType && productType !== '' ? productType : null),
+                siCondition: (siCondition && siCondition !== '' ? siCondition : null),
                 is_active: true,
             },
         });
+        console.log('[Upsert] Created new rule:', { id: result.id, percent: commissionPercent });
+        // Invalidate cache
+        lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
+        return result;
     },
     // Get commission dashboard statistics - ULTRA-OPTIMIZED for sub-500ms performance
     getCommissionDashboardStats: async (timeRange) => {

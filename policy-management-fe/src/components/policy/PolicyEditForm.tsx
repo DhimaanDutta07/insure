@@ -766,18 +766,10 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       calculateCommission();
-    }, 1000); // Increased debounce to 1000ms to prevent excessive calls
+    }, 200); // Reduced debounce to 200ms for faster response
 
     return () => clearTimeout(timeoutId);
-  }, [
-    calculateCommission,
-    wPremiumAmount,
-    wPolicyNameId,
-    wProposerDob,
-    wSumInsured,
-    wDeductibleStatus,
-    wPolicyCreationStatus,
-  ]);
+  }, [calculateCommission, wPolicyCreationStatus]);
 
   const onFormSubmit = async (data: PolicyFormData) => {
     setIsSubmitting(true);
@@ -1724,14 +1716,38 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
                 <SelectValue placeholder="Select policy name" />
               </SelectTrigger>
               <SelectContent>
-                {(policyNames || [])
-                  .slice()
-                  .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
-                  .map((pn) => (
-                    <SelectItem key={pn.id} value={pn.id}>
-                      {pn.name}
-                    </SelectItem>
-                  ))}
+                {(() => {
+                  const company = companies.find(c => c.id === watch('company_id'));
+                  let filtered = policyNames || [];
+
+                  if (company?.name === 'HDFC ERGO') {
+                    const hdfcProducts = [
+                      'OPTIMA RESTORE',
+                      'OPTIMA SECURE',
+                      'OPTIMA SUPER SECURE',
+                      'ENERGY',
+                      'EASY HEALTH',
+                      'KOTI SURAKSHA',
+                      'IPA',
+                      'TRAVEL',
+                      'OTHERS',
+                      'STU',
+                      'PA',
+                      'SME',
+                    ];
+                    filtered = filtered.filter((pn) => hdfcProducts.includes(pn.name));
+                  }
+
+                  // Deduplicate by name to ensure no duplicate product names
+                  const uniqueMap = new Map(filtered.map(pn => [pn.name, pn]));
+                  return Array.from(uniqueMap.values())
+                    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+                    .map((pn) => (
+                      <SelectItem key={pn.id} value={pn.id}>
+                        {pn.name}
+                      </SelectItem>
+                    ));
+                })()}
               </SelectContent>
             </Select>
           </div>

@@ -366,14 +366,14 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     wPolicyCreationStatus,
   ]);
 
-  // Calculate commission when relevant fields change
+  // Calculate commission when relevant fields change (with debounce)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       calculateCommission();
-    }, 500); // Debounce for 500ms
+    }, 200);
 
     return () => clearTimeout(timeoutId);
-  }, [calculateCommission]);
+  }, [calculateCommission, wPolicyCreationStatus, wPolicyNameId, wProposerDob]);
 
   const onFormSubmit = async (
     data: PolicyFormData & { policy_name_id?: string; policy_type_id?: string }
@@ -644,18 +644,75 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
 
   // Filter policy names by selected company; when no company selected, keep list empty
   const filteredPolicyNames = selectedCompanyId
-    ? policyNames
-        .filter((pn) => pn.company_id === selectedCompanyId)
-        .slice()
-        .sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-        )
+    ? (() => {
+        const filtered = policyNames.filter((pn) => pn.company_id === selectedCompanyId);
+        const company = companies.find(c => c.id === selectedCompanyId);
+
+        console.log('[PolicyForm] Filter debug:', {
+          selectedCompanyId,
+          companyName: company?.name,
+          totalPolicyNames: policyNames.length,
+          filteredCount: filtered.length,
+          filteredIds: filtered.map(p => ({ id: p.id, name: p.name, company_id: p.company_id })),
+        });
+
+        if (company?.name === 'HDFC ERGO') {
+          const hdfcProducts = [
+            'OPTIMA RESTORE',
+            'OPTIMA SECURE',
+            'OPTIMA SUPER SECURE',
+            'ENERGY',
+            'EASY HEALTH',
+            'KOTI SURAKSHA',
+            'IPA',
+            'TRAVEL',
+            'OTHERS',
+            'STU',
+            'PA',
+            'SME',
+          ];
+          const hdfcFiltered = filtered.filter((pn) => hdfcProducts.includes(pn.name));
+          console.log('[PolicyForm] HDFC filtered:', hdfcFiltered.map(p => ({ id: p.id, name: p.name })));
+          // Deduplicate by name to ensure no duplicate product names
+          const uniqueMap = new Map(hdfcFiltered.map(pn => [pn.name, pn]));
+          return Array.from(uniqueMap.values())
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+        }
+
+        // Deduplicate by name for other companies
+        const uniqueMap = new Map(filtered.map(pn => [pn.name, pn]));
+        return Array.from(uniqueMap.values())
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+      })()
     : [];
 
   // Reset policy_name_id when company_id changes
   useEffect(() => {
     setValue("policy_name_id", undefined, { shouldValidate: true });
   }, [selectedCompanyId, setValue]);
+
+  // Determine if product has classifications
+  const selectedPolicyName = policyNames.find(pn => pn.id === wPolicyNameId);
+  const productName = selectedPolicyName?.name?.toUpperCase() || '';
+  const companyName = companies.find(c => c.id === selectedCompanyId)?.name || '';
+
+  const isOptimaSecure = productName.includes('OPTIMA SECURE');
+  const isOtherRetailHealth = companyName === 'HDFC ERGO' && productName === 'OTHERS';
+  const isSTU = companyName === 'HDFC ERGO' && productName === 'STU';
+  const isPA = companyName === 'HDFC ERGO' && productName === 'PA';
+  const isSME = companyName === 'HDFC ERGO' && productName === 'SME';
+  const isTravel = companyName === 'HDFC ERGO' && productName === 'TRAVEL';
+
+  let availableStatuses: ("Fresh" | "Renewal" | "Migration" | "Portablity")[] = ["Fresh", "Renewal", "Migration", "Portablity"];
+  if (isOptimaSecure || isOtherRetailHealth) {
+    availableStatuses = ["Fresh", "Portablity", "Renewal"];
+  } else if (isSTU) {
+    availableStatuses = ["Fresh", "Portablity", "Renewal"];
+  } else if (isPA || isSME) {
+    availableStatuses = ["Fresh", "Renewal"];
+  } else if (isTravel) {
+    availableStatuses = ["Fresh", "Renewal"];
+  }
 
   // Reset irrelevant fields when company changes
   useEffect(() => {
@@ -1454,10 +1511,11 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Fresh">Fresh</SelectItem>
-                <SelectItem value="Renewal">Renewal</SelectItem>
-                <SelectItem value="Migration">Internal Portability</SelectItem>
-                <SelectItem value="Portablity">Portablity</SelectItem>
+                {availableStatuses.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status === "Migration" ? "Internal Portability" : status}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

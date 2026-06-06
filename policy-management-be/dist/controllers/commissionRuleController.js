@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.commissionRuleController = void 0;
 const commissionRuleService_1 = require("../services/commissionRuleService");
@@ -160,15 +193,66 @@ exports.commissionRuleController = {
     async upsertCommissionByProduct(req, res) {
         try {
             const policyNameId = req.params.policyNameId;
-            const { commissionPercent } = req.body;
+            const { commissionPercent, productType, policyStatus, siCondition } = req.body;
             if (typeof commissionPercent !== 'number' || commissionPercent < 0 || commissionPercent > 100) {
                 return res.status(400).json({ error: 'commissionPercent must be a number between 0 and 100' });
             }
-            const rule = await commissionRuleService_1.commissionRuleService.upsertCommissionByProduct(policyNameId, commissionPercent);
+            const rule = await commissionRuleService_1.commissionRuleService.upsertCommissionByProduct(policyNameId, commissionPercent, productType, policyStatus, siCondition);
             res.status(200).json({ success: true, rule });
         }
         catch (error) {
             console.error('Error upserting commission by product:', error);
+            res.status(500).json({ error: error.message || 'Internal server error' });
+        }
+    },
+    // Recalculate commissions for all policies with a given policy_name_id
+    async recalculateCommissionsForPolicyName(req, res) {
+        try {
+            const policyNameId = req.params.policyNameId;
+            const result = await commissionRuleService_1.commissionRuleService.recalculateCommissionsForPolicyName(policyNameId);
+            res.status(200).json(result);
+        }
+        catch (error) {
+            console.error('Error recalculating commissions for policy name:', error);
+            res.status(500).json({ error: error.message || 'Internal server error' });
+        }
+    },
+    // Calculate commission based on policy details (including sum_insured and status)
+    async calculateCommission(req, res) {
+        try {
+            const { policy_name_id, policy_creation_status, sum_insured, premium_amount, gst_status } = req.body;
+            console.log('[Controller] Commission calculation request:', {
+                policy_name_id,
+                policy_creation_status,
+                sum_insured,
+                premium_amount,
+                gst_status,
+            });
+            if (!policy_name_id || premium_amount === undefined) {
+                return res.status(400).json({ error: 'policy_name_id and premium_amount are required' });
+            }
+            const { calculateAndSetCommission } = await Promise.resolve().then(() => __importStar(require('../services/policy.service')));
+            const policyInput = {
+                policy_name_id,
+                policy_creation_status: policy_creation_status || 'Fresh',
+                sum_insured: sum_insured || 0,
+                premium_amount,
+                gst_status: gst_status || false,
+            };
+            await calculateAndSetCommission(policyInput);
+            console.log('[Controller] Commission calculation result:', {
+                calculated_commission_amount: policyInput.calculated_commission_amount,
+                _commissionPercent: policyInput._commissionPercent,
+                _commissionRuleId: policyInput._commissionRuleId,
+            });
+            res.status(200).json({
+                calculated_commission_amount: policyInput.calculated_commission_amount,
+                base_percentage: policyInput._commissionPercent,
+                rule_found: policyInput._commissionPercent > 0,
+            });
+        }
+        catch (error) {
+            console.error('Error calculating commission:', error);
             res.status(500).json({ error: error.message || 'Internal server error' });
         }
     },

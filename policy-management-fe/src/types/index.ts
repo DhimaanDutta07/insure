@@ -292,6 +292,8 @@ export interface CommissionRule {
   deductibleType: string; // Should match DeductibleType enum
   ageCondition: string; // Should match AgeCondition enum
   commissionPercent: number;
+  productType?: string; // Should match ProductType enum
+  siCondition?: string; // Should match SICondition enum
   is_active: boolean;
   createdAt: string;
   updatedAt: string;

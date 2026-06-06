@@ -691,6 +691,33 @@ exports.policyController = {
                 files_count: files ? Object.keys(files).length : 0,
                 removed_docs_count: dataWithDates.removedDocumentIds?.length || 0,
             });
+            // Check if policy_creation_status is being updated
+            const statusChanged = dataWithDates.policy_creation_status &&
+                dataWithDates.policy_creation_status !== existingPolicy.policy_creation_status;
+            if (statusChanged) {
+                console.log('[UPDATE] Policy status changed, recalculating commission:', {
+                    oldStatus: existingPolicy.policy_creation_status,
+                    newStatus: dataWithDates.policy_creation_status,
+                });
+                // Prepare policy input for commission calculation
+                const policyInput = {
+                    policy_name_id: dataWithDates.policy_name_id || existingPolicy.policy_name_id,
+                    policy_creation_status: dataWithDates.policy_creation_status,
+                    sum_insured: dataWithDates.sum_insured || existingPolicy.sum_insured,
+                    premium_amount: dataWithDates.premium_amount || existingPolicy.premium_amount,
+                    gst_status: dataWithDates.gst_status !== undefined ? dataWithDates.gst_status : existingPolicy.gst_status,
+                };
+                // Calculate new commission
+                const { calculateAndSetCommission } = await Promise.resolve().then(() => __importStar(require('../services/policy.service')));
+                await calculateAndSetCommission(policyInput);
+                // Update the data with new commission values
+                dataWithDates.calculated_commission_amount = policyInput.calculated_commission_amount;
+                dataWithDates.commission_add_on_percentage = policyInput._commissionPercent;
+                console.log('[UPDATE] Commission recalculated:', {
+                    newCommission: policyInput.calculated_commission_amount,
+                    newPercent: policyInput._commissionPercent,
+                });
+            }
             const updatedPolicy = await policy_service_1.policyService.updatePolicy(policyId, dataWithDates, files, userId);
             const duration = Date.now() - startTime;
             console.log(`✅ [UPDATE] Policy updated successfully in ${duration}ms`);

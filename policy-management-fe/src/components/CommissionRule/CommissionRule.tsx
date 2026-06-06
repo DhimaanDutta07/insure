@@ -1,14 +1,13 @@
 import React, { useEffect, useState, useCallback } from "react";
 import {
-  getAllCommissionRules,
   upsertCommissionByProduct,
+  getAllCommissionRules,
 } from "../../services/commissionRule.service";
 import {
   getAllPolicyNames,
   PolicyName,
 } from "../../services/policyName.service";
 import { getAllCompanies } from "../../services/company.service";
-import type { CommissionRule } from "../../types/index";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import {
@@ -16,29 +15,39 @@ import {
   Building2,
   Package,
   Loader2,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import CommissionDashboard from "../CommissionDashboard";
 
+const DEFAULT_COMMISSION = 12.0;
+
 const CommissionRulePage: React.FC = () => {
-  const [commissionRules, setCommissionRules] = useState<CommissionRule[]>([]);
   const [policyNames, setPolicyNames] = useState<PolicyName[]>([]);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
+  const [commissionRules, setCommissionRules] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
+  const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
+  const [renewalCommission, setRenewalCommission] = useState<string>('15');
+  const [freshCommission, setFreshCommission] = useState<string>('12');
+  const [portabilityCommission, setPortabilityCommission] = useState<string>('15');
+  const [isSavingRenewal, setIsSavingRenewal] = useState(false);
+  const [isSavingFresh, setIsSavingFresh] = useState(false);
+  const [isSavingPortability, setIsSavingPortability] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const [rules, names, companyData] = await Promise.all([
-        getAllCommissionRules(),
+      const [names, companyData, rules] = await Promise.all([
         getAllPolicyNames(),
         getAllCompanies(),
+        getAllCommissionRules({ isActive: true }),
       ]);
-      setCommissionRules(Array.isArray(rules) ? rules : (rules as any).data || []);
       setPolicyNames(names);
       setCompanies(companyData);
+      setCommissionRules(Array.isArray(rules) ? rules : rules.data);
     } catch {
       toast.error("Failed to fetch data");
     } finally {
@@ -50,49 +59,30 @@ const CommissionRulePage: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // Build product -> commissionPercent map
-  const commissionMap = React.useMemo(() => {
-    const map: Record<string, number> = {};
-    commissionRules.forEach((rule) => {
-      if (rule.is_active) {
-        // Use the first active rule's percentage per product
-        if (map[rule.policy_name_id] === undefined) {
-          map[rule.policy_name_id] = rule.commissionPercent;
-        }
-      }
-    });
-    return map;
-  }, [commissionRules]);
-
-  const handlePercentChange = (productId: string, value: string) => {
-    setEditValues((prev) => ({ ...prev, [productId]: value }));
+  const handlePercentChange = (productId: string, policyStatus: string, siCondition: string, value: string) => {
+    const key = policyStatus && siCondition ? `${productId}-${policyStatus}-${siCondition}` : productId;
+    setEditValues((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSavePercent = async (productId: string) => {
-    const raw = editValues[productId];
+  const handleSavePercent = async (productId: string, productType: string, policyStatus: string, siCondition: string) => {
+    const key = policyStatus && siCondition ? `${productId}-${policyStatus}-${siCondition}` : productId;
+    const raw = editValues[key];
     if (raw === undefined) return;
     const percent = parseFloat(raw);
     if (isNaN(percent) || percent < 0 || percent > 100) {
       toast.error("Enter a valid percentage between 0 and 100");
       return;
     }
-    setSavingId(productId);
+    setSavingId(key);
     try {
-      await upsertCommissionByProduct(productId, percent);
+      await upsertCommissionByProduct(productId, percent, productType, policyStatus, siCondition);
       toast.success("Commission percentage updated");
-      // Update local state
-      setCommissionRules((prev) => {
-        // Update all rules for this product
-        const updated = prev.map((r) =>
-          r.policy_name_id === productId ? { ...r, commissionPercent: percent } : r
-        );
-        return updated;
-      });
       setEditValues((prev) => {
         const next = { ...prev };
-        delete next[productId];
+        delete next[key];
         return next;
       });
+      fetchData();
     } catch {
       toast.error("Failed to update commission percentage");
     } finally {
@@ -100,10 +90,241 @@ const CommissionRulePage: React.FC = () => {
     }
   };
 
+  const toggleExpand = (productId: string) => {
+    setExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
+  };
+
+  const handleSaveRenewalCommission = async () => {
+    const percent = parseFloat(renewalCommission);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      toast.error("Enter a valid percentage between 0 and 100");
+      return;
+    }
+
+    setIsSavingRenewal(true);
+    try {
+      const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
+      if (!hdfcCompany) {
+        toast.error("HDFC ERGO company not found");
+        return;
+      }
+
+      const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
+
+      // Update all HDFC ERGO products with Renewal commission
+      // For products with SI classification (OPTIMA SECURE, OTHERS), update both SI conditions
+      for (const product of hdfcProducts) {
+        const productName = product.name.toUpperCase();
+        const isOptimaSecure = productName.includes('OPTIMA SECURE');
+        const isOtherRetailHealth = productName === 'OTHERS';
+
+        if (isOptimaSecure || isOtherRetailHealth) {
+          // Update both SI conditions for products with SI classification
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Renewal', 'LESS_THAN_10_LAKHS');
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Renewal', 'GREATER_EQUAL_10_LAKHS');
+        } else {
+          // Update with undefined SI condition for other products (will be set to null in backend)
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Renewal', undefined);
+        }
+      }
+
+      toast.success("Renewal commission updated for all HDFC ERGO products");
+      fetchData();
+    } catch {
+      toast.error("Failed to update Renewal commission");
+    } finally {
+      setIsSavingRenewal(false);
+    }
+  };
+
+  const handleSaveFreshCommission = async () => {
+    const percent = parseFloat(freshCommission);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      toast.error("Enter a valid percentage between 0 and 100");
+      return;
+    }
+
+    setIsSavingFresh(true);
+    try {
+      const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
+      if (!hdfcCompany) {
+        toast.error("HDFC ERGO company not found");
+        return;
+      }
+
+      const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
+
+      // Update all HDFC ERGO products with Fresh commission
+      for (const product of hdfcProducts) {
+        const productName = product.name.toUpperCase();
+        const isOptimaSecure = productName.includes('OPTIMA SECURE');
+        const isOtherRetailHealth = productName === 'OTHERS';
+
+        if (isOptimaSecure || isOtherRetailHealth) {
+          // Update both SI conditions for products with SI classification
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Fresh', 'LESS_THAN_10_LAKHS');
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Fresh', 'GREATER_EQUAL_10_LAKHS');
+        } else {
+          // Update with undefined SI condition for other products
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Fresh', undefined);
+        }
+      }
+
+      toast.success("Fresh commission updated for all HDFC ERGO products");
+      fetchData();
+    } catch {
+      toast.error("Failed to update Fresh commission");
+    } finally {
+      setIsSavingFresh(false);
+    }
+  };
+
+  const handleSavePortabilityCommission = async () => {
+    const percent = parseFloat(portabilityCommission);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      toast.error("Enter a valid percentage between 0 and 100");
+      return;
+    }
+
+    setIsSavingPortability(true);
+    try {
+      const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
+      if (!hdfcCompany) {
+        toast.error("HDFC ERGO company not found");
+        return;
+      }
+
+      const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
+
+      // Update all HDFC ERGO products with Portability commission
+      for (const product of hdfcProducts) {
+        const productName = product.name.toUpperCase();
+        const isOptimaSecure = productName.includes('OPTIMA SECURE');
+        const isOtherRetailHealth = productName === 'OTHERS';
+
+        if (isOptimaSecure || isOtherRetailHealth) {
+          // Update both SI conditions for products with SI classification
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Portablity', 'LESS_THAN_10_LAKHS');
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Portablity', 'GREATER_EQUAL_10_LAKHS');
+        } else {
+          // Update with undefined SI condition for other products
+          await upsertCommissionByProduct(product.id, percent, undefined, 'Portablity', undefined);
+        }
+      }
+
+      toast.success("Portability commission updated for all HDFC ERGO products");
+      fetchData();
+    } catch {
+      toast.error("Failed to update Portability commission");
+    } finally {
+      setIsSavingPortability(false);
+    }
+  };
+
+
   return (
     <div className="p-4 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Commission Rules</h1>
+      </div>
+
+      {/* Global Commission Sections for HDFC ERGO */}
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Renewal Commission */}
+        <div className="p-4 bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Renewal</h3>
+          <p className="text-xs text-gray-600 mb-3">
+            Applies when policy status is "Renewal"
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              value={renewalCommission}
+              onChange={(e) => setRenewalCommission(e.target.value)}
+              className="w-20 h-9 text-center text-sm"
+              disabled={isSavingRenewal}
+            />
+            <span className="text-xs text-gray-600">%</span>
+            <Button
+              onClick={handleSaveRenewalCommission}
+              disabled={isSavingRenewal}
+              className="bg-orange-600 hover:bg-orange-700 text-white h-9 px-3 text-xs"
+            >
+              {isSavingRenewal ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Save className="w-3 h-3" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Fresh Commission */}
+        <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Fresh</h3>
+          <p className="text-xs text-gray-600 mb-3">
+            Applies when policy status is "Fresh"
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              value={freshCommission}
+              onChange={(e) => setFreshCommission(e.target.value)}
+              className="w-20 h-9 text-center text-sm"
+              disabled={isSavingFresh}
+            />
+            <span className="text-xs text-gray-600">%</span>
+            <Button
+              onClick={handleSaveFreshCommission}
+              disabled={isSavingFresh}
+              className="bg-green-600 hover:bg-green-700 text-white h-9 px-3 text-xs"
+            >
+              {isSavingFresh ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Save className="w-3 h-3" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Portability Commission */}
+        <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Portability</h3>
+          <p className="text-xs text-gray-600 mb-3">
+            Applies when policy status is "Portability"
+          </p>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              value={portabilityCommission}
+              onChange={(e) => setPortabilityCommission(e.target.value)}
+              className="w-20 h-9 text-center text-sm"
+              disabled={isSavingPortability}
+            />
+            <span className="text-xs text-gray-600">%</span>
+            <Button
+              onClick={handleSavePortabilityCommission}
+              disabled={isSavingPortability}
+              className="bg-blue-600 hover:bg-blue-700 text-white h-9 px-3 text-xs"
+            >
+              {isSavingPortability ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Save className="w-3 h-3" />
+              )}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className="mb-6">
@@ -135,54 +356,190 @@ const CommissionRulePage: React.FC = () => {
                 {/* Products Grid */}
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {companyProducts.map((product) => {
-                    const currentPercent = commissionMap[product.id] ?? 0;
-                    const hasEdit = editValues[product.id] !== undefined;
+                    const productName = product.name.toUpperCase();
+                    const isOptimaSecure = productName.includes('OPTIMA SECURE');
+                    const isOtherRetailHealth = company.name === 'HDFC ERGO' && productName === 'OTHERS';
+                    const isSTU = company.name === 'HDFC ERGO' && productName === 'STU';
+                    const isPA = company.name === 'HDFC ERGO' && productName === 'PA';
+                    const isSME = company.name === 'HDFC ERGO' && productName === 'SME';
+                    const isTravel = company.name === 'HDFC ERGO' && productName === 'TRAVEL';
+
+                    const hasClassification = isOptimaSecure || isOtherRetailHealth || isSTU || isPA || isSME || isTravel;
+                    const hasSI = isOptimaSecure || isOtherRetailHealth;
+
+                    let statuses: string[] = [];
+                    if (isOptimaSecure || isOtherRetailHealth) statuses = ['Fresh', 'Portablity'];
+                    else if (isSTU) statuses = ['Fresh', 'Portablity'];
+                    else if (isPA || isSME) statuses = ['Fresh', 'Renewal'];
+                    else if (isTravel) statuses = ['Fresh'];
+
+                    const isExpanded = expandedProducts[product.id];
+                    const key = product.id;
+                    const hasEdit = editValues[key] !== undefined;
+
+                    // Find matching commission rule for non-classified products
+                    const matchingRule = commissionRules.find(
+                      (rule) => rule.policy_name_id === product.id && !rule.policyStatus && !rule.siCondition
+                    );
+
                     const displayValue = hasEdit
-                      ? editValues[product.id]
-                      : currentPercent.toString();
-                    const isSaving = savingId === product.id;
+                      ? editValues[key]
+                      : (matchingRule?.commissionPercent ?? DEFAULT_COMMISSION).toString();
+                    const isSaving = savingId === key;
 
                     return (
                       <div
                         key={product.id}
-                        className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg bg-white hover:shadow-md transition-shadow"
+                        className="border border-gray-200 rounded-lg bg-white hover:shadow-md transition-shadow"
                       >
-                        <Package className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-800 truncate">
-                            {product.name}
+                        <div
+                          className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50"
+                          onClick={() => toggleExpand(product.id)}
+                        >
+                          <Package className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-800 truncate">
+                              {product.name}
+                            </div>
+                            {hasClassification && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {statuses.join(', ')}
+                                {hasSI && ' + SI'}
+                              </div>
+                            )}
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <div className="flex items-center gap-1">
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.1}
-                              value={displayValue}
-                              onChange={(e) =>
-                                handlePercentChange(product.id, e.target.value)
-                              }
-                              className="w-20 h-9 text-sm text-center"
+                          {hasClassification && (
+                            <ChevronDown
+                              className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${
+                                isExpanded ? 'rotate-180' : ''
+                              }`}
                             />
-                            <span className="text-sm text-gray-500">%</span>
-                          </div>
-                          {hasEdit && (
-                            <Button
-                              size="sm"
-                              onClick={() => handleSavePercent(product.id)}
-                              disabled={isSaving}
-                              className="h-9 px-3 bg-blue-600 hover:bg-blue-700 text-white"
-                            >
-                              {isSaving ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <Save className="w-4 h-4" />
-                              )}
-                            </Button>
                           )}
                         </div>
+
+                        {isExpanded && hasClassification && (
+                          <div className="p-4 pt-0 border-t border-gray-100">
+                            <div className="space-y-3">
+                              {statuses.map((status) => {
+                                const siConditions = hasSI
+                                  ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS']
+                                  : ['DEFAULT'];
+
+                                return (
+                                  <div key={status} className="border border-gray-200 rounded p-3">
+                                    <div className="text-xs font-semibold text-gray-700 mb-2">
+                                      {status}
+                                    </div>
+                                    {siConditions.map((si) => {
+                                      const rowKey = `${product.id}-${status}-${si}`;
+                                      const rowHasEdit = editValues[rowKey] !== undefined;
+
+                                      // Find matching commission rule
+                                      const matchingRule = commissionRules.find(
+                                        (rule) =>
+                                          rule.policy_name_id === product.id &&
+                                          rule.policyStatus === status &&
+                                          (si === 'DEFAULT' ? !rule.siCondition : rule.siCondition === si)
+                                      );
+
+                                      const rowDisplayValue = rowHasEdit
+                                        ? editValues[rowKey]
+                                        : (matchingRule?.commissionPercent ?? DEFAULT_COMMISSION).toString();
+                                      const rowIsSaving = savingId === rowKey;
+                                      const siLabel = si === 'DEFAULT'
+                                        ? 'Default'
+                                        : si === 'LESS_THAN_10_LAKHS'
+                                        ? 'SI < ₹10L'
+                                        : 'SI ≥ ₹10L';
+
+                                      return (
+                                        <div
+                                          key={si}
+                                          className="flex items-center gap-2 mb-2 last:mb-0"
+                                        >
+                                          {hasSI && (
+                                            <span className="text-xs text-gray-500 w-20">
+                                              {siLabel}
+                                            </span>
+                                          )}
+                                          <Input
+                                            type="number"
+                                            min={0}
+                                            max={100}
+                                            step={0.1}
+                                            value={rowDisplayValue}
+                                            onChange={(e) =>
+                                              handlePercentChange(
+                                                product.id,
+                                                status,
+                                                si === 'DEFAULT' ? '' : si,
+                                                e.target.value
+                                              )
+                                            }
+                                            className={`h-7 text-xs text-center ${hasSI ? 'w-16' : 'w-20'}`}
+                                          />
+                                          <span className="text-xs text-gray-500">%</span>
+                                          {rowHasEdit && (
+                                            <Button
+                                              size="sm"
+                                              onClick={() =>
+                                                handleSavePercent(
+                                                  product.id,
+                                                  '',
+                                                  status,
+                                                  si === 'DEFAULT' ? '' : si
+                                                )
+                                              }
+                                              disabled={rowIsSaving}
+                                              className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-white"
+                                            >
+                                              {rowIsSaving ? (
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                              ) : (
+                                                <Save className="w-3 h-3" />
+                                              )}
+                                            </Button>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {!hasClassification && (
+                          <div className="p-4 pt-0 border-t border-gray-100">
+                            <div className="flex items-center gap-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step={0.1}
+                                value={displayValue}
+                                onChange={(e) => handlePercentChange(product.id, '', '', e.target.value)}
+                                className="w-20 h-9 text-sm text-center"
+                              />
+                              <span className="text-sm text-gray-500">%</span>
+                              {hasEdit && (
+                                <Button
+                                  size="sm"
+                                  onClick={() => handleSavePercent(product.id, '', '', '')}
+                                  disabled={isSaving}
+                                  className="h-9 px-3 bg-blue-600 hover:bg-blue-700 text-white"
+                                >
+                                  {isSaving ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Save className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}

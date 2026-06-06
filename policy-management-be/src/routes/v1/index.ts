@@ -478,6 +478,8 @@ router.get('/commission-rules/dashboard/stats', restrictTo(['ADMIN']), (req, res
 // Simplified product-based commission routes
 router.get('/commission-rules/product/:policyNameId', restrictTo(['ADMIN', 'OPERATIONS']), (req, res) => { commissionRuleController.getCommissionByProduct(req, res); });
 router.patch('/commission-rules/product/:policyNameId', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.upsertCommissionByProduct(req, res); });
+router.post('/commission-rules/product/:policyNameId/recalculate', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.recalculateCommissionsForPolicyName(req, res); });
+router.post('/commission-rules/calculate', restrictTo(['ADMIN', 'OPERATIONS']), (req, res) => { commissionRuleController.calculateCommission(req, res); });
 
 // Company Routes
 router.post('/companies', restrictTo(['ADMIN']), (req, res) => { companyController.createCompany(req, res); });

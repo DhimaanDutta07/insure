@@ -252,9 +252,9 @@ model Policy {
   @@index([parent_policy_id])
   @@index([status])
   @@index([customer_name])
-  @@index([created_at, status]) // Composite index for filtering by date and status
-  @@index([company_id, policy_creation_status]) // Composite index for company and status
-  @@index([policy_group_id, created_at]) // Composite index for policy group and date
+  @@index([created_at, status])
+  @@index([company_id, policy_creation_status])
+  @@index([policy_group_id, created_at])
   @@map("policy")
 }
 
@@ -279,9 +279,9 @@ model Proposer {
   policy              Policy?            @relation(fields: [policy_id], references: [id], onDelete: Cascade)
   documents           UploadedDocument[]
 
-  @@map("proposers")
   @@index([mobile])
   @@index([email])
+  @@map("proposers")
 }
 
 model InsuredMember {
@@ -326,8 +326,8 @@ model NomineeAndPayment {
   bank_branch_name    String?
   policy              Policy?   @relation(fields: [policy_id], references: [id], onDelete: Cascade)
 
-  @@map("nominee_and_payment")
   @@index([policy_id])
+  @@map("nominee_and_payment")
 }
 
 model PolicyFormValue {
@@ -384,7 +384,6 @@ model UploadedDocument {
   file_name             String?
   original_name         String?
   relative_path         String?
-  file_data             Bytes?
   category              DocumentCategory?
   created_at            DateTime?                 @default(now())
   file_type             FileType?
@@ -393,6 +392,7 @@ model UploadedDocument {
   proposer_id           String?
   insured_member_id     String?
   claim_id              String?
+  file_data             Bytes?
   document_references   PolicyDocumentReference[] @relation("DocumentReference")
   policy_receipt_images PolicyReceiptImage[]
   policy_receipts       PolicyReceipt[]
@@ -458,10 +458,13 @@ model CommissionRule {
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   is_active         Boolean              @default(true)
+  productType       ProductType?         @default(OTHER)
+  siCondition       SICondition?         @default(ALL_SI)
   policyName        PolicyName           @relation(fields: [policy_name_id], references: [id], onDelete: Cascade)
 
-  @@unique([policy_name_id, policyStatus, deductibleType, ageCondition])
+  @@unique([policy_name_id, policyStatus, deductibleType, ageCondition, productType, siCondition])
   @@index([policy_name_id])
+  @@index([productType])
   @@map("commission_rules")
 }
 
@@ -664,6 +667,26 @@ enum DeductibleType {
 enum AgeCondition {
   LESS_THAN_60
   GREATER_THAN_60
+}
+
+enum ProductType {
+  OPTIMA_SECURE
+  OTHER_RETAIL_HEALTH
+  STU
+  PA
+  SME
+  TRAVEL
+  OTHER
+
+  @@map("product_type")
+}
+
+enum SICondition {
+  ALL_SI
+  LESS_THAN_10_LAKHS
+  GREATER_EQUAL_10_LAKHS
+
+  @@map("si_condition")
 }
 
 enum ClaimantType {
