@@ -57,6 +57,15 @@ async function updateHDFCCommissionRules() {
             siCondition: null,
             is_active: true,
           });
+          rulesToCreate.push({
+            policy_name_id: product.id,
+            policyStatus: 'Portablity',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            commissionPercent: 12,
+            siCondition: null,
+            is_active: true,
+          });
           break;
 
         case 'OPTIMA SECURE':
@@ -119,6 +128,15 @@ async function updateHDFCCommissionRules() {
             siCondition: null,
             is_active: true,
           });
+          rulesToCreate.push({
+            policy_name_id: product.id,
+            policyStatus: 'Portablity',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            commissionPercent: 12,
+            siCondition: null,
+            is_active: true,
+          });
           break;
 
         case 'ENERGY':
@@ -144,10 +162,19 @@ async function updateHDFCCommissionRules() {
             siCondition: null,
             is_active: true,
           });
+          rulesToCreate.push({
+            policy_name_id: product.id,
+            policyStatus: 'Portablity',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            commissionPercent: 12,
+            siCondition: null,
+            is_active: true,
+          });
           break;
 
         case 'TRAVEL':
-          // Fresh and Renewal
+          // Fresh, Renewal, and Portablity
           rulesToCreate.push({
             policy_name_id: product.id,
             policyStatus: 'Fresh',
@@ -160,6 +187,15 @@ async function updateHDFCCommissionRules() {
           rulesToCreate.push({
             policy_name_id: product.id,
             policyStatus: 'Renewal',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            commissionPercent: 12,
+            siCondition: null,
+            is_active: true,
+          });
+          rulesToCreate.push({
+            policy_name_id: product.id,
+            policyStatus: 'Portablity',
             deductibleType: 'ALL_SI',
             ageCondition: 'LESS_THAN_60',
             commissionPercent: 12,
@@ -231,7 +267,7 @@ async function updateHDFCCommissionRules() {
           break;
 
         case 'PA':
-          // Fresh, Renewal
+          // Fresh, Renewal, Portablity
           rulesToCreate.push({
             policy_name_id: product.id,
             policyStatus: 'Fresh',
@@ -250,10 +286,19 @@ async function updateHDFCCommissionRules() {
             siCondition: null,
             is_active: true,
           });
+          rulesToCreate.push({
+            policy_name_id: product.id,
+            policyStatus: 'Portablity',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            commissionPercent: 12,
+            siCondition: null,
+            is_active: true,
+          });
           break;
 
         case 'SME':
-          // Fresh, Renewal
+          // Fresh, Renewal, Portablity
           rulesToCreate.push({
             policy_name_id: product.id,
             policyStatus: 'Fresh',
@@ -269,6 +314,15 @@ async function updateHDFCCommissionRules() {
             deductibleType: 'ALL_SI',
             ageCondition: 'LESS_THAN_60',
             commissionPercent: 15,
+            siCondition: null,
+            is_active: true,
+          });
+          rulesToCreate.push({
+            policy_name_id: product.id,
+            policyStatus: 'Portablity',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            commissionPercent: 12,
             siCondition: null,
             is_active: true,
           });

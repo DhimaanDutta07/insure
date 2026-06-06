@@ -220,13 +220,14 @@ exports.commissionRuleController = {
     // Calculate commission based on policy details (including sum_insured and status)
     async calculateCommission(req, res) {
         try {
-            const { policy_name_id, policy_creation_status, sum_insured, premium_amount, gst_status } = req.body;
+            const { policy_name_id, policy_creation_status, sum_insured, premium_amount, gst_status, deductible_amount_status } = req.body;
             console.log('[Controller] Commission calculation request:', {
                 policy_name_id,
                 policy_creation_status,
                 sum_insured,
                 premium_amount,
                 gst_status,
+                deductible_amount_status,
             });
             if (!policy_name_id || premium_amount === undefined) {
                 return res.status(400).json({ error: 'policy_name_id and premium_amount are required' });
@@ -238,6 +239,7 @@ exports.commissionRuleController = {
                 sum_insured: sum_insured || 0,
                 premium_amount,
                 gst_status: gst_status || false,
+                deductible_amount_status: deductible_amount_status || false,
             };
             await calculateAndSetCommission(policyInput);
             console.log('[Controller] Commission calculation result:', {
