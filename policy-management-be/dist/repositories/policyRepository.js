@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyRepository = exports.POLICY_LIST_INCLUDE = exports.POLICY_FULL_INCLUDE = void 0;
+const client_1 = require("@prisma/client");
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 const referenceCache_1 = require("../utils/referenceCache");
 // Optimized include block - use select where possible for better performance
@@ -905,6 +906,111 @@ exports.policyRepository = {
             pages: Math.ceil(total / take),
         };
     },
+    // ULTRA-OPTIMIZED raw SQL policy list for sub-second performance
+    async getAllPoliciesRaw(search, type, policy_creation_status, policy_group_id, from, to, skip = 0, take = 25) {
+        const whereClauses = [];
+        // Leaf policies only (no children) - uses index on parent_policy_id
+        whereClauses.push(client_1.Prisma.sql `NOT EXISTS (SELECT 1 FROM "policy" child WHERE child."parent_policy_id" = p.id)`);
+        // Only show Active (or null status) policies - hides transitioned/INACTIVE parents
+        whereClauses.push(client_1.Prisma.sql `(p.status = 'Active' OR p.status IS NULL)`);
+        if (search) {
+            whereClauses.push(client_1.Prisma.sql `(
+        p."policy_number" ILIKE ${'%' + search + '%'}
+        OR p."customer_name" ILIKE ${'%' + search + '%'}
+        OR c.name ILIKE ${'%' + search + '%'}
+        OR pr.mobile ILIKE ${'%' + search + '%'}
+        OR pr.email ILIKE ${'%' + search + '%'}
+      )`);
+        }
+        if (type && type !== 'all') {
+            whereClauses.push(client_1.Prisma.sql `pt.name = ${type}`);
+        }
+        if (policy_creation_status && policy_creation_status !== 'all') {
+            whereClauses.push(client_1.Prisma.sql `p."policy_creation_status" = ${policy_creation_status}`);
+        }
+        if (policy_group_id && policy_group_id !== 'all') {
+            whereClauses.push(client_1.Prisma.sql `p."policy_group_id" = ${policy_group_id}`);
+        }
+        if (from && !isNaN(Date.parse(from))) {
+            whereClauses.push(client_1.Prisma.sql `p."start_date" >= ${new Date(from)}`);
+        }
+        if (to && !isNaN(Date.parse(to))) {
+            whereClauses.push(client_1.Prisma.sql `p."start_date" <= ${new Date(to)}`);
+        }
+        const whereSql = client_1.Prisma.sql `WHERE ${client_1.Prisma.join(whereClauses, ' AND ')}`;
+        // Run data + count in parallel for maximum speed
+        const [dataRows, countRows] = await Promise.all([
+            prismaClient_1.default.$queryRaw `
+        SELECT
+          p.id, p."policy_number", p."customer_name", p."company_id", p."policy_type_id",
+          p."policy_name_id", p."policy_group_id", p."created_by", p."created_at",
+          p."updated_at", p."premium_amount", p."sum_insured", p."plan_type",
+          p."policy_creation_status", p."start_date", p."end_date", p."status",
+          p."tenure_years", p."gst_status", p."deductible_amount_status", p."deductible_amount",
+          p."calculated_commission_amount",
+          c.id as "company.id", c.name as "company.name",
+          pt.name as "type.name",
+          pn.id as "policyName.id", pn.name as "policyName.name",
+          pg.id as "policyGroup.id", pg.name as "policyGroup.name",
+          pr.id as "proposer.id", pr.full_name as "proposer.full_name", pr.mobile as "proposer.mobile"
+        FROM "policy" p
+        LEFT JOIN "company" c ON p."company_id" = c.id
+        LEFT JOIN "policy_types" pt ON p."policy_type_id" = pt.id
+        LEFT JOIN "policy_names" pn ON p."policy_name_id" = pn.id
+        LEFT JOIN "policy_groups" pg ON p."policy_group_id" = pg.id
+        LEFT JOIN "proposers" pr ON p.id = pr."policy_id"
+        ${whereSql}
+        ORDER BY p."created_at" DESC
+        LIMIT ${take} OFFSET ${skip}
+      `,
+            prismaClient_1.default.$queryRaw `
+        SELECT COUNT(*)::int as total
+        FROM "policy" p
+        LEFT JOIN "company" c ON p."company_id" = c.id
+        LEFT JOIN "policy_types" pt ON p."policy_type_id" = pt.id
+        LEFT JOIN "proposers" pr ON p.id = pr."policy_id"
+        ${whereSql}
+      `,
+        ]);
+        // Shape raw rows into Prisma-compatible nested objects
+        const data = dataRows.map((row) => ({
+            id: row.id,
+            policy_number: row.policy_number,
+            customer_name: row.customer_name,
+            company_id: row.company_id,
+            policy_type_id: row.policy_type_id,
+            policy_name_id: row.policy_name_id,
+            policy_group_id: row.policy_group_id,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            premium_amount: row.premium_amount,
+            sum_insured: row.sum_insured,
+            plan_type: row.plan_type,
+            policy_creation_status: row.policy_creation_status,
+            start_date: row.start_date,
+            end_date: row.end_date,
+            status: row.status,
+            tenure_years: row.tenure_years,
+            gst_status: row.gst_status,
+            deductible_amount_status: row.deductible_amount_status,
+            deductible_amount: row.deductible_amount,
+            calculated_commission_amount: row.calculated_commission_amount,
+            company: row['company.id'] ? { id: row['company.id'], name: row['company.name'] } : null,
+            type: row['type.name'] ? { name: row['type.name'] } : null,
+            policyName: row['policyName.id'] ? { id: row['policyName.id'], name: row['policyName.name'] } : null,
+            policyGroup: row['policyGroup.id'] ? { id: row['policyGroup.id'], name: row['policyGroup.name'] } : null,
+            proposer: row['proposer.id'] ? { id: row['proposer.id'], full_name: row['proposer.full_name'], mobile: row['proposer.mobile'] } : null,
+        }));
+        const total = Number(countRows[0]?.total) || 0;
+        return {
+            data,
+            total,
+            page: Math.floor(skip / take) + 1,
+            limit: take,
+            pages: Math.ceil(total / take),
+        };
+    },
     // Get a single policy by ID with optimized includes
     async getPolicyById(id) {
         // Use a more optimized include for single policy fetch
@@ -1055,48 +1161,39 @@ exports.policyRepository = {
         return result;
     },
     // Delete a policy with all related data including the entire policy chain (parent and children)
+    // ULTRA-OPTIMIZED: Two recursive CTEs + deleteMany for everything
     async deletePolicy(id) {
-        console.log(`🗑️ Starting deletion of policy ${id} and its entire chain`);
+        console.log(`🗑️ Starting optimized deletion of policy ${id} and its entire chain`);
         return await prismaClient_1.default.$transaction(async (tx) => {
-            // Step 0: Find all related policies in the chain (both parents and children)
-            const allPolicyIds = new Set();
-            const policyIdsToProcess = [id];
-            // Traverse up to find all parent policies
-            let currentPolicy = await tx.policy.findUnique({
-                where: { id },
-                select: { id: true, parent_policy_id: true }
-            });
-            while (currentPolicy?.parent_policy_id) {
-                allPolicyIds.add(currentPolicy.parent_policy_id);
-                const parentPolicy = await tx.policy.findUnique({
-                    where: { id: currentPolicy.parent_policy_id },
-                    select: { id: true, parent_policy_id: true }
-                });
-                currentPolicy = parentPolicy;
-            }
-            // Traverse down to find all child policies recursively
-            const childIds = [id];
-            while (childIds.length > 0) {
-                const currentId = childIds.pop();
-                allPolicyIds.add(currentId);
-                const children = await tx.policy.findMany({
-                    where: { parent_policy_id: currentId },
-                    select: { id: true }
-                });
-                children.forEach(child => {
-                    if (!allPolicyIds.has(child.id)) {
-                        childIds.push(child.id);
-                    }
-                });
-            }
-            const policyIdsArray = Array.from(allPolicyIds);
+            // Step 0: Get ALL related policy IDs (ancestors + descendants) using two separate CTEs
+            const chainResult = await tx.$queryRaw `
+        WITH RECURSIVE descendants AS (
+          SELECT id, "parent_policy_id" FROM "policy" WHERE id = ${id}
+          UNION
+          SELECT p.id, p."parent_policy_id" FROM "policy" p
+          INNER JOIN descendants d ON p."parent_policy_id" = d.id
+        ),
+        ancestors AS (
+          SELECT id, "parent_policy_id" FROM "policy" WHERE id = ${id}
+          UNION
+          SELECT p.id, p."parent_policy_id" FROM "policy" p
+          INNER JOIN ancestors a ON p.id = a."parent_policy_id"
+        )
+        SELECT id FROM descendants
+        UNION
+        SELECT id FROM ancestors
+      `;
+            const policyIdsArray = chainResult.map((r) => r.id);
             console.log(`🔗 Found ${policyIdsArray.length} related policies to delete:`, policyIdsArray);
-            // Step 1: Clear all parent_policy_id references in the chain
+            if (policyIdsArray.length === 0) {
+                return { deletedCount: 0, policyIds: [] };
+            }
+            // Step 1: Clear parent_policy_id references
             await tx.policy.updateMany({
                 where: { id: { in: policyIdsArray } },
                 data: { parent_policy_id: null },
             });
-            // Step 2: Delete document references for all policies in the chain
+            // Step 2: Delete document references
             await Promise.all([
                 tx.policyDocumentReference.deleteMany({
                     where: { source_document: { policy_id: { in: policyIdsArray } } }
@@ -1105,7 +1202,7 @@ exports.policyRepository = {
                     where: { policy_id: { in: policyIdsArray } }
                 }),
             ]);
-            // Step 3: Delete independent related records for all policies in the chain
+            // Step 3: Delete all related records in parallel
             await Promise.all([
                 tx.commissionJournal.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.policyFormValue.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
@@ -1113,34 +1210,20 @@ exports.policyRepository = {
                 tx.revenue.deleteMany({ where: { policyId: { in: policyIdsArray } } }),
                 tx.reminder.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.claim.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.uploadedDocument.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.insuredMember.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.proposer.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.nomineeAndPayment.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
             ]);
-            // Step 4: Delete documents for all policies in the chain
-            await tx.uploadedDocument.deleteMany({ where: { policy_id: { in: policyIdsArray } } });
-            // Step 5: Delete insured members for all policies in the chain
-            await tx.insuredMember.deleteMany({ where: { policy_id: { in: policyIdsArray } } });
-            // Step 6: Delete proposers for all policies in the chain
-            const proposers = await tx.proposer.findMany({
-                where: { policy_id: { in: policyIdsArray } }
-            });
-            for (const proposer of proposers) {
-                await tx.proposer.delete({ where: { id: proposer.id } });
-            }
-            // Step 7: Delete nominee payments for all policies in the chain
-            const nomineePayments = await tx.nomineeAndPayment.findMany({
-                where: { policy_id: { in: policyIdsArray } }
-            });
-            for (const nomineePayment of nomineePayments) {
-                await tx.nomineeAndPayment.delete({ where: { id: nomineePayment.id } });
-            }
-            // Step 8: Delete all policies in the chain
+            // Step 4: Delete all policies
             const deletedPolicies = await tx.policy.deleteMany({
                 where: { id: { in: policyIdsArray } }
             });
             console.log(`✅ Successfully deleted ${deletedPolicies.count} policies in the chain`);
             return { deletedCount: deletedPolicies.count, policyIds: policyIdsArray };
         }, {
-            maxWait: 10000,
-            timeout: 30000,
+            maxWait: 5000,
+            timeout: 15000,
         });
     },
     // Get policies by user ID

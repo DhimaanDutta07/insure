@@ -67,7 +67,7 @@ class LRUCache {
 exports.LRUCache = LRUCache;
 // Singleton caches with different TTLs for different data types
 exports.apiCache = new LRUCache(1000, 60000); // 60s - general API responses
-exports.dashboardCache = new LRUCache(10, 30000); // 30s - dashboard data
-exports.policyListCache = new LRUCache(50, 15000); // 15s - policy lists
+exports.dashboardCache = new LRUCache(10, 300000); // 5min - dashboard data
+exports.policyListCache = new LRUCache(50, 60000); // 1min - policy lists
 exports.referenceCache = new LRUCache(200, 300000); // 5min - companies, policy names, types
 exports.commissionStatsCache = new LRUCache(10, 30000); // 30s - commission stats

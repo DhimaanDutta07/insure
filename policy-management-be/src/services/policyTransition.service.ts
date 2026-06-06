@@ -1,6 +1,7 @@
 import { PrismaClient, PolicyTransitionType, PolicyCreationStatus, UploadedDocument } from '@prisma/client';
 import { DocumentAccessService } from './documentAccess.service';
 import prisma from '../utils/prismaClient';
+import { dashboardCache, policyListCache } from '../utils/lruCache';
 
 export interface CreatePolicyTransitionInput {
   parentPolicyId: string;
@@ -50,53 +51,43 @@ export class PolicyTransitionService {
         throw new Error('Parent policy not found');
       }
 
-      // 2. For Portability and Internal Portability, update the same policy record
-      if (transitionType === 'PORTABILITY' || transitionType === 'MIGRATION') {
-        const updatedPolicy = await this.updatePolicyForPortability(parentPolicy, newPolicyData, transitionType);
-        result.newPolicy = updatedPolicy;
+      // 2. Create NEW policy for ALL transitions (Renewal, Portability, Migration)
+      // This ensures a proper parent-child chain and full history
+      const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
+      result.newPolicy = newPolicy;
 
-        // 3. Create document references (not copies)
-        const documentRefs = await this.createDocumentReferences(
-          parentPolicyId,
-          updatedPolicy.id,
-          transitionType
-        );
-        result.documentReferences = documentRefs;
+      // 3. Mark old policy as INACTIVE so it disappears from main list
+      await prisma.policy.update({
+        where: { id: parentPolicyId },
+        data: { status: 'INACTIVE' }
+      });
 
-        // 4. Clear cache for affected policies
-        DocumentAccessService.clearCache(parentPolicyId);
-        DocumentAccessService.clearCache(updatedPolicy.id);
+      // 4. Set transition relationship on new policy
+      await prisma.policy.update({
+        where: { id: newPolicy.id },
+        data: {
+          parent_policy_id: parentPolicyId,
+          transition_type: transitionType,
+          policy_creation_status: this.getPolicyCreationStatus(transitionType)
+        }
+      });
 
-        console.log(`Updated policy ${updatedPolicy.id} for ${transitionType}`);
-      } else {
-        // For Renewal, create new policy as before
-        const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
-        result.newPolicy = newPolicy;
+      // 5. Create document references (not copies)
+      const documentRefs = await this.createDocumentReferences(
+        parentPolicyId,
+        newPolicy.id,
+        transitionType
+      );
+      result.documentReferences = documentRefs;
 
-        // 3. Set transition relationship
-        await prisma.policy.update({
-          where: { id: newPolicy.id },
-          data: {
-            parent_policy_id: parentPolicyId,
-            transition_type: transitionType,
-            policy_creation_status: this.getPolicyCreationStatus(transitionType)
-          }
-        });
+      // 6. Clear all relevant caches for instant UI refresh
+      DocumentAccessService.clearCache(parentPolicyId);
+      DocumentAccessService.clearCache(newPolicy.id);
+      policyListCache.delete(`policy:${parentPolicyId}`);
+      policyListCache.deleteByPrefix('policies:');
+      dashboardCache.deleteByPrefix('dashboard:');
 
-        // 4. Create document references (not copies)
-        const documentRefs = await this.createDocumentReferences(
-          parentPolicyId,
-          newPolicy.id,
-          transitionType
-        );
-        result.documentReferences = documentRefs;
-
-        // 5. Clear cache for affected policies
-        DocumentAccessService.clearCache(parentPolicyId);
-        DocumentAccessService.clearCache(newPolicy.id);
-
-        console.log(`Created ${documentRefs.length} document references for policy ${newPolicy.id}`);
-      }
+      console.log(`Created ${documentRefs.length} document references for policy ${newPolicy.id}`);
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -445,13 +436,15 @@ export class PolicyTransitionService {
   }
   
   /**
-   * Recursively get all ancestor policies (parent, grandparent, etc.)
+   * Recursively get all ancestor policies with FULL document tree.
+   * Used by createDocumentReferences and getDocumentTransferStats.
    */
-  private static async getAllAncestorPolicies(policyId: string): Promise<any[]> {
+  private static async getAllAncestorPolicies(policyId: string, maxDepth = 5): Promise<any[]> {
     const ancestors: any[] = [];
     let currentPolicyId = policyId;
-    
-    while (currentPolicyId) {
+    let depth = 0;
+
+    while (currentPolicyId && depth < maxDepth) {
       const policy = await prisma.policy.findUnique({
         where: { id: currentPolicyId },
         include: {
@@ -470,20 +463,62 @@ export class PolicyTransitionService {
           }
         }
       });
-      
+
       if (!policy) {
         console.log(`❌ [DocumentTransfer] Policy ${currentPolicyId} not found`);
         break;
       }
-      
+
       ancestors.push(policy);
       console.log(`🔗 [DocumentTransfer] Added ancestor: ${policy.policy_number} (${policy.id})`);
-      
+
       // Move to parent policy
       currentPolicyId = policy.parent_policy_id || '';
+      depth++;
     }
-    
+
     console.log(`🔗 [DocumentTransfer] Total ancestors found: ${ancestors.length}`);
+    return ancestors;
+  }
+
+  /**
+   * Lightweight ancestor fetch for history display (no documents).
+   */
+  private static async getAllAncestorPoliciesLightweight(policyId: string, maxDepth = 5): Promise<any[]> {
+    const ancestors: any[] = [];
+    let currentPolicyId = policyId;
+    let depth = 0;
+
+    while (currentPolicyId && depth < maxDepth) {
+      const policy = await prisma.policy.findUnique({
+        where: { id: currentPolicyId },
+        select: {
+          id: true,
+          policy_number: true,
+          policy_creation_status: true,
+          transition_type: true,
+          created_at: true,
+          parent_policy_id: true,
+          start_date: true,
+          end_date: true,
+          company: { select: { id: true, name: true } },
+          policyName: { select: { id: true, name: true } },
+        }
+      });
+
+      if (!policy) {
+        console.log(`❌ [History] Policy ${currentPolicyId} not found`);
+        break;
+      }
+
+      ancestors.push(policy);
+      console.log(`🔗 [History] Added ancestor: ${policy.policy_number} (${policy.id})`);
+
+      currentPolicyId = policy.parent_policy_id || '';
+      depth++;
+    }
+
+    console.log(`🔗 [History] Total ancestors found: ${ancestors.length}`);
     return ancestors;
   }
   
@@ -541,27 +576,15 @@ export class PolicyTransitionService {
   
   /**
    * Build year-wise claim summary for a given policy between its start and end years.
+   * Uses pre-fetched claim data to avoid N+1 queries.
    */
-  private static async buildClaimsByYear(policy: any): Promise<Array<{ year: number; hasClaim: boolean; claimCount: number; totalPaid: number }>> {
+  private static buildClaimsByYearFromData(policy: any, claims: any[]): Array<{ year: number; hasClaim: boolean; claimCount: number; totalPaid: number }> {
     const start = policy.start_date ? new Date(policy.start_date) : null;
     const end = policy.end_date ? new Date(policy.end_date) : null;
     if (!start || !end) return [];
 
     const startYear = start.getFullYear();
     const endYear = end.getFullYear();
-
-    const claims = await prisma.claim.findMany({
-      where: {
-        policy_id: policy.id,
-        is_deleted: false,
-        claim_date: { not: null }
-      },
-      select: {
-        claim_date: true,
-        claim_status: true,
-        claim_amount: true
-      }
-    });
 
     const claimsByYearMap = new Map<number, { count: number; totalPaid: number }>();
     for (const c of claims) {
@@ -587,6 +610,26 @@ export class PolicyTransitionService {
     }
     return summary;
   }
+
+  /**
+   * Build year-wise claim summary for a given policy between its start and end years.
+   * Kept for backward compatibility; prefer buildClaimsByYearFromData for batch usage.
+   */
+  private static async buildClaimsByYear(policy: any): Promise<Array<{ year: number; hasClaim: boolean; claimCount: number; totalPaid: number }>> {
+    const claims = await prisma.claim.findMany({
+      where: {
+        policy_id: policy.id,
+        is_deleted: false,
+        claim_date: { not: null }
+      },
+      select: {
+        claim_date: true,
+        claim_status: true,
+        claim_amount: true
+      }
+    });
+    return this.buildClaimsByYearFromData(policy, claims);
+  }
   
   static async getPolicyTransitionHistory(policyId: string): Promise<{
     parentPolicy?: any;
@@ -594,9 +637,9 @@ export class PolicyTransitionService {
     transitionHistory: any[];
     completeHierarchy: any[]; // New field for complete hierarchy
   }> {
-    
-    // Get all ancestor policies recursively
-    const ancestorPolicies = await this.getAllAncestorPolicies(policyId);
+
+    // Get all ancestor policies recursively (lightweight - no documents)
+    const ancestorPolicies = await this.getAllAncestorPoliciesLightweight(policyId);
     
     const policy = await prisma.policy.findUnique({
       where: { id: policyId },
@@ -711,16 +754,39 @@ export class PolicyTransitionService {
       });
     });
     
-    // Enrich with claimsByYear per hierarchy item (parallelized for performance)
-    const claimsPromises = completeHierarchy.map(async (item: any) => {
+    // OPTIMIZED: Fetch all claims for all hierarchy policies in ONE query
+    const allPolicyIds = completeHierarchy.map((item: any) => item.policy.id);
+    const allClaims = await prisma.claim.findMany({
+      where: {
+        policy_id: { in: allPolicyIds },
+        is_deleted: false,
+        claim_date: { not: null },
+      },
+      select: {
+        policy_id: true,
+        claim_date: true,
+        claim_status: true,
+        claim_amount: true,
+      }
+    });
+
+    // Build claims map by policy_id
+    const claimsByPolicyId = new Map<string, any[]>();
+    for (const claim of allClaims) {
+      const list = claimsByPolicyId.get(claim.policy_id) || [];
+      list.push(claim);
+      claimsByPolicyId.set(claim.policy_id, list);
+    }
+
+    // Enrich hierarchy with claimsByYear using pre-fetched data
+    for (const item of completeHierarchy as any[]) {
       try {
-        item.claimsByYear = await this.buildClaimsByYear(item.policy);
+        item.claimsByYear = this.buildClaimsByYearFromData(item.policy, claimsByPolicyId.get(item.policy.id) || []);
       } catch (e) {
         console.warn('Failed to build claimsByYear for policy', item?.policy?.id, e);
         item.claimsByYear = null;
       }
-    });
-    await Promise.all(claimsPromises);
+    }
 
     return {
       parentPolicy: policy.parent_policy,

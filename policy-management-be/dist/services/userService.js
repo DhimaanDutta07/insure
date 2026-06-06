@@ -27,6 +27,7 @@ if (!JWT_SECRET) {
 }
 const roleRepository_1 = require("../repositories/roleRepository");
 const userRepository_1 = require("../repositories/userRepository");
+const lruCache_1 = require("../utils/lruCache");
 const userSchema_1 = require("../schemas/userSchema");
 const otpService_1 = require("./otpService");
 async function registerUser(userData) {
@@ -139,34 +140,18 @@ async function createUser(userData, roleName) {
         permissions: permissions || { app: [], web: [] }, // Set default permissions if not provided
         role_id: role ? role.id : null,
     });
-    // Create UserSite entries for each site
-    // if (site_ids && Array.isArray(site_ids)) {
-    //   await Promise.all(
-    //     site_ids.map(async (site_id: string) => {
-    //       await prisma.userSite.create({
-    //         data: {
-    //           user_id: user.id,
-    //           site_id: site_id,
-    //         },
-    //       });
-    //     })
-    //   );
-    // }
-    // Fetch the user with sites
-    // const userWithSites = await prisma.user.findUnique({
-    //   where: { id: user.id },
-    //   include: {
-    //     sites: {
-    //       include: {
-    //         site: true,
-    //       },
-    //     },
-    //   },
-    // });
+    lruCache_1.apiCache.deleteByPrefix('users');
     return user;
 }
 async function getUsers(limit, offset, withCount, orderBy) {
-    const users = await (0, userRepository_1.getUsersWithPagination)(limit, offset, orderBy);
+    const cacheKey = `users:${limit}:${offset}:${withCount}:${JSON.stringify(orderBy)}`;
+    const cached = lruCache_1.apiCache.get(cacheKey);
+    if (cached)
+        return cached;
+    const [users, totalCount] = await Promise.all([
+        (0, userRepository_1.getUsersWithPagination)(limit, offset, orderBy),
+        withCount ? (0, userRepository_1.countUsers)() : Promise.resolve(undefined),
+    ]);
     // Transform the response
     const formattedUsers = users.map((user) => ({
         id: user.id,
@@ -180,14 +165,13 @@ async function getUsers(limit, offset, withCount, orderBy) {
         web_access: user.web_access,
         permissions: user.permissions,
         role: user.role ? user.role.role_name : null,
-        // sites: user.sites.map((us) => us.site), // Transform sites array
     }));
-    // Get total count if requested
-    const totalCount = withCount ? await (0, userRepository_1.countUsers)() : undefined;
-    return {
+    const result = {
         data: formattedUsers,
         totalCount,
     };
+    lruCache_1.apiCache.set(cacheKey, result, 60000);
+    return result;
 }
 async function updateUserService(userId, updateData, roleName) {
     try {
@@ -268,6 +252,7 @@ function getUserDto(user) {
 }
 async function deleteUserById(userId) {
     await (0, userRepository_1.deleteUser)(userId);
+    lruCache_1.apiCache.deleteByPrefix('users');
 }
 async function updateUserStatusById(id, updateData) {
     // Changed return type to userDtoSchema
@@ -281,6 +266,7 @@ async function updateUserStatusById(id, updateData) {
     if (!updatedUser) {
         throw new AppError_1.AppError(404, "ClientError", "User not found");
     }
+    lruCache_1.apiCache.deleteByPrefix('users');
     return getUserDto(updatedUser);
 }
 async function sendOtpToUser(phone) {

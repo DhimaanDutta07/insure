@@ -24,7 +24,19 @@ type PaginatedResult = {
 };
 
 export const commissionRuleRepository = {
-  findAll: async () => prisma.commissionRule.findMany(),
+  findAll: async (limit = 100) => prisma.commissionRule.findMany({ take: limit, orderBy: { createdAt: 'desc' } }),
+  
+  // Fast duplicate check using composite fields
+  findByCompositeKey: async (params: { policy_name_id: string; policyStatus: any; deductibleType: any; ageCondition: any }) => {
+    return prisma.commissionRule.findFirst({
+      where: {
+        policy_name_id: params.policy_name_id,
+        policyStatus: params.policyStatus,
+        deductibleType: params.deductibleType,
+        ageCondition: params.ageCondition,
+      },
+    });
+  },
   
   findById: async (id: string) => prisma.commissionRule.findUnique({ where: { id } }),
   
@@ -49,83 +61,55 @@ export const commissionRuleRepository = {
     }
   },
     
-  // New search and pagination method
+  // New search and pagination method - OPTIMIZED with inline search
   searchAndPaginate: async (params: SearchParams): Promise<PaginatedResult> => {
     const { search, policyStatus, deductibleType, ageCondition, page = 1, limit = 10 } = params;
     
     try {
-      let whereConditions: Prisma.CommissionRuleWhereInput = {};
+      const whereClauses: Prisma.Sql[] = [];
       
-      // Handle search - primarily search by policy name
       if (search) {
-        // First, try to find policy names that match the search
-        const matchingPolicies = await prisma.policyName.findMany({
-          where: {
-            name: {
-              contains: search,
-            },
-          },
-          select: {
-            id: true,
-          },
-        });
-        
-        if (matchingPolicies.length > 0) {
-          // Use the found policy IDs
-          whereConditions.policy_name_id = {
-            in: matchingPolicies.map(p => p.id),
-          };
-        } else {
-          // If no policies found, return empty result
-          return {
-            data: [],
-            total: 0,
-            page,
-            limit,
-            totalPages: 0,
-          };
-        }
+        whereClauses.push(Prisma.sql`pn.name ILIKE ${'%' + search + '%'}`);
       }
       
-      // Handle specific filters
       if (policyStatus && policyStatus !== 'all') {
-        whereConditions.policyStatus = policyStatus as any;
+        whereClauses.push(Prisma.sql`cr."policyStatus" = ${policyStatus}`);
       }
       
       if (deductibleType && deductibleType !== 'all') {
-        whereConditions.deductibleType = deductibleType as any;
+        whereClauses.push(Prisma.sql`cr."deductibleType" = ${deductibleType}`);
       }
       
       if (ageCondition && ageCondition !== 'all') {
-        whereConditions.ageCondition = ageCondition as any;
+        whereClauses.push(Prisma.sql`cr."ageCondition" = ${ageCondition}`);
       }
       
-      // Calculate pagination
+      const whereSql = whereClauses.length > 0 ? Prisma.sql`WHERE ${Prisma.join(whereClauses, ' AND ')}` : Prisma.sql``;
       const skip = (page - 1) * limit;
       
-      // Get total count
-      const total = await prisma.commissionRule.count({
-        where: whereConditions,
-      });
+      const [dataRows, countRows] = await Promise.all([
+        prisma.$queryRaw`
+          SELECT cr.*, pn.id as "policyName.id", pn.name as "policyName.name"
+          FROM "commission_rule" cr
+          LEFT JOIN "policy_names" pn ON cr."policy_name_id" = pn.id
+          ${whereSql}
+          ORDER BY cr."createdAt" DESC
+          LIMIT ${limit} OFFSET ${skip}
+        `,
+        prisma.$queryRaw`
+          SELECT COUNT(*)::int as total
+          FROM "commission_rule" cr
+          LEFT JOIN "policy_names" pn ON cr."policy_name_id" = pn.id
+          ${whereSql}
+        `,
+      ]) as [any[], any[]];
       
-      // Get paginated data with policy name
-      const data = await prisma.commissionRule.findMany({
-        where: whereConditions,
-        include: {
-          policyName: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-        skip,
-        take: limit,
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
+      const data = dataRows.map((row: any) => ({
+        ...row,
+        policyName: row['policyName.name'] ? { id: row['policyName.id'], name: row['policyName.name'] } : null,
+      }));
       
+      const total = Number(countRows[0]?.total) || 0;
       const totalPages = Math.ceil(total / limit);
       
       return {

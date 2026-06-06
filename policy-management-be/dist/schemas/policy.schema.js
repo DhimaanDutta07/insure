@@ -40,8 +40,21 @@ const dateOrDateTime = zod_1.z.string().refine((val) => {
 }, {
     message: 'Invalid date or datetime format. Use YYYY-MM-DD or ISO 8601.'
 });
-// Helper for mobile validation (E.164 or 10-digit Indian)
-const mobileNumber = zod_1.z.string().refine((val) => {
+// Helper for mobile validation (E.164 or 10-digit Indian) - REQUIRED
+const mobileNumberRequired = zod_1.z.string().refine((val) => {
+    return (/^\+?[1-9]\d{1,14}$/.test(val) || // E.164
+        /^\d{10}$/.test(val) // 10-digit
+    );
+}, {
+    message: 'Invalid mobile number format.'
+});
+// Helper for mobile validation (E.164 or 10-digit Indian) - OPTIONAL
+const mobileNumberOptional = zod_1.z.string()
+    .transform((val) => val === '' ? undefined : val) // Convert empty string to undefined
+    .optional()
+    .refine((val) => {
+    if (val === undefined || val === null)
+        return true;
     return (/^\+?[1-9]\d{1,14}$/.test(val) || // E.164
         /^\d{10}$/.test(val) // 10-digit
     );
@@ -52,12 +65,12 @@ const mobileNumber = zod_1.z.string().refine((val) => {
 exports.proposerSchema = zod_1.z.object({
     id: zod_1.z.string().uuid().optional(),
     proposer_salutation: zod_1.z.string().max(50).optional(),
-    full_name: zod_1.z.string().min(1).max(255).optional(),
-    date_of_birth: dateOrDateTime.optional(),
+    full_name: zod_1.z.string().min(1).max(255),
+    date_of_birth: dateOrDateTime,
     gender: exports.GenderEnum.optional(),
     marital_status: exports.MaritalStatusEnum.optional(),
-    mobile: mobileNumber.optional(),
-    alternate_mobile: mobileNumber.optional(),
+    mobile: mobileNumberRequired,
+    alternate_mobile: mobileNumberOptional,
     email: zod_1.z.string().email().optional(),
     address: zod_1.z.string().max(500).optional(),
     kyc_id: zod_1.z.string().max(50).optional(),
@@ -71,10 +84,10 @@ exports.proposerSchema = zod_1.z.object({
 exports.insuredMemberSchema = zod_1.z.object({
     id: zod_1.z.string().uuid().optional(),
     insured_member_salutation: zod_1.z.string().max(50).optional(),
-    name: zod_1.z.string().min(1).max(255).optional(),
-    relation_to_proposer: zod_1.z.string().max(50).optional(),
-    date_of_birth: dateOrDateTime.optional(),
-    gender: exports.GenderEnum.optional(),
+    name: zod_1.z.string().min(1).max(255),
+    relation_to_proposer: zod_1.z.string().min(1).max(50),
+    date_of_birth: dateOrDateTime,
+    gender: exports.GenderEnum,
     pre_existing: zod_1.z.boolean().optional(),
     insured_member_medical_condition: zod_1.z.boolean().optional(),
     insured_member_medical_remarks: zod_1.z.string().max(1000).optional(),
@@ -132,7 +145,7 @@ exports.policyNameSchema = zod_1.z.object({
 // Main Schema for Policy Creation with two-phase support
 exports.insurancePolicySchema = zod_1.z.object({
     policy_salutation: zod_1.z.string().max(50).optional(),
-    policy_number: zod_1.z.string().max(100).optional(),
+    policy_number: zod_1.z.string().min(1).max(100),
     customer_name: zod_1.z.string().min(1).max(255).optional(),
     // type: PolicyTypeEnum.optional(),
     company_id: zod_1.z.string().uuid().optional().nullable(),

@@ -3,21 +3,29 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.commissionRuleService = void 0;
 const commissionRuleRepository_1 = require("../repositories/commissionRuleRepository");
 const AppError_1 = require("../utils/AppError");
+const lruCache_1 = require("../utils/lruCache");
 exports.commissionRuleService = {
     async createCommissionRule(data) {
-        // Check for duplicate rule (unique constraint)
-        const existing = await commissionRuleRepository_1.commissionRuleRepository.findAll();
-        const isDuplicate = existing.some(rule => rule.policy_name_id === data.policy_name_id &&
-            rule.policyStatus === data.policyStatus &&
-            rule.deductibleType === data.deductibleType &&
-            rule.ageCondition === data.ageCondition);
-        if (isDuplicate) {
+        // Check for duplicate rule with targeted DB query instead of loading all rules
+        const existing = await commissionRuleRepository_1.commissionRuleRepository.findByCompositeKey({
+            policy_name_id: data.policy_name_id,
+            policyStatus: data.policyStatus,
+            deductibleType: data.deductibleType,
+            ageCondition: data.ageCondition,
+        });
+        if (existing) {
             throw new Error('A commission rule with the same conditions already exists.');
         }
+        lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
         return commissionRuleRepository_1.commissionRuleRepository.create(data);
     },
     async getAllCommissionRules() {
-        return commissionRuleRepository_1.commissionRuleRepository.findAll();
+        const cached = lruCache_1.commissionStatsCache.get('commissionRules:all');
+        if (cached)
+            return cached;
+        const rules = await commissionRuleRepository_1.commissionRuleRepository.findAll(500);
+        lruCache_1.commissionStatsCache.set('commissionRules:all', rules, 300000);
+        return rules;
     },
     async getCommissionRuleById(id) {
         return commissionRuleRepository_1.commissionRuleRepository.findById(id);

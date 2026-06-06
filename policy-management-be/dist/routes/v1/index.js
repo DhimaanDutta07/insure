@@ -210,7 +210,7 @@ router.get('/uploads/policy-documents/*', async (req, res) => {
             res.setHeader('Content-Disposition', `inline; filename="${doc.original_name || fileName}"`);
             res.setHeader('Cache-Control', 'public, max-age=3600');
             const buffer = Buffer.from(doc.file_data);
-      res.send(buffer);
+            res.send(buffer);
             return;
         }
         // 2. Fallback to disk for legacy files

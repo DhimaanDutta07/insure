@@ -1,6 +1,7 @@
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 
-import { dashboardCache } from '../utils/lruCache';
+import { dashboardCache, policyListCache } from '../utils/lruCache';
 import {
   Policy,
   PolicyFormValue,
@@ -160,15 +161,15 @@ function mapMimeTypeToFileType(mimeType: string): "PDF" | "JPG" | "PNG" | "XLSX"
   }
 }
 
-// Helper function to process uploaded files
-function processUploadedFiles(
+// Helper function to process uploaded files - NON-BLOCKING async version
+async function processUploadedFiles(
   files: { [key: string]: Express.Multer.File[] } | undefined,
   uploadedBy?: string
-): {
+): Promise<{
   policyDocs: ProcessedDocument[];
   proposerDocs: ProcessedDocument[];
   memberDocs: ProcessedDocument[];
-} {
+}> {
   const policyDocs: ProcessedDocument[] = [];
   const proposerDocs: ProcessedDocument[] = [];
   const memberDocs: ProcessedDocument[] = [];
@@ -178,49 +179,64 @@ function processUploadedFiles(
     return { policyDocs, proposerDocs, memberDocs };
   }
 
+  // Collect all file read promises for parallel execution
+  const fileReadPromises: Promise<void>[] = [];
+
   // Process policy documents
   if (files.policyDocs && Array.isArray(files.policyDocs)) {
-    files.policyDocs.forEach((file) => {
-      policyDocs.push({
-        file_name: file.filename,
-        original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${file.filename}`,
-        file_data: fs.readFileSync(file.path),
-        file_type: mapMimeTypeToFileType(file.mimetype),
-        category: DocumentCategory.POLICY_DOCUMENT,
-        uploaded_by: uploadedBy,
-      });
-    });
+    for (const file of files.policyDocs) {
+      fileReadPromises.push(
+        fsPromises.readFile(file.path).then((data) => {
+          policyDocs.push({
+            file_name: file.filename,
+            original_name: file.originalname,
+            relative_path: `/api/uploads/policy-documents/${file.filename}`,
+            file_data: data,
+            file_type: mapMimeTypeToFileType(file.mimetype),
+            category: DocumentCategory.POLICY_DOCUMENT,
+            uploaded_by: uploadedBy,
+          });
+        })
+      );
+    }
   }
 
   // Process proposer documents
   if (files.proposerDocs && Array.isArray(files.proposerDocs)) {
-    files.proposerDocs.forEach((file) => {
-      proposerDocs.push({
-        file_name: file.filename,
-        original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${file.filename}`,
-        file_data: fs.readFileSync(file.path),
-        file_type: mapMimeTypeToFileType(file.mimetype),
-        category: DocumentCategory.PROPOSER_DOCUMENT,
-        uploaded_by: uploadedBy,
-      });
-    });
+    for (const file of files.proposerDocs) {
+      fileReadPromises.push(
+        fsPromises.readFile(file.path).then((data) => {
+          proposerDocs.push({
+            file_name: file.filename,
+            original_name: file.originalname,
+            relative_path: `/api/uploads/policy-documents/${file.filename}`,
+            file_data: data,
+            file_type: mapMimeTypeToFileType(file.mimetype),
+            category: DocumentCategory.PROPOSER_DOCUMENT,
+            uploaded_by: uploadedBy,
+          });
+        })
+      );
+    }
   }
 
   // Process member documents with index-based linking (legacy)
   if (files.memberDocs && Array.isArray(files.memberDocs)) {
     files.memberDocs.forEach((file, index) => {
-      memberDocs.push({
-        file_name: file.filename,
-        original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${file.filename}`,
-        file_data: fs.readFileSync(file.path),
-        file_type: mapMimeTypeToFileType(file.mimetype),
-        category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
-        uploaded_by: uploadedBy,
-        member_index: index,
-      });
+      fileReadPromises.push(
+        fsPromises.readFile(file.path).then((data) => {
+          memberDocs.push({
+            file_name: file.filename,
+            original_name: file.originalname,
+            relative_path: `/api/uploads/policy-documents/${file.filename}`,
+            file_data: data,
+            file_type: mapMimeTypeToFileType(file.mimetype),
+            category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
+            uploaded_by: uploadedBy,
+            member_index: index,
+          });
+        })
+      );
     });
   }
 
@@ -231,21 +247,28 @@ function processUploadedFiles(
       const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(memberIdOrIndex);
       const memberIndex = parseInt(memberIdOrIndex);
       
-      fileList.forEach((file) => {
-        memberDocs.push({
-          file_name: file.filename,
-          original_name: file.originalname,
-          relative_path: `/api/uploads/policy-documents/${file.filename}`,
-          file_data: fs.readFileSync(file.path),
-          file_type: mapMimeTypeToFileType(file.mimetype),
-          category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
-          uploaded_by: uploadedBy,
-          member_index: isUUID ? undefined : memberIndex,
-          insured_member_id: isUUID ? memberIdOrIndex : undefined,
-        });
-      });
+      for (const file of fileList) {
+        fileReadPromises.push(
+          fsPromises.readFile(file.path).then((data) => {
+            memberDocs.push({
+              file_name: file.filename,
+              original_name: file.originalname,
+              relative_path: `/api/uploads/policy-documents/${file.filename}`,
+              file_data: data,
+              file_type: mapMimeTypeToFileType(file.mimetype),
+              category: DocumentCategory.INSURED_MEMBER_DOCUMENT,
+              uploaded_by: uploadedBy,
+              member_index: isUUID ? undefined : memberIndex,
+              insured_member_id: isUUID ? memberIdOrIndex : undefined,
+            });
+          })
+        );
+      }
     }
   });
+
+  // Execute all file reads in parallel for maximum throughput
+  await Promise.all(fileReadPromises);
 
   return { policyDocs, proposerDocs, memberDocs };
 }
@@ -580,8 +603,8 @@ export const policyService = {
     console.log("🧾 [Service] Members Input:", JSON.stringify(data.insured_members || data.members, null, 2));
     console.log("📄 [Service] Files Received:", files ? Object.keys(files) : 'No files');
 
-    // Process uploaded files (stored flat in policy-documents)
-    const processedDocs = processUploadedFiles(files, userId);
+    // Process uploaded files (stored flat in policy-documents) - NON-BLOCKING
+    const processedDocs = await processUploadedFiles(files, userId);
     
     console.log("📄 [Service] Processed Documents:", {
       policyDocs: processedDocs.policyDocs.length,
@@ -590,55 +613,46 @@ export const policyService = {
     });
 
     try {
-      // Phase 1: Create core entities
+      // Pre-calculate commission before transaction to save DB round-trips
+      await calculateAndSetCommission(data);
+
+      // Phase 1: Create core entities (commission already baked into data)
       const coreEntities = await this.createCoreEntities(data);
       console.log("✅ [Service] Phase 1 Complete - Core Entities:", {
         policyId: coreEntities.policyId,
         proposerId: coreEntities.proposerId,
         insuredMemberIds: coreEntities.insuredMemberIds,
-        nomineePaymentId: coreEntities.nomineePaymentId
+        nomineePaymentId: coreEntities.nomineePaymentId,
+        commission: data.calculated_commission_amount,
       });
-
-      // Calculate commission with GST logic
-      const commissionData: any = {
-        policy_name_id: data.policy_name_id,
-        premium_amount: data.premium_amount,
-        gst_status: data.gst_status,
-      };
-      await calculateAndSetCommission(commissionData);
-      
-      // Update policy with calculated commission
-      if (commissionData.calculated_commission_amount !== undefined) {
-        await prisma.policy.update({
-          where: { id: coreEntities.policyId },
-          data: {
-            calculated_commission_amount: commissionData.calculated_commission_amount,
-            commission_add_on_percentage: commissionData.commission_add_on_percentage,
-          },
-        });
-        console.log('[Service] Commission calculated and updated for new policy:', {
-          policyId: coreEntities.policyId,
-          calculated_commission_amount: commissionData.calculated_commission_amount,
-          gst_status: data.gst_status,
-        });
-      }
 
       // Phase 2: Link documents
       await this.linkDocuments(coreEntities, processedDocs);
 
-      // Fetch the complete policy with all relations
-      const result = await policyRepository.getPolicyById(coreEntities.policyId);
-      
-      console.log("✅ [Service] Final Policy Result:", {
-        policyId: result?.id,
-        proposerId: result?.proposer?.id,
-        memberCount: result?.proposer?.insured_members?.length || 0,
-        documentCount: result?.documents?.length || 0,
-        proposerDocCount: result?.proposer?.documents?.length || 0,
-        memberDocCount: result?.proposer?.insured_members?.reduce((total: number, member: any) => total + (member.documents?.length || 0), 0) || 0
-      });
+      // Return lightweight result instead of heavy full-fetch
+      const result = {
+        id: coreEntities.policyId,
+        policy_number: data.policy_number,
+        customer_name: data.customer_name,
+        premium_amount: data.premium_amount,
+        sum_insured: data.sum_insured,
+        plan_type: data.plan_type,
+        policy_creation_status: data.policy_creation_status,
+        calculated_commission_amount: data.calculated_commission_amount,
+        commission_add_on_percentage: data.commission_add_on_percentage,
+        created_at: new Date(),
+        proposer: {
+          id: coreEntities.proposerId,
+          full_name: data.proposer?.full_name,
+          mobile: data.proposer?.mobile,
+        },
+      };
 
-      console.log('✅ Policy created successfully with two-phase approach');
+      // Invalidate caches
+      policyListCache.deleteByPrefix('policies:');
+      dashboardCache.deleteByPrefix('dashboard:');
+
+      console.log('✅ Policy created successfully with optimized approach');
       return result;
 
     } catch (error) {
@@ -1274,69 +1288,42 @@ export const policyService = {
 
   // Get all policies with search/filter support and pagination
   async getAllPolicies(query: any = {}): Promise<any> {
-    const { search, type, policy_creation_status, page = 1, limit = 25, from, to } = query;
-    const where: any = {};
-
-    // Only show leaf policies (policies that have not been transitioned/renewed/porteded)
-    // History of transitioned policies is shown in the policy history view
-    where.children_policies = { none: {} };
-    
-    if (search) {
-      const validTypes = ["HEALTH INSURANCE", "MOTOR INSURANCE", "LIFE INSURANCE"];
-      const typeValue = search.toUpperCase().replace(/ /g, '_');
-      const orFilters: any[] = [
-        { policy_number: { contains: search } },
-        { customer_name: { contains: search } },
-        { company: { name: { contains: search } } },
-        { proposer: { mobile: { contains: search } } }, // <-- Added mobile search
-        { proposer: { email: { contains: search } } },
-      ];
-      if (validTypes.includes(typeValue)) {
-        orFilters.push({ type: { equals: typeValue } });
-      }
-      where.OR = orFilters as any;
-    }
-    
-    if (type && type !== "all") {
-      where.type = type.toUpperCase().replace(/ /g, '_');
-    }
-
-    if (policy_creation_status && policy_creation_status !== "all") {
-      where.policy_creation_status = policy_creation_status;
-    }
-
-    if (query.policy_group_id && query.policy_group_id !== "all") {
-      where.policy_group_id = query.policy_group_id;
-    }
-
-    // --- Date range filter for start_date ---
-    if (from || to) {
-      where.start_date = {};
-      if (from && !isNaN(Date.parse(from))) {
-        where.start_date.gte = new Date(from);
-      }
-      if (to && !isNaN(Date.parse(to))) {
-        where.start_date.lte = new Date(to);
-      }
-    }
-    // --- End date range filter ---
-
+    const { search, type, policy_creation_status, page = 1, limit = 25, from, to, policy_group_id } = query;
     const skip = (Number(page) - 1) * Number(limit);
     const take = Number(limit);
-    
-    const result = await policyRepository.getAllPolicies(where, skip, take);
-    
-    return {
-      data: result.data,
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
-      pages: result.pages,
-    };
+
+    // Cache key for unfiltered policy lists (most common case)
+    const cacheKey = `policies:${search || 'all'}:${type || 'all'}:${policy_creation_status || 'all'}:${policy_group_id || 'all'}:${from || 'all'}:${to || 'all'}:${page}:${limit}`;
+    const cached = policyListCache.get(cacheKey);
+    if (cached) return cached;
+
+    // Use ultra-optimized raw SQL for sub-second list loading
+    const result = await policyRepository.getAllPoliciesRaw(
+      search,
+      type ? type.toUpperCase().replace(/ /g, '_') : undefined,
+      policy_creation_status,
+      policy_group_id,
+      from,
+      to,
+      skip,
+      take
+    );
+
+    // Cache unfiltered/small searches for 1 minute
+    if (!search || search.length < 3) {
+      policyListCache.set(cacheKey, result);
+    }
+
+    return result;
   },
 
   async getPolicyById(id: string): Promise<any> {
-    return policyRepository.getPolicyById(id);
+    const cacheKey = `policy:${id}`;
+    const cached = policyListCache.get(cacheKey);
+    if (cached) return cached;
+    const result = await policyRepository.getPolicyById(id);
+    policyListCache.set(cacheKey, result, 60_000);
+    return result;
   },
 
   /**
@@ -1372,8 +1359,8 @@ export const policyService = {
       memberDocCount: existingPolicy.proposer?.insured_members?.reduce((total: number, member: any) => total + (member.documents?.length || 0), 0) || 0
     });
 
-    // Process uploaded files (stored flat in policy-documents)
-    const processedDocs = processUploadedFiles(files, userId);
+    // Process uploaded files (stored flat in policy-documents) - NON-BLOCKING
+    const processedDocs = await processUploadedFiles(files, userId);
     
     console.log("📄 [Service] Processed Update Documents:", {
       policyDocs: processedDocs.policyDocs.length,
@@ -1468,266 +1455,207 @@ export const policyService = {
 
     // Fetch updated policy
     const updatedPolicy = await policyRepository.getPolicyById(id);
-    
-    console.log("✅ [Service] Final Updated Policy Result:", {
-      policyId: updatedPolicy?.id,
-      proposerId: updatedPolicy?.proposer?.id,
-      memberCount: updatedPolicy?.proposer?.insured_members?.length || 0,
-      documentCount: updatedPolicy?.documents?.length || 0,
-      proposerDocCount: updatedPolicy?.proposer?.documents?.length || 0,
-      memberDocCount: updatedPolicy?.proposer?.insured_members?.reduce((total: number, member: any) => total + (member.documents?.length || 0), 0) || 0
-    });
-    
+
+    // Invalidate caches
+    policyListCache.delete(`policy:${id}`);
+    policyListCache.deleteByPrefix('policies:');
+    dashboardCache.deleteByPrefix('dashboard:');
+
     console.log('✅ Policy updated successfully with robust approach');
     return updatedPolicy;
   },
 
   async deletePolicy(id: string): Promise<any> {
-    return policyRepository.deletePolicy(id);
+    const result = await policyRepository.deletePolicy(id);
+    policyListCache.delete(`policy:${id}`);
+    policyListCache.deleteByPrefix('policies:');
+    dashboardCache.deleteByPrefix('dashboard:');
+    return result;
   },
 
   async getPoliciesByUserId(userId: string): Promise<any[]> {
     return policyRepository.getPoliciesByUserId(userId);
   },
 
-  // Dashboard stats can remain as is or be moved to the repository
+  // ULTRA-OPTIMIZED dashboard stats using single raw SQL query
   async getDashboardStats(timeRange: string) {
     // Check cache first
     const cacheKey = `dashboard:${timeRange}`;
     const cached = dashboardCache.get(cacheKey);
     if (cached) return cached;
 
-    // Calculate date filter based on timeRange (for trend charts only)
-    let fromDate: Date | undefined = undefined;
     const now = new Date();
+    let fromDate: Date = new Date(0);
     switch (timeRange) {
       case "1d": fromDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000); break;
       case "7d": fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
       case "24d": fromDate = new Date(now.getTime() - 24 * 24 * 60 * 60 * 1000); break;
       case "30d": fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); break;
       case "1y": fromDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000); break;
-      default: fromDate = undefined;
+      default: fromDate = new Date(0);
     }
-    
-    // No time filter for main summary stats - show actual totals
-    // Only show leaf policies (policies that have not been transitioned/renewed/porteded)
-    // This matches the logic used in the policy page
-    const summaryWhere: any = { children_policies: { none: {} } };
-    const renewalSummaryWhere = { ...summaryWhere, policy_creation_status: 'Renewal' };
-    
-    // Time filter only for distribution/charts
-    // Also only show leaf policies for consistency with policy page
-    const chartWhere: any = { children_policies: { none: {} } };
-    if (fromDate) {
-      chartWhere.created_at = { gte: fromDate };
-    }
-    const renewalChartWhere = { ...chartWhere, policy_creation_status: 'Renewal' };
     const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
 
-    // Run all independent queries in parallel for better performance
-    const [
-      totalActive,
-      totalRenewal,
-      companyDistributionRaw,
-      policyTypeDistributionRaw,
-      premiumStats,
-      sumInsuredStats,
-      planTypeDistribution,
-      genderDistribution,
-      proposers,
-      allPoliciesWithDates
-    ] = await Promise.all([
-      // Main summary stats - no time filter
-      prisma.policy.count({ where: summaryWhere }),
-      prisma.policy.count({ where: renewalSummaryWhere }),
-      // Distribution/charts - with time filter
-      prisma.policy.groupBy({
-        by: ["company_id"],
-        where: chartWhere,
-        _count: { _all: true },
-      }),
-      prisma.policy.groupBy({
-        by: ["policy_type_id"],
-        where: chartWhere,
-        _count: { _all: true }
-      }),
-      // Main summary stats - no time filter
-      prisma.policy.aggregate({
-        where: summaryWhere,
-        _sum: { premium_amount: true },
-        _avg: { premium_amount: true },
-        _min: { premium_amount: true },
-        _max: { premium_amount: true },
-      }),
-      prisma.policy.aggregate({
-        where: summaryWhere,
-        _sum: { sum_insured: true },
-        _avg: { sum_insured: true },
-        _min: { sum_insured: true },
-        _max: { sum_insured: true },
-      }),
-      // Distribution/charts - with time filter
-      prisma.policy.groupBy({
-        by: ["plan_type"],
-        where: chartWhere,
-        _count: { _all: true },
-      }),
-      prisma.proposer.groupBy({
-        by: ["gender"],
-        where: {
-          policy: {
-            created_at: fromDate ? { gte: fromDate } : undefined,
-          },
-        },
-        _count: { _all: true },
-      }),
-      prisma.proposer.findMany({
-        where: {
-          policy: {
-            created_at: fromDate ? { gte: fromDate } : undefined,
-          },
-        },
-        select: { date_of_birth: true },
-      }),
-      prisma.policy.findMany({
-        where: {
-          created_at: {
-            gte: twelveMonthsAgo,
-            not: null,
-          },
-        },
-        select: { created_at: true },
-      })
-    ]);
+    // Single raw SQL query that aggregates everything in the database
+    const rawResult = await prisma.$queryRaw`
+      WITH 
+      leaf_policies AS (
+        SELECT * FROM "policy" p
+        WHERE NOT EXISTS (SELECT 1 FROM "policy" child WHERE child."parent_policy_id" = p.id)
+      ),
+      chart_policies AS (
+        SELECT * FROM leaf_policies
+        WHERE "created_at" >= ${fromDate}
+      ),
+      summary_stats AS (
+        SELECT 
+          COUNT(*)::int as total_active,
+          COUNT(*) FILTER (WHERE "policy_creation_status" = 'Renewal')::int as total_renewal,
+          COALESCE(SUM("premium_amount"), 0)::float as premium_total,
+          COALESCE(AVG("premium_amount"), 0)::float as premium_avg,
+          COALESCE(MIN("premium_amount"), 0)::float as premium_min,
+          COALESCE(MAX("premium_amount"), 0)::float as premium_max,
+          COALESCE(SUM("sum_insured"), 0)::float as si_total,
+          COALESCE(AVG("sum_insured"), 0)::float as si_avg,
+          COALESCE(MIN("sum_insured"), 0)::float as si_min,
+          COALESCE(MAX("sum_insured"), 0)::float as si_max
+        FROM leaf_policies
+      ),
+      company_dist AS (
+        SELECT c.name as company, COUNT(*)::int as count
+        FROM chart_policies cp
+        LEFT JOIN "company" c ON cp."company_id" = c.id
+        WHERE cp."company_id" IS NOT NULL
+        GROUP BY c.name
+      ),
+      policy_type_dist AS (
+        SELECT pt.name as type, COUNT(*)::int as count
+        FROM chart_policies cp
+        LEFT JOIN "policy_types" pt ON cp."policy_type_id" = pt.id
+        WHERE cp."policy_type_id" IS NOT NULL
+        GROUP BY pt.name
+      ),
+      plan_type_dist AS (
+        SELECT "plan_type" as plan, COUNT(*)::int as count
+        FROM chart_policies
+        WHERE "plan_type" IS NOT NULL
+        GROUP BY "plan_type"
+      ),
+      gender_dist AS (
+        SELECT pr.gender, COUNT(*)::int as count
+        FROM chart_policies cp
+        JOIN "proposers" pr ON cp.id = pr."policy_id"
+        WHERE pr.gender IS NOT NULL
+        GROUP BY pr.gender
+      ),
+      age_groups AS (
+        SELECT 
+          CASE
+            WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pr."date_of_birth")) BETWEEN 18 AND 25 THEN '18-25'
+            WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pr."date_of_birth")) BETWEEN 26 AND 35 THEN '26-35'
+            WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pr."date_of_birth")) BETWEEN 36 AND 45 THEN '36-45'
+            WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pr."date_of_birth")) BETWEEN 46 AND 55 THEN '46-55'
+            WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, pr."date_of_birth")) BETWEEN 56 AND 65 THEN '56-65'
+            ELSE '65+'
+          END as age_group,
+          COUNT(*)::int as count
+        FROM chart_policies cp
+        JOIN "proposers" pr ON cp.id = pr."policy_id"
+        WHERE pr."date_of_birth" IS NOT NULL
+        GROUP BY 1
+      ),
+      top_companies AS (
+        SELECT c.name as company, COALESCE(SUM(cp."premium_amount"), 0)::float as total_premium
+        FROM leaf_policies cp
+        LEFT JOIN "company" c ON cp."company_id" = c.id
+        WHERE cp."company_id" IS NOT NULL
+        GROUP BY c.name
+        ORDER BY total_premium DESC
+        LIMIT 10
+      ),
+      monthly_trend AS (
+        SELECT TO_CHAR("created_at", 'YYYY-MM') as month, COUNT(*)::int as count
+        FROM leaf_policies
+        WHERE "created_at" >= ${twelveMonthsAgo}
+        GROUP BY 1
+        ORDER BY 1
+      )
+      SELECT 
+        (SELECT total_active FROM summary_stats) as total_active,
+        (SELECT total_renewal FROM summary_stats) as total_renewal,
+        (SELECT premium_total FROM summary_stats) as premium_total,
+        (SELECT premium_avg FROM summary_stats) as premium_avg,
+        (SELECT premium_min FROM summary_stats) as premium_min,
+        (SELECT premium_max FROM summary_stats) as premium_max,
+        (SELECT si_total FROM summary_stats) as si_total,
+        (SELECT si_avg FROM summary_stats) as si_avg,
+        (SELECT si_min FROM summary_stats) as si_min,
+        (SELECT si_max FROM summary_stats) as si_max,
+        COALESCE((SELECT json_agg(json_build_object('company', company, 'count', count)) FROM company_dist), '[]') as company_distribution,
+        COALESCE((SELECT json_agg(json_build_object('type', type, 'count', count)) FROM policy_type_dist), '[]') as policy_type_distribution,
+        COALESCE((SELECT json_agg(json_build_object('planType', plan, 'count', count)) FROM plan_type_dist), '[]') as plan_type_distribution,
+        COALESCE((SELECT json_agg(json_build_object('gender', gender, 'count', count)) FROM gender_dist), '[]') as gender_distribution,
+        COALESCE((SELECT json_agg(json_build_object('ageGroup', age_group, 'count', count)) FROM age_groups), '[]') as age_group_distribution,
+        COALESCE((SELECT json_agg(json_build_object('company', company, 'totalPremium', total_premium)) FROM top_companies), '[]') as top_companies,
+        COALESCE((SELECT json_agg(json_build_object('month', month, 'count', count)) FROM monthly_trend), '[]') as monthly_trend
+    ` as any;
 
-    // Process company distribution
-    const companyIds = companyDistributionRaw.map((c) => c.company_id).filter((id): id is string => id !== null);
-    const companies = await prisma.company.findMany({
-      where: { id: { in: companyIds } },
-      select: { id: true, name: true },
-    });
-    const companyDistribution = companyDistributionRaw.map((c) => ({
-      company: companies.find((co) => co.id === c.company_id)?.name || "Unknown",
-      count: c._count._all,
-    }));
+    const row = rawResult[0];
 
-    // Process policy type distribution
-    const policyTypeIds = policyTypeDistributionRaw.map(pt => pt.policy_type_id).filter((id): id is string => id !== null);
-    const policyTypes = await prisma.policyType.findMany({
-      where: { id: { in: policyTypeIds } },
-      select: { id: true, name: true }
-    });
-    const policyTypeDistribution = policyTypeDistributionRaw.map(pt => ({
-      type: policyTypes.find(t => t.id === pt.policy_type_id)?.name || 'Unknown',
-      count: pt._count._all
-    }));
-
-    // Process monthly trend
+    // Build full 12-month trend with zero-filled months
     const monthlyData: { [key: string]: number } = {};
     for (let i = 11; i >= 0; i--) {
       const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const monthKey = monthDate.toISOString().slice(0, 7);
-      monthlyData[monthKey] = 0;
+      monthlyData[monthDate.toISOString().slice(0, 7)] = 0;
     }
-
     const currentMonthKey = now.toISOString().slice(0, 7);
-    if (!monthlyData.hasOwnProperty(currentMonthKey)) {
-      monthlyData[currentMonthKey] = 0;
-    }
+    if (!monthlyData.hasOwnProperty(currentMonthKey)) monthlyData[currentMonthKey] = 0;
 
-    allPoliciesWithDates.forEach(policy => {
-      if (policy.created_at) {
-        const monthKey = policy.created_at.toISOString().slice(0, 7);
-        if (monthlyData.hasOwnProperty(monthKey)) {
-          monthlyData[monthKey]++;
+    if (row.monthly_trend && Array.isArray(row.monthly_trend)) {
+      row.monthly_trend.forEach((item: any) => {
+        if (monthlyData.hasOwnProperty(item.month)) {
+          monthlyData[item.month] = item.count;
         }
-      }
-    });
-
-    const monthlyTrendArray = Object.entries(monthlyData).map(([month, count]) => ({
-      month,
-      count
-    }));
-
-    // Process age groups
-    const ageGroups = {
-      "18-25": 0,
-      "26-35": 0,
-      "36-45": 0,
-      "46-55": 0,
-      "56-65": 0,
-      "65+": 0,
-    };
-
-    proposers.forEach((proposer) => {
-      if (proposer.date_of_birth) {
-        const age = now.getFullYear() - proposer.date_of_birth.getFullYear();
-        if (age >= 18 && age <= 25) ageGroups["18-25"]++;
-        else if (age >= 26 && age <= 35) ageGroups["26-35"]++;
-        else if (age >= 36 && age <= 45) ageGroups["36-45"]++;
-        else if (age >= 46 && age <= 55) ageGroups["46-55"]++;
-        else if (age >= 56 && age <= 65) ageGroups["56-65"]++;
-        else if (age > 65) ageGroups["65+"]++;
-      }
-    });
-
-    // Top performing companies by premium
-    const topCompaniesByPremium = await prisma.policy.groupBy({
-      by: ["company_id"],
-      where: summaryWhere,
-      _sum: { premium_amount: true },
-    });
-
-    const topCompanyIds = topCompaniesByPremium.map(c => c.company_id).filter((id): id is string => id !== null);
-    const topCompaniesData = await prisma.company.findMany({
-      where: { id: { in: topCompanyIds } },
-      select: { id: true, name: true }
-    });
-
-    const topCompaniesWithNames = topCompaniesByPremium.map(company => ({
-      company: topCompaniesData.find(c => c.id === company.company_id)?.name || "Unknown",
-      totalPremium: company._sum.premium_amount || 0,
-    })).sort((a, b) => b.totalPremium - a.totalPremium).slice(0, 10);
-
-    const ageGroupDistribution = Object.entries(ageGroups).map(([ageGroup, count]) => ({
-      ageGroup,
-      count
-    }));
+      });
+    }
 
     const result = {
-      totalActive,
-      totalRenewal,
-      companyDistribution,
-      policyTypeDistribution: policyTypeDistribution.map((pt) => ({
+      totalActive: Number(row.total_active) || 0,
+      totalRenewal: Number(row.total_renewal) || 0,
+      companyDistribution: row.company_distribution || [],
+      policyTypeDistribution: (row.policy_type_distribution || []).map((pt: any) => ({
         type: pt.type || 'Unknown',
         count: pt.count || 0,
       })),
       premiumStats: {
-        total: premiumStats._sum.premium_amount || 0,
-        average: premiumStats._avg.premium_amount || 0,
-        min: premiumStats._min.premium_amount || 0,
-        max: premiumStats._max.premium_amount || 0,
+        total: Number(row.premium_total) || 0,
+        average: Number(row.premium_avg) || 0,
+        min: Number(row.premium_min) || 0,
+        max: Number(row.premium_max) || 0,
       },
       sumInsuredStats: {
-        total: sumInsuredStats._sum.sum_insured || 0,
-        average: sumInsuredStats._avg.sum_insured || 0,
-        min: sumInsuredStats._min.sum_insured || 0,
-        max: sumInsuredStats._max.sum_insured || 0,
+        total: Number(row.si_total) || 0,
+        average: Number(row.si_avg) || 0,
+        min: Number(row.si_min) || 0,
+        max: Number(row.si_max) || 0,
       },
-      monthlyTrend: monthlyTrendArray,
-      planTypeDistribution: planTypeDistribution.map(pt => ({
-        planType: pt.plan_type,
-        count: pt._count._all,
+      monthlyTrend: Object.entries(monthlyData).map(([month, count]) => ({ month, count })),
+      planTypeDistribution: (row.plan_type_distribution || []).map((pt: any) => ({
+        planType: pt.planType,
+        count: pt.count || 0,
       })),
-      genderDistribution: genderDistribution.map(gd => ({
+      genderDistribution: (row.gender_distribution || []).map((gd: any) => ({
         gender: gd.gender,
-        count: gd._count._all,
+        count: gd.count || 0,
       })),
-      ageGroupDistribution,
-      topCompaniesByPremium: topCompaniesWithNames,
+      ageGroupDistribution: row.age_group_distribution || [],
+      topCompaniesByPremium: (row.top_companies || []).map((tc: any) => ({
+        company: tc.company,
+        totalPremium: Number(tc.totalPremium) || 0,
+      })),
     };
 
-    // Cache the result
+    // Cache the result for 5 minutes
     dashboardCache.set(cacheKey, result);
     return result;
   },

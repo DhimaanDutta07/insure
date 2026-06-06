@@ -555,19 +555,16 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
       console.error("Error creating policy:", error);
       if (error && typeof error === "object" && "response" in error) {
         const axiosError = error as {
-          response?: { data?: { error?: string | { message: string }[] } };
+          response?: { data?: { error?: string; details?: { field: string; message: string }[] } };
         };
-        if (axiosError.response?.data?.error) {
-          if (Array.isArray(axiosError.response.data.error)) {
-            // Zod validation errors
-            toast.error(
-              `Validation error: ${axiosError.response.data.error
-                .map((e: { message: string }) => e.message)
-                .join(", ")}`
-            );
-          } else {
-            toast.error(`Error: ${axiosError.response.data.error}`);
-          }
+        if (axiosError.response?.data?.details && Array.isArray(axiosError.response.data.details)) {
+          // Detailed validation errors with field names
+          const errorMessages = axiosError.response.data.details
+            .map((d: { field: string; message: string }) => `${d.field}: ${d.message}`)
+            .join(", ");
+          toast.error(`Validation failed: ${errorMessages}`);
+        } else if (axiosError.response?.data?.error) {
+          toast.error(`Error: ${axiosError.response.data.error}`);
         } else {
           toast.error("Failed to create policy");
         }
@@ -970,10 +967,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
             </label>
             <Input
               {...register("proposer.alternate_mobile", {
-                pattern: {
-                  value: /^[0-9]{10}$/,
-                  message: "Please enter a valid 10-digit mobile number",
-                },
                 validate: (value) => {
                   if (value && value.length > 0 && !/^[0-9]{10}$/.test(value)) {
                     return "Please enter a valid 10-digit mobile number";

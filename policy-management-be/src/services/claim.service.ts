@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 
 import { Claim, ClaimStatus, ClaimMember, DocumentCategory } from "@prisma/client";
 import prisma from '../utils/prismaClient';
@@ -64,43 +65,54 @@ function mapMimeTypeToFileType(mimeType: string): "PDF" | "JPG" | "PNG" | "XLSX"
   }
 }
 
-// Helper function to process uploaded files (following policy service pattern)
-function processClaimDocuments(
+// Helper function to process uploaded files - NON-BLOCKING async version
+async function processClaimDocuments(
   files: { [key: string]: Express.Multer.File[] } | undefined,
   uploadedBy?: string
-): ProcessedClaimDocument[] {
+): Promise<ProcessedClaimDocument[]> {
   const claimDocs: ProcessedClaimDocument[] = [];
 
   if (!files) return claimDocs;
 
+  const fileReadPromises: Promise<void>[] = [];
+
   if (files.claimDocs && Array.isArray(files.claimDocs)) {
-    files.claimDocs.forEach((file) => {
-      claimDocs.push({
-        file_name: file.filename,
-        original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${file.filename}`,
-        file_data: fs.readFileSync(file.path),
-        file_type: mapMimeTypeToFileType(file.mimetype),
-        category: 'OTHER',
-        uploaded_by: uploadedBy,
-      });
-    });
+    for (const file of files.claimDocs) {
+      fileReadPromises.push(
+        fsPromises.readFile(file.path).then((data) => {
+          claimDocs.push({
+            file_name: file.filename,
+            original_name: file.originalname,
+            relative_path: `/api/uploads/policy-documents/${file.filename}`,
+            file_data: data,
+            file_type: mapMimeTypeToFileType(file.mimetype),
+            category: 'OTHER',
+            uploaded_by: uploadedBy,
+          });
+        })
+      );
+    }
   }
 
   if (files.documents && Array.isArray(files.documents)) {
-    files.documents.forEach((file) => {
-      claimDocs.push({
-        file_name: file.filename,
-        original_name: file.originalname,
-        relative_path: `/api/uploads/policy-documents/${file.filename}`,
-        file_data: fs.readFileSync(file.path),
-        file_type: mapMimeTypeToFileType(file.mimetype),
-        category: 'OTHER',
-        uploaded_by: uploadedBy,
-      });
-    });
+    for (const file of files.documents) {
+      fileReadPromises.push(
+        fsPromises.readFile(file.path).then((data) => {
+          claimDocs.push({
+            file_name: file.filename,
+            original_name: file.originalname,
+            relative_path: `/api/uploads/policy-documents/${file.filename}`,
+            file_data: data,
+            file_type: mapMimeTypeToFileType(file.mimetype),
+            category: 'OTHER',
+            uploaded_by: uploadedBy,
+          });
+        })
+      );
+    }
   }
 
+  await Promise.all(fileReadPromises);
   return claimDocs;
 }
 
@@ -125,8 +137,8 @@ export class ClaimService {
       throw new Error('Policy not found');
     }
 
-    // Process files outside transaction
-    const processedDocs = processClaimDocuments(files, userId);
+    // Process files outside transaction - NON-BLOCKING
+    const processedDocs = await processClaimDocuments(files, userId);
 
     // ✅ OPTIMIZATION: Transaction now only does writes — much faster
     return await prisma.$transaction(async (tx) => {
@@ -285,8 +297,8 @@ export class ClaimService {
       throw new Error('Claim not found');
     }
 
-    // Process files outside transaction
-    const processedDocs = processClaimDocuments(files, userId);
+    // Process files outside transaction - NON-BLOCKING
+    const processedDocs = await processClaimDocuments(files, userId);
 
     // ✅ OPTIMIZATION: Transaction only does writes
     return await prisma.$transaction(async (tx) => {

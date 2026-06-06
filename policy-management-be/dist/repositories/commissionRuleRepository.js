@@ -8,7 +8,18 @@ const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 const client_1 = require("@prisma/client");
 const AppError_1 = require("../utils/AppError");
 exports.commissionRuleRepository = {
-    findAll: async () => prismaClient_1.default.commissionRule.findMany(),
+    findAll: async (limit = 100) => prismaClient_1.default.commissionRule.findMany({ take: limit, orderBy: { createdAt: 'desc' } }),
+    // Fast duplicate check using composite fields
+    findByCompositeKey: async (params) => {
+        return prismaClient_1.default.commissionRule.findFirst({
+            where: {
+                policy_name_id: params.policy_name_id,
+                policyStatus: params.policyStatus,
+                deductibleType: params.deductibleType,
+                ageCondition: params.ageCondition,
+            },
+        });
+    },
     findById: async (id) => prismaClient_1.default.commissionRule.findUnique({ where: { id } }),
     create: async (data) => prismaClient_1.default.commissionRule.create({ data }),
     update: async (id, data) => prismaClient_1.default.commissionRule.update({ where: { id }, data }),
@@ -27,74 +38,46 @@ exports.commissionRuleRepository = {
             throw new AppError_1.AppError(500, "ServerError", "Error updating commission rule status", err);
         }
     },
-    // New search and pagination method
+    // New search and pagination method - OPTIMIZED with inline search
     searchAndPaginate: async (params) => {
         const { search, policyStatus, deductibleType, ageCondition, page = 1, limit = 10 } = params;
         try {
-            let whereConditions = {};
-            // Handle search - primarily search by policy name
+            const whereClauses = [];
             if (search) {
-                // First, try to find policy names that match the search
-                const matchingPolicies = await prismaClient_1.default.policyName.findMany({
-                    where: {
-                        name: {
-                            contains: search,
-                        },
-                    },
-                    select: {
-                        id: true,
-                    },
-                });
-                if (matchingPolicies.length > 0) {
-                    // Use the found policy IDs
-                    whereConditions.policy_name_id = {
-                        in: matchingPolicies.map(p => p.id),
-                    };
-                }
-                else {
-                    // If no policies found, return empty result
-                    return {
-                        data: [],
-                        total: 0,
-                        page,
-                        limit,
-                        totalPages: 0,
-                    };
-                }
+                whereClauses.push(client_1.Prisma.sql `pn.name ILIKE ${'%' + search + '%'}`);
             }
-            // Handle specific filters
             if (policyStatus && policyStatus !== 'all') {
-                whereConditions.policyStatus = policyStatus;
+                whereClauses.push(client_1.Prisma.sql `cr."policyStatus" = ${policyStatus}`);
             }
             if (deductibleType && deductibleType !== 'all') {
-                whereConditions.deductibleType = deductibleType;
+                whereClauses.push(client_1.Prisma.sql `cr."deductibleType" = ${deductibleType}`);
             }
             if (ageCondition && ageCondition !== 'all') {
-                whereConditions.ageCondition = ageCondition;
+                whereClauses.push(client_1.Prisma.sql `cr."ageCondition" = ${ageCondition}`);
             }
-            // Calculate pagination
+            const whereSql = whereClauses.length > 0 ? client_1.Prisma.sql `WHERE ${client_1.Prisma.join(whereClauses, ' AND ')}` : client_1.Prisma.sql ``;
             const skip = (page - 1) * limit;
-            // Get total count
-            const total = await prismaClient_1.default.commissionRule.count({
-                where: whereConditions,
-            });
-            // Get paginated data with policy name
-            const data = await prismaClient_1.default.commissionRule.findMany({
-                where: whereConditions,
-                include: {
-                    policyName: {
-                        select: {
-                            id: true,
-                            name: true,
-                        },
-                    },
-                },
-                skip,
-                take: limit,
-                orderBy: {
-                    createdAt: 'desc',
-                },
-            });
+            const [dataRows, countRows] = await Promise.all([
+                prismaClient_1.default.$queryRaw `
+          SELECT cr.*, pn.id as "policyName.id", pn.name as "policyName.name"
+          FROM "commission_rule" cr
+          LEFT JOIN "policy_names" pn ON cr."policy_name_id" = pn.id
+          ${whereSql}
+          ORDER BY cr."createdAt" DESC
+          LIMIT ${limit} OFFSET ${skip}
+        `,
+                prismaClient_1.default.$queryRaw `
+          SELECT COUNT(*)::int as total
+          FROM "commission_rule" cr
+          LEFT JOIN "policy_names" pn ON cr."policy_name_id" = pn.id
+          ${whereSql}
+        `,
+            ]);
+            const data = dataRows.map((row) => ({
+                ...row,
+                policyName: row['policyName.name'] ? { id: row['policyName.id'], name: row['policyName.name'] } : null,
+            }));
+            const total = Number(countRows[0]?.total) || 0;
             const totalPages = Math.ceil(total / limit);
             return {
                 data,

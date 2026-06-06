@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
 import { 
@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { useAuth } from "../Context/AuthContext";
+import { usePrefetchAll } from "../hooks/useApi";
 // Date utility functions
 const formatDate = (date: Date, formatStr: string) => {
   const year = date.getFullYear();
@@ -104,6 +105,12 @@ function PolicyDashBoardPage() {
     localStorage.setItem("sessionStartTime", now.toISOString());
     return now;
   });
+
+  // Preload reference data on mount for instant navigation
+  const prefetchAll = usePrefetchAll();
+  useEffect(() => {
+    prefetchAll();
+  }, [prefetchAll]);
 
   // React Query: dashboard stats with auto-caching
   const { data: statsData, isLoading: loading, error } = useQuery({

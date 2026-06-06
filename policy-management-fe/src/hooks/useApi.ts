@@ -121,10 +121,10 @@ export function usePolicies(params?: Record<string, unknown>) {
   return useQuery({
     queryKey: queryKeys.policies(params),
     queryFn: () => getAllPolicies(params),
-    staleTime: 5_000, // Shorter stale time for more freshness
+    staleTime: 60_000, // 1min - backend has its own cache, avoid excessive refetching
     gcTime: 10 * 60_000,
     placeholderData: keepPreviousData,
-    refetchOnWindowFocus: false, // Don't refetch on window focus to avoid jank
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -132,7 +132,7 @@ export function usePolicy(id: string) {
   return useQuery({
     queryKey: queryKeys.policy(id),
     queryFn: () => getPolicyById(id),
-    staleTime: 30_000,
+    staleTime: 60_000,
     gcTime: 10 * 60_000,
     enabled: !!id,
   });
@@ -246,8 +246,9 @@ export function useDashboardStats(timeRange?: string) {
   return useQuery({
     queryKey: queryKeys.dashboard(timeRange),
     queryFn: () => policyService.getDashboardStats(timeRange),
-    staleTime: 30_000,
+    staleTime: 120_000, // 2min - dashboard data is cached 5min on backend
     gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -347,6 +348,7 @@ export function useCommissions() {
     queryFn: getAllCommissions,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 }
 

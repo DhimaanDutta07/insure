@@ -4,7 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.claimService = exports.ClaimService = void 0;
-const fs_1 = __importDefault(require("fs"));
+const fs_1 = require("fs");
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 // Helper to map MIME type to FileType enum (same as policy service)
 function mapMimeTypeToFileType(mimeType) {
@@ -31,37 +31,43 @@ function mapMimeTypeToFileType(mimeType) {
             return "OTHER";
     }
 }
-// Helper function to process uploaded files (following policy service pattern)
-function processClaimDocuments(files, uploadedBy) {
+// Helper function to process uploaded files - NON-BLOCKING async version
+async function processClaimDocuments(files, uploadedBy) {
     const claimDocs = [];
     if (!files)
         return claimDocs;
+    const fileReadPromises = [];
     if (files.claimDocs && Array.isArray(files.claimDocs)) {
-        files.claimDocs.forEach((file) => {
-            claimDocs.push({
-                file_name: file.filename,
-                original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${file.filename}`,
-                file_data: fs_1.default.readFileSync(file.path),
-                file_type: mapMimeTypeToFileType(file.mimetype),
-                category: 'OTHER',
-                uploaded_by: uploadedBy,
-            });
-        });
+        for (const file of files.claimDocs) {
+            fileReadPromises.push(fs_1.promises.readFile(file.path).then((data) => {
+                claimDocs.push({
+                    file_name: file.filename,
+                    original_name: file.originalname,
+                    relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                    file_data: data,
+                    file_type: mapMimeTypeToFileType(file.mimetype),
+                    category: 'OTHER',
+                    uploaded_by: uploadedBy,
+                });
+            }));
+        }
     }
     if (files.documents && Array.isArray(files.documents)) {
-        files.documents.forEach((file) => {
-            claimDocs.push({
-                file_name: file.filename,
-                original_name: file.originalname,
-                relative_path: `/api/uploads/policy-documents/${file.filename}`,
-                file_data: fs_1.default.readFileSync(file.path),
-                file_type: mapMimeTypeToFileType(file.mimetype),
-                category: 'OTHER',
-                uploaded_by: uploadedBy,
-            });
-        });
+        for (const file of files.documents) {
+            fileReadPromises.push(fs_1.promises.readFile(file.path).then((data) => {
+                claimDocs.push({
+                    file_name: file.filename,
+                    original_name: file.originalname,
+                    relative_path: `/api/uploads/policy-documents/${file.filename}`,
+                    file_data: data,
+                    file_type: mapMimeTypeToFileType(file.mimetype),
+                    category: 'OTHER',
+                    uploaded_by: uploadedBy,
+                });
+            }));
+        }
     }
+    await Promise.all(fileReadPromises);
     return claimDocs;
 }
 class ClaimService {
@@ -81,8 +87,8 @@ class ClaimService {
         if (!policy) {
             throw new Error('Policy not found');
         }
-        // Process files outside transaction
-        const processedDocs = processClaimDocuments(files, userId);
+        // Process files outside transaction - NON-BLOCKING
+        const processedDocs = await processClaimDocuments(files, userId);
         // ✅ OPTIMIZATION: Transaction now only does writes — much faster
         return await prismaClient_1.default.$transaction(async (tx) => {
             // Create the main claim
@@ -227,8 +233,8 @@ class ClaimService {
         if (!existingClaim) {
             throw new Error('Claim not found');
         }
-        // Process files outside transaction
-        const processedDocs = processClaimDocuments(files, userId);
+        // Process files outside transaction - NON-BLOCKING
+        const processedDocs = await processClaimDocuments(files, userId);
         // ✅ OPTIMIZATION: Transaction only does writes
         return await prismaClient_1.default.$transaction(async (tx) => {
             // ✅ Run all deletes in parallel

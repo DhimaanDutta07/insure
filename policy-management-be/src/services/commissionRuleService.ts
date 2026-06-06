@@ -1,25 +1,30 @@
 import { CommissionRule } from '@prisma/client';
 import { commissionRuleRepository } from '../repositories/commissionRuleRepository';
 import { AppError } from '../utils/AppError';
+import { commissionStatsCache } from '../utils/lruCache';
 
 export const commissionRuleService = {
   async createCommissionRule(data: Omit<CommissionRule, 'id' | 'createdAt' | 'updatedAt'>): Promise<CommissionRule> {
-    // Check for duplicate rule (unique constraint)
-    const existing = await commissionRuleRepository.findAll();
-    const isDuplicate = existing.some(rule =>
-      rule.policy_name_id === data.policy_name_id &&
-      rule.policyStatus === data.policyStatus &&
-      rule.deductibleType === data.deductibleType &&
-      rule.ageCondition === data.ageCondition
-    );
-    if (isDuplicate) {
+    // Check for duplicate rule with targeted DB query instead of loading all rules
+    const existing = await commissionRuleRepository.findByCompositeKey({
+      policy_name_id: data.policy_name_id,
+      policyStatus: data.policyStatus,
+      deductibleType: data.deductibleType,
+      ageCondition: data.ageCondition,
+    });
+    if (existing) {
       throw new Error('A commission rule with the same conditions already exists.');
     }
+    commissionStatsCache.deleteByPrefix('commissionRules');
     return commissionRuleRepository.create(data);
   },
 
   async getAllCommissionRules(): Promise<CommissionRule[]> {
-    return commissionRuleRepository.findAll();
+    const cached = commissionStatsCache.get('commissionRules:all');
+    if (cached) return cached;
+    const rules = await commissionRuleRepository.findAll(500);
+    commissionStatsCache.set('commissionRules:all', rules, 300_000);
+    return rules;
   },
 
   async getCommissionRuleById(id: string): Promise<CommissionRule | null> {

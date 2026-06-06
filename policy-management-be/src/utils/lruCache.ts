@@ -76,7 +76,7 @@ export class LRUCache<T> {
 
 // Singleton caches with different TTLs for different data types
 export const apiCache = new LRUCache<any>(1000, 60_000); // 60s - general API responses
-export const dashboardCache = new LRUCache<any>(10, 30_000); // 30s - dashboard data
-export const policyListCache = new LRUCache<any>(50, 15_000); // 15s - policy lists
+export const dashboardCache = new LRUCache<any>(10, 300_000); // 5min - dashboard data
+export const policyListCache = new LRUCache<any>(50, 60_000); // 1min - policy lists
 export const referenceCache = new LRUCache<any>(200, 300_000); // 5min - companies, policy names, types
 export const commissionStatsCache = new LRUCache<any>(10, 30_000); // 30s - commission stats

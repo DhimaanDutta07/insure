@@ -55,8 +55,8 @@ const dateOrDateTime = z.string().refine(
   }
 );
 
-// Helper for mobile validation (E.164 or 10-digit Indian)
-const mobileNumber = z.string().refine(
+// Helper for mobile validation (E.164 or 10-digit Indian) - REQUIRED
+const mobileNumberRequired = z.string().refine(
   (val) => {
     return (
       /^\+?[1-9]\d{1,14}$/.test(val) || // E.164
@@ -68,16 +68,33 @@ const mobileNumber = z.string().refine(
   }
 );
 
+// Helper for mobile validation (E.164 or 10-digit Indian) - OPTIONAL
+const mobileNumberOptional = z.string()
+  .transform((val) => val === '' ? undefined : val) // Convert empty string to undefined
+  .optional()
+  .refine(
+    (val) => {
+      if (val === undefined || val === null) return true;
+      return (
+        /^\+?[1-9]\d{1,14}$/.test(val) || // E.164
+        /^\d{10}$/.test(val) // 10-digit
+      );
+    },
+    {
+      message: 'Invalid mobile number format.'
+    }
+  );
+
 // Proposer Schema with nested documents
 export const proposerSchema = z.object({
   id: z.string().uuid().optional(),
   proposer_salutation: z.string().max(50).optional(),
-  full_name: z.string().min(1).max(255).optional(),
-  date_of_birth: dateOrDateTime.optional(),
+  full_name: z.string().min(1).max(255),
+  date_of_birth: dateOrDateTime,
   gender: GenderEnum.optional(),
   marital_status: MaritalStatusEnum.optional(),
-  mobile: mobileNumber.optional(),
-  alternate_mobile: mobileNumber.optional(),
+  mobile: mobileNumberRequired,
+  alternate_mobile: mobileNumberOptional,
   email: z.string().email().optional(),
   address: z.string().max(500).optional(),
   kyc_id: z.string().max(50).optional(),
@@ -92,10 +109,10 @@ export const proposerSchema = z.object({
 export const insuredMemberSchema = z.object({
   id: z.string().uuid().optional(),
   insured_member_salutation: z.string().max(50).optional(),
-  name: z.string().min(1).max(255).optional(),
-  relation_to_proposer: z.string().max(50).optional(),
-  date_of_birth: dateOrDateTime.optional(),
-  gender: GenderEnum.optional(),
+  name: z.string().min(1).max(255),
+  relation_to_proposer: z.string().min(1).max(50),
+  date_of_birth: dateOrDateTime,
+  gender: GenderEnum,
   pre_existing: z.boolean().optional(),
   insured_member_medical_condition: z.boolean().optional(),
   insured_member_medical_remarks: z.string().max(1000).optional(),
@@ -160,7 +177,7 @@ export const policyNameSchema = z.object({
 // Main Schema for Policy Creation with two-phase support
 export const insurancePolicySchema = z.object({
   policy_salutation: z.string().max(50).optional(),
-  policy_number: z.string().max(100).optional(),
+  policy_number: z.string().min(1).max(100),
   customer_name: z.string().min(1).max(255).optional(),
   // type: PolicyTypeEnum.optional(),
   company_id: z.string().uuid().optional().nullable(),

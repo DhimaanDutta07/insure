@@ -28,6 +28,7 @@ import {
   getUsersWithPagination,
   updateUserRepo,
 } from "../repositories/userRepository";
+import { apiCache } from '../utils/lruCache';
 import {
   permissionsSchema,
   userDtoSchema,
@@ -173,32 +174,7 @@ export async function createUser(userData: any, roleName: string) {
     role_id: role ? role.id : null,
   });
 
-  // Create UserSite entries for each site
-  // if (site_ids && Array.isArray(site_ids)) {
-  //   await Promise.all(
-  //     site_ids.map(async (site_id: string) => {
-  //       await prisma.userSite.create({
-  //         data: {
-  //           user_id: user.id,
-  //           site_id: site_id,
-  //         },
-  //       });
-  //     })
-  //   );
-  // }
-
-  // Fetch the user with sites
-  // const userWithSites = await prisma.user.findUnique({
-  //   where: { id: user.id },
-  //   include: {
-  //     sites: {
-  //       include: {
-  //         site: true,
-  //       },
-  //     },
-  //   },
-  // });
-
+  apiCache.deleteByPrefix('users');
   return user;
 }
 
@@ -208,7 +184,14 @@ export async function getUsers(
   withCount: boolean,
   orderBy: any
 ) {
-  const users = await getUsersWithPagination(limit, offset, orderBy);
+  const cacheKey = `users:${limit}:${offset}:${withCount}:${JSON.stringify(orderBy)}`;
+  const cached = apiCache.get(cacheKey);
+  if (cached) return cached;
+
+  const [users, totalCount] = await Promise.all([
+    getUsersWithPagination(limit, offset, orderBy),
+    withCount ? countUsers() : Promise.resolve(undefined),
+  ]);
 
   // Transform the response
   const formattedUsers = users.map((user) => ({
@@ -223,16 +206,15 @@ export async function getUsers(
     web_access: user.web_access,
     permissions: user.permissions,
     role: user.role ? user.role.role_name : null,
-    // sites: user.sites.map((us) => us.site), // Transform sites array
   }));
 
-  // Get total count if requested
-  const totalCount = withCount ? await countUsers() : undefined;
-
-  return {
+  const result = {
     data: formattedUsers,
     totalCount,
   };
+
+  apiCache.set(cacheKey, result, 60_000);
+  return result;
 }
 
 export async function updateUserService(
@@ -332,6 +314,7 @@ function getUserDto(user: any): z.infer<typeof userDtoSchema> {
 
 export async function deleteUserById(userId: string) {
   await deleteUser(userId);
+  apiCache.deleteByPrefix('users');
 }
 
 export async function updateUserStatusById(
@@ -351,6 +334,7 @@ export async function updateUserStatusById(
     throw new AppError(404, "ClientError", "User not found");
   }
 
+  apiCache.deleteByPrefix('users');
   return getUserDto(updatedUser);
 }
 
