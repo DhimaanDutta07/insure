@@ -240,33 +240,51 @@ export const commissionRuleRepository = {
   },
 
   // Get commission dashboard statistics - ULTRA-OPTIMIZED for sub-500ms performance
-  getCommissionDashboardStats: async (timeRange: string) => {
+  // Now filters by policy term dates (start_date to end_date) instead of creation dates
+  // Supports year-based filtering
+  getCommissionDashboardStats: async (timeRange: string, year?: number) => {
     try {
-      const now = new Date();
       let startDate: Date;
+      let endDate: Date | null = null;
 
       // Set date range based on timeRange parameter
-      switch (timeRange) {
-        case '7d':
-          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          break;
-        case '30d':
-          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          break;
-        case '90d':
-          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-          break;
-        case '1y':
-          startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-          break;
-        default:
-          startDate = new Date(0); // Beginning of time
+      const now = new Date();
+      if (timeRange === 'year' && year) {
+        // Year-based filtering
+        startDate = new Date(year, 0, 1); // January 1st of the year
+        endDate = new Date(year, 11, 31, 23, 59, 59); // December 31st of the year
+      } else {
+        switch (timeRange) {
+          case '7d':
+            startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+          case '30d':
+            startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            break;
+          case '90d':
+            startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+            break;
+          case '1y':
+            startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+            break;
+          case 'all':
+          default:
+            startDate = new Date(0); // Beginning of time - shows ALL commission ever earned
+        }
       }
 
+      // Build the end date condition with proper PostgreSQL date format
+      const startDateStr = startDate.toISOString().replace('T', ' ').replace('Z', '');
+      const endDateStr = endDate ? endDate.toISOString().replace('T', ' ').replace('Z', '') : '';
+      const endDateCondition = endDate ? `AND p.start_date <= '${endDateStr}'` : '';
+      const limitClause = timeRange === 'all' ? '' : 'LIMIT 12';
+
       // ✅ ULTRA-OPTIMIZATION: Single raw SQL query with all aggregations
-      const result = await prisma.$queryRaw`
+      // Now filters by policy term dates (start_date to end_date) for accurate revenue by time period
+      // INCLUDES ALL POLICIES (not just leaf policies) to show total revenue across all terms
+      const query = `
         WITH 
-        -- Get all commission data from journal (only leaf policies)
+        -- Get all commission data from journal (all policies, filtered by term dates)
         journal_data AS (
           SELECT 
             cj.policy_id,
@@ -274,16 +292,16 @@ export const commissionRuleRepository = {
             cj."calculatedAt" as calculated_at,
             p.company_id,
             p.policy_name_id,
-            p.created_at as policy_created_at
+            p.start_date,
+            p.end_date,
+            p.created_at as policy_created_at,
+            p.gst_status
           FROM "commission_journal" cj
           LEFT JOIN "policy" p ON cj.policy_id = p.id
-          WHERE cj."calculatedAt" >= ${startDate}
-            AND NOT EXISTS (
-              SELECT 1 FROM "policy" child 
-              WHERE child."parent_policy_id" = p.id
-            )
+          WHERE p.start_date >= '${startDateStr}'
+            ${endDateCondition}
         ),
-        -- Get policies with calculated commission not in journal (only leaf policies)
+        -- Get policies with calculated commission not in journal (all policies, filtered by term dates)
         policy_commission AS (
           SELECT 
             p.id as policy_id,
@@ -291,15 +309,15 @@ export const commissionRuleRepository = {
             p.created_at as calculated_at,
             p.company_id,
             p.policy_name_id,
-            p.created_at as policy_created_at
+            p.start_date,
+            p.end_date,
+            p.created_at as policy_created_at,
+            p.gst_status
           FROM "policy" p
-          WHERE p.created_at >= ${startDate}
+          WHERE p.start_date >= '${startDateStr}'
+            ${endDateCondition}
             AND p."calculated_commission_amount" > 0
-            AND p.id NOT IN (SELECT DISTINCT policy_id FROM "commission_journal" WHERE "calculatedAt" >= ${startDate})
-            AND NOT EXISTS (
-              SELECT 1 FROM "policy" child 
-              WHERE child."parent_policy_id" = p.id
-            )
+            AND p.id NOT IN (SELECT DISTINCT policy_id FROM "commission_journal" WHERE "calculatedAt" >= '${startDateStr}')
         ),
         -- Combine both sources
         all_commission AS (
@@ -307,7 +325,7 @@ export const commissionRuleRepository = {
           UNION ALL
           SELECT * FROM policy_commission
         ),
-        -- Aggregate by company (only leaf policies)
+        -- Aggregate by company (all policies)
         company_agg AS (
           SELECT 
             ac.company_id,
@@ -319,7 +337,7 @@ export const commissionRuleRepository = {
           WHERE ac.company_id IS NOT NULL
           GROUP BY ac.company_id, c.name
         ),
-        -- Aggregate by policy name (only leaf policies)
+        -- Aggregate by policy name (all policies)
         policy_name_agg AS (
           SELECT 
             ac.policy_name_id,
@@ -331,21 +349,49 @@ export const commissionRuleRepository = {
           WHERE ac.policy_name_id IS NOT NULL
           GROUP BY ac.policy_name_id, pn.name
         ),
-        -- Aggregate by month
+        -- Aggregate by month (using policy start_date for accurate term-based revenue)
         monthly_agg AS (
           SELECT 
-            TO_CHAR(ac.calculated_at, 'YYYY-MM') as month_key,
+            TO_CHAR(ac.start_date, 'YYYY-MM') as month_key,
             SUM(ac.commission_amount) as total_commission,
             COUNT(DISTINCT ac.policy_id) as policy_count
           FROM all_commission ac
-          GROUP BY TO_CHAR(ac.calculated_at, 'YYYY-MM')
+          GROUP BY TO_CHAR(ac.start_date, 'YYYY-MM')
           ORDER BY month_key
-          LIMIT 12
+          ${limitClause}
         )
         SELECT 
           -- Total commission
           COALESCE(SUM(commission_amount), 0) as total_commission,
-          COUNT(DISTINCT policy_id) as total_policies,
+          -- Count only visible policies (leaf policies - no children)
+          COUNT(DISTINCT CASE 
+            WHEN NOT EXISTS (
+              SELECT 1 FROM "policy" child 
+              WHERE child."parent_policy_id" = ac.policy_id
+            ) 
+            THEN ac.policy_id 
+            ELSE NULL 
+          END) as total_policies,
+          -- Total tax paid (GST amount) - 18% of premium where GST status is true
+          -- Only for leaf policies (visible in policy panel)
+          COALESCE(SUM(
+            CASE 
+              WHEN ac.gst_status = true AND NOT EXISTS (
+                SELECT 1 FROM "policy" child 
+                WHERE child."parent_policy_id" = ac.policy_id
+              )
+              THEN (SELECT p.premium_amount FROM "policy" p WHERE p.id = ac.policy_id LIMIT 1) * 0.18
+              ELSE 0
+            END
+          ), 0) as total_tax_paid,
+          -- Average commission rate
+          COALESCE(AVG(
+            CASE 
+              WHEN commission_amount > 0 AND (SELECT p.premium_amount FROM "policy" p WHERE p.id = ac.policy_id LIMIT 1) > 0
+              THEN (commission_amount / (SELECT p.premium_amount FROM "policy" p WHERE p.id = ac.policy_id LIMIT 1)) * 100
+              ELSE NULL
+            END
+          ), 0) as avg_commission_rate,
           -- Commission by company (JSON)
           (
             SELECT json_agg(json_build_object(
@@ -375,8 +421,10 @@ export const commissionRuleRepository = {
             ))
             FROM monthly_agg
           ) as monthly_commission
-        FROM all_commission
-      ` as any;
+        FROM all_commission ac
+      `;
+
+      const result = await prisma.$queryRawUnsafe(query) as any[];
 
       // Parse the result
       const row = result[0];
@@ -388,6 +436,8 @@ export const commissionRuleRepository = {
       return {
         totalCommission: Number(row.total_commission) || 0,
         totalPolicies: Number(row.total_policies) || 0,
+        totalTaxPaid: Number(row.total_tax_paid) || 0,
+        avgCommissionRate: Number(row.avg_commission_rate) || 0,
         productsCount,
         companiesCount,
         commissionByCompany: row.commission_by_company || [],

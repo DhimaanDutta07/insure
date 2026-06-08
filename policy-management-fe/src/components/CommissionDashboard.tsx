@@ -18,7 +18,7 @@ import {
   LineChart,
   Line
 } from "recharts";
-import { IndianRupee, FileText, Building2, TrendingUp } from 'lucide-react';
+import { IndianRupee, FileText, TrendingUp } from 'lucide-react';
 
 const COLORS = [
   "#6F42C1", // Primary Fuschian
@@ -36,6 +36,8 @@ const COLORS = [
 interface CommissionStats {
   totalCommission: number;
   totalPolicies: number;
+  totalTaxPaid: number;
+  avgCommissionRate: number;
   commissionByCompany: Array<{ companyId: string; companyName: string; totalCommission: number; policyCount: number }>;
   commissionByPolicyName: Array<{ policyNameId: string; policyName: string; totalCommission: number; policyCount: number }>;
   monthlyCommission: Array<{ month: string; total_commission: number; policy_count: number }>;
@@ -43,12 +45,18 @@ interface CommissionStats {
 }
 
 const CommissionDashboard: React.FC = () => {
-  const [timeRange, setTimeRange] = React.useState<'all' | '7d' | '30d' | '90d' | '1y'>('all');
+  const [timeRange, setTimeRange] = React.useState<'all' | '7d' | '30d' | '90d' | '1y' | 'year'>('all');
+  const [selectedYear, setSelectedYear] = React.useState<number>(new Date().getFullYear());
 
   const { data: stats, isLoading, error } = useQuery({
-    queryKey: ['commissionStats', timeRange],
+    queryKey: ['commissionStats', timeRange, selectedYear],
     queryFn: async () => {
-      const url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/dashboard/stats?timeRange=${timeRange}`;
+      let url = `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/dashboard/stats?timeRange=${timeRange}`;
+      
+      if (timeRange === 'year') {
+        url += `&year=${selectedYear}`;
+      }
+      
       const res = await axios.get(url, {
         headers: { Authorization: `Bearer ${localStorage.getItem("authToken")}` },
       });
@@ -93,18 +101,36 @@ const CommissionDashboard: React.FC = () => {
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-800">Commission Dashboard</h1>
-        <Select value={timeRange} onValueChange={(value: any) => setTimeRange(value)}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Select time range" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Time</SelectItem>
-            <SelectItem value="7d">Last 7 Days</SelectItem>
-            <SelectItem value="30d">Last 30 Days</SelectItem>
-            <SelectItem value="90d">Last 90 Days</SelectItem>
-            <SelectItem value="1y">Last Year</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select value={timeRange} onValueChange={(value: any) => setTimeRange(value)}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select time range" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Time</SelectItem>
+              <SelectItem value="7d">Last 7 Days</SelectItem>
+              <SelectItem value="30d">Last 30 Days</SelectItem>
+              <SelectItem value="90d">Last 90 Days</SelectItem>
+              <SelectItem value="1y">Last Year</SelectItem>
+              <SelectItem value="year">Specific Year</SelectItem>
+            </SelectContent>
+          </Select>
+          
+          {timeRange === 'year' && (
+            <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                {Array.from({ length: 101 }, (_, i) => 2000 + i).reverse().map(year => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -123,8 +149,20 @@ const CommissionDashboard: React.FC = () => {
 
         <Card className="border-l-4 border-l-blue-600">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-gray-600">Total Tax Paid</CardTitle>
+            <IndianRupee className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-gray-900">
+              ₹{stats.totalTaxPaid.toLocaleString('en-IN')}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-cyan-600">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-gray-600">Total Policies</CardTitle>
-            <FileText className="h-4 w-4 text-blue-600" />
+            <FileText className="h-4 w-4 text-cyan-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
@@ -133,26 +171,14 @@ const CommissionDashboard: React.FC = () => {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-cyan-600">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Products</CardTitle>
-            <TrendingUp className="h-4 w-4 text-cyan-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-900">
-              {stats.commissionByPolicyName.length}
-            </div>
-          </CardContent>
-        </Card>
-
         <Card className="border-l-4 border-l-teal-600">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-gray-600">Companies</CardTitle>
-            <Building2 className="h-4 w-4 text-teal-600" />
+            <CardTitle className="text-sm font-medium text-gray-600">Avg Commission Rate</CardTitle>
+            <TrendingUp className="h-4 w-4 text-teal-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
-              {stats.commissionByCompany.length}
+              {stats.avgCommissionRate.toFixed(2)}%
             </div>
           </CardContent>
         </Card>

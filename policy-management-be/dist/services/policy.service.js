@@ -1458,17 +1458,17 @@ exports.policyService = {
         GROUP BY 1
       ),
       top_companies AS (
-        SELECT c.name as company, COALESCE(SUM(cp."premium_amount"), 0)::float as total_premium
-        FROM leaf_policies cp
-        LEFT JOIN "company" c ON cp."company_id" = c.id
-        WHERE cp."company_id" IS NOT NULL
+        SELECT c.name as company, COALESCE(SUM(p."premium_amount"), 0)::float as total_premium
+        FROM "policy" p
+        LEFT JOIN "company" c ON p."company_id" = c.id
+        WHERE p."company_id" IS NOT NULL
         GROUP BY c.name
         ORDER BY total_premium DESC
         LIMIT 10
       ),
       monthly_trend AS (
         SELECT TO_CHAR("created_at", 'YYYY-MM') as month, COUNT(*)::int as count
-        FROM leaf_policies
+        FROM "policy"
         WHERE "created_at" >= ${twelveMonthsAgo}
         GROUP BY 1
         ORDER BY 1

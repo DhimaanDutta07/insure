@@ -165,8 +165,8 @@ exports.commissionRuleController = {
     // Get commission dashboard statistics
     async getCommissionDashboardStats(req, res) {
         try {
-            const { timeRange = 'all' } = req.query;
-            const stats = await commissionRuleService_1.commissionRuleService.getCommissionDashboardStats(timeRange);
+            const { timeRange = 'all', year } = req.query;
+            const stats = await commissionRuleService_1.commissionRuleService.getCommissionDashboardStats(timeRange, year ? parseInt(year) : undefined);
             res.status(200).json(stats);
         }
         catch (error) {

@@ -31,11 +31,7 @@ const CommissionRulePage: React.FC = () => {
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
   const [renewalCommission, setRenewalCommission] = useState<string>('15');
-  const [freshCommission, setFreshCommission] = useState<string>('12');
-  const [portabilityCommission, setPortabilityCommission] = useState<string>('15');
   const [isSavingRenewal, setIsSavingRenewal] = useState(false);
-  const [isSavingFresh, setIsSavingFresh] = useState(false);
-  const [isSavingPortability, setIsSavingPortability] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -105,11 +101,16 @@ const CommissionRulePage: React.FC = () => {
     try {
       const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
       if (!hdfcCompany) {
-        toast.error("HDFC ERGO company not found");
+        toast.error("HDFC ERGO company not found in system");
         return;
       }
 
       const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
+
+      if (hdfcProducts.length === 0) {
+        toast.error("No HDFC ERGO products found");
+        return;
+      }
 
       // Update all HDFC ERGO products with Renewal commission
       // For products with SI classification (OPTIMA SECURE, OTHERS), update both SI conditions
@@ -128,96 +129,12 @@ const CommissionRulePage: React.FC = () => {
         }
       }
 
-      toast.success("Renewal commission updated for all HDFC ERGO products");
+      toast.success(`Renewal commission updated for ${hdfcProducts.length} HDFC ERGO products`);
       fetchData();
     } catch {
       toast.error("Failed to update Renewal commission");
     } finally {
       setIsSavingRenewal(false);
-    }
-  };
-
-  const handleSaveFreshCommission = async () => {
-    const percent = parseFloat(freshCommission);
-    if (isNaN(percent) || percent < 0 || percent > 100) {
-      toast.error("Enter a valid percentage between 0 and 100");
-      return;
-    }
-
-    setIsSavingFresh(true);
-    try {
-      const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
-      if (!hdfcCompany) {
-        toast.error("HDFC ERGO company not found");
-        return;
-      }
-
-      const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
-
-      // Update all HDFC ERGO products with Fresh commission
-      for (const product of hdfcProducts) {
-        const productName = product.name.toUpperCase();
-        const isOptimaSecure = productName.includes('OPTIMA SECURE');
-        const isOtherRetailHealth = productName === 'OTHERS';
-
-        if (isOptimaSecure || isOtherRetailHealth) {
-          // Update both SI conditions for products with SI classification
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Fresh', 'LESS_THAN_10_LAKHS');
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Fresh', 'GREATER_EQUAL_10_LAKHS');
-        } else {
-          // Update with undefined SI condition for other products
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Fresh', undefined);
-        }
-      }
-
-      toast.success("Fresh commission updated for all HDFC ERGO products");
-      fetchData();
-    } catch {
-      toast.error("Failed to update Fresh commission");
-    } finally {
-      setIsSavingFresh(false);
-    }
-  };
-
-  const handleSavePortabilityCommission = async () => {
-    const percent = parseFloat(portabilityCommission);
-    if (isNaN(percent) || percent < 0 || percent > 100) {
-      toast.error("Enter a valid percentage between 0 and 100");
-      return;
-    }
-
-    setIsSavingPortability(true);
-    try {
-      const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
-      if (!hdfcCompany) {
-        toast.error("HDFC ERGO company not found");
-        return;
-      }
-
-      const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
-
-      // Update all HDFC ERGO products with Portability commission
-      for (const product of hdfcProducts) {
-        const productName = product.name.toUpperCase();
-        const isOptimaSecure = productName.includes('OPTIMA SECURE');
-        const isOtherRetailHealth = productName === 'OTHERS';
-
-        if (isOptimaSecure || isOtherRetailHealth) {
-          // Update both SI conditions for products with SI classification
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Portablity', 'LESS_THAN_10_LAKHS');
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Portablity', 'GREATER_EQUAL_10_LAKHS');
-        } else {
-          // Update with undefined SI condition for other products
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Portablity', undefined);
-        }
-      }
-
-      toast.success("Portability commission updated for all HDFC ERGO products");
-      fetchData();
-    } catch {
-      toast.error("Failed to update Portability commission");
-    } finally {
-      setIsSavingPortability(false);
     }
   };
 
@@ -229,12 +146,12 @@ const CommissionRulePage: React.FC = () => {
       </div>
 
       {/* Global Commission Sections for HDFC ERGO */}
-      <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="mb-6">
         {/* Renewal Commission */}
-        <div className="p-4 bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Renewal</h3>
+        <div className="p-4 bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg max-w-md">
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">Renewal (HDFC ERGO)</h3>
           <p className="text-xs text-gray-600 mb-3">
-            Applies when policy status is "Renewal"
+            Applies when policy status is "Renewal" for HDFC ERGO policies
           </p>
           <div className="flex items-center gap-2">
             <Input
@@ -254,70 +171,6 @@ const CommissionRulePage: React.FC = () => {
               className="bg-orange-600 hover:bg-orange-700 text-white h-9 px-3 text-xs"
             >
               {isSavingRenewal ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Save className="w-3 h-3" />
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Fresh Commission */}
-        <div className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Fresh</h3>
-          <p className="text-xs text-gray-600 mb-3">
-            Applies when policy status is "Fresh"
-          </p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={freshCommission}
-              onChange={(e) => setFreshCommission(e.target.value)}
-              className="w-20 h-9 text-center text-sm"
-              disabled={isSavingFresh}
-            />
-            <span className="text-xs text-gray-600">%</span>
-            <Button
-              onClick={handleSaveFreshCommission}
-              disabled={isSavingFresh}
-              className="bg-green-600 hover:bg-green-700 text-white h-9 px-3 text-xs"
-            >
-              {isSavingFresh ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Save className="w-3 h-3" />
-              )}
-            </Button>
-          </div>
-        </div>
-
-        {/* Portability Commission */}
-        <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Portability</h3>
-          <p className="text-xs text-gray-600 mb-3">
-            Applies when policy status is "Portability"
-          </p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={portabilityCommission}
-              onChange={(e) => setPortabilityCommission(e.target.value)}
-              className="w-20 h-9 text-center text-sm"
-              disabled={isSavingPortability}
-            />
-            <span className="text-xs text-gray-600">%</span>
-            <Button
-              onClick={handleSavePortabilityCommission}
-              disabled={isSavingPortability}
-              className="bg-blue-600 hover:bg-blue-700 text-white h-9 px-3 text-xs"
-            >
-              {isSavingPortability ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
               ) : (
                 <Save className="w-3 h-3" />

@@ -120,8 +120,8 @@ exports.commissionRuleService = {
         return result;
     },
     // Get commission dashboard statistics
-    async getCommissionDashboardStats(timeRange) {
-        return commissionRuleRepository_1.commissionRuleRepository.getCommissionDashboardStats(timeRange);
+    async getCommissionDashboardStats(timeRange, year) {
+        return commissionRuleRepository_1.commissionRuleRepository.getCommissionDashboardStats(timeRange, year);
     },
     // Simplified: get commission percentage for a product
     async getCommissionByProduct(policyNameId) {

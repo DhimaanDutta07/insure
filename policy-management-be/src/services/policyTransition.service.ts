@@ -3,6 +3,76 @@ import { DocumentAccessService } from './documentAccess.service';
 import prisma from '../utils/prismaClient';
 import { dashboardCache, policyListCache } from '../utils/lruCache';
 
+// Helper function to determine GST status based on policy date
+function determineGSTStatusFromDate(startDate: Date | string | null): boolean {
+  if (!startDate) return false;
+  
+  const policyDate = new Date(startDate);
+  const gstCutoffDate = new Date('2025-09-22'); // Sept 22, 2025
+  
+  // Policies before Sept 22, 2025 should have GST status true
+  return policyDate < gstCutoffDate;
+}
+
+// Helper function to calculate commission for a policy based on its term
+async function calculateCommissionForPolicy(policy: any): Promise<{
+  calculated_commission_amount: number;
+  commission_add_on_percentage: number;
+  gst_status: boolean;
+}> {
+  try {
+    // Auto-determine GST status if not set
+    const gstStatus = policy.gst_status !== undefined ? policy.gst_status : determineGSTStatusFromDate(policy.start_date);
+    
+    // Import the commission calculation function
+    const { calculateAndSetCommission } = await import('./policy.service');
+    
+    // Create policy input for commission calculation
+    const policyInput: any = {
+      policy_name_id: policy.policy_name_id,
+      policy_creation_status: policy.policy_creation_status || 'Fresh',
+      sum_insured: policy.sum_insured || 0,
+      premium_amount: policy.premium_amount,
+      gst_status: gstStatus,
+      deductible_amount_status: policy.deductible_amount_status,
+      // Add term dates for proper calculation
+      start_date: policy.start_date,
+      end_date: policy.end_date,
+    };
+    
+    console.log(`[Commission] Calculating for policy ${policy.policy_number}:`, {
+      hasPolicyNameId: !!policy.policy_name_id,
+      policyNameId: policy.policy_name_id,
+      premiumAmount: policy.premium_amount,
+      gstStatus,
+      term: `${policy.start_date} - ${policy.end_date}`,
+    });
+    
+    // Calculate commission
+    await calculateAndSetCommission(policyInput);
+    
+    console.log(`[Commission] Term-based calculation for policy ${policy.policy_number}:`, {
+      term: `${policy.start_date} - ${policy.end_date}`,
+      gstStatus,
+      commissionAmount: policyInput.calculated_commission_amount,
+      commissionPercent: policyInput.commission_add_on_percentage,
+    });
+    
+    return {
+      calculated_commission_amount: policyInput.calculated_commission_amount || 0,
+      commission_add_on_percentage: policyInput.commission_add_on_percentage || 0,
+      gst_status: gstStatus,
+    };
+  } catch (error) {
+    console.error('Error calculating commission for policy:', policy.id, error);
+    return {
+      calculated_commission_amount: 0,
+      commission_add_on_percentage: 0,
+      gst_status: policy.gst_status || false,
+    };
+  }
+}
+
 export interface CreatePolicyTransitionInput {
   parentPolicyId: string;
   transitionType: PolicyTransitionType;
@@ -501,24 +571,25 @@ export class PolicyTransitionService {
           parent_policy_id: true,
           start_date: true,
           end_date: true,
+          premium_amount: true,
+          sum_insured: true,
+          deductible_amount: true,
+          deductible_amount_status: true,
+          policy_name_id: true,
           company: { select: { id: true, name: true } },
           policyName: { select: { id: true, name: true } },
         }
       });
 
       if (!policy) {
-        console.log(`❌ [History] Policy ${currentPolicyId} not found`);
         break;
       }
 
       ancestors.push(policy);
-      console.log(`🔗 [History] Added ancestor: ${policy.policy_number} (${policy.id})`);
-
       currentPolicyId = policy.parent_policy_id || '';
       depth++;
     }
 
-    console.log(`🔗 [History] Total ancestors found: ${ancestors.length}`);
     return ancestors;
   }
   
@@ -655,13 +726,7 @@ export class PolicyTransitionService {
         children_policies: {
           include: {
             company: true,
-            policyName: true,
-            documents: true,
-            document_references: {
-              include: {
-                source_document: true
-              }
-            }
+            policyName: true
           }
         }
       }
@@ -676,25 +741,17 @@ export class PolicyTransitionService {
     // Build complete hierarchy from earliest ancestor to current policy to children
     const completeHierarchy = [];
     
-    console.log(`🔍 [PolicyHistory] Building hierarchy for policy ${policyId}`);
-    console.log(`🔍 [PolicyHistory] Found ${ancestorPolicies.length} ancestor policies`);
-    
     // Filter out the current policy from ancestors to prevent duplication
     const filteredAncestors = ancestorPolicies.filter(ancestor => ancestor.id !== policyId);
-    console.log(`🔍 [PolicyHistory] After filtering current policy: ${filteredAncestors.length} ancestors`);
     
     // Add ancestor policies (in chronological order from earliest to latest)
     // The filteredAncestors array is in reverse order (current -> parent -> grandparent -> etc.)
     // So we need to reverse it to show earliest first
     const chronologicalAncestors = [...filteredAncestors].reverse();
     
-    console.log(`🔍 [PolicyHistory] Chronological order:`, chronologicalAncestors.map(p => p.policy_number));
-    
     for (let i = 0; i < chronologicalAncestors.length; i++) {
       const ancestor = chronologicalAncestors[i];
       const isImmediateParent = i === chronologicalAncestors.length - 1;
-      
-      console.log(`🔍 [PolicyHistory] Adding ancestor ${i + 1}: ${ancestor.policy_number} (${isImmediateParent ? 'PARENT' : 'ANCESTOR'})`);
       
       completeHierarchy.push({
         policy: ancestor,
@@ -706,7 +763,6 @@ export class PolicyTransitionService {
     }
     
     // Add current policy
-    console.log(`🔍 [PolicyHistory] Adding current policy: ${policy.policy_number}`);
     completeHierarchy.push({
       policy: policy,
       relationship: 'CURRENT',
@@ -716,9 +772,7 @@ export class PolicyTransitionService {
     });
     
     // Add child policies
-    console.log(`🔍 [PolicyHistory] Adding ${policy.children_policies.length} child policies`);
     policy.children_policies.forEach(child => {
-      console.log(`🔍 [PolicyHistory] Adding child: ${child.policy_number}`);
       completeHierarchy.push({
         policy: child,
         relationship: 'CHILD',
@@ -727,14 +781,6 @@ export class PolicyTransitionService {
         generation: -1
       });
     });
-    
-    console.log(`🔍 [PolicyHistory] Final hierarchy:`, completeHierarchy.map(item => ({
-      policyNumber: item.policy.policy_number,
-      relationship: item.relationship,
-      generation: item.generation,
-      hasCompany: !!item.policy.company,
-      hasPolicyName: !!item.policy.policyName
-    })));
     
     // Add parent policy to history if exists (for backward compatibility)
     if (policy.parent_policy) {
@@ -785,6 +831,32 @@ export class PolicyTransitionService {
       } catch (e) {
         console.warn('Failed to build claimsByYear for policy', item?.policy?.id, e);
         item.claimsByYear = null;
+      }
+    }
+
+    // Enrich hierarchy with commission calculations for each term
+    for (const item of completeHierarchy as any[]) {
+      try {
+        const commissionData = await calculateCommissionForPolicy(item.policy);
+        item.commission = {
+          amount: commissionData.calculated_commission_amount,
+          percentage: commissionData.commission_add_on_percentage,
+          gst_status: commissionData.gst_status,
+        };
+        
+        console.log(`[Commission] Calculated for policy ${item.policy.policy_number}:`, {
+          amount: commissionData.calculated_commission_amount,
+          percentage: commissionData.commission_add_on_percentage,
+          gst_status: commissionData.gst_status,
+          term: `${item.policy.start_date} - ${item.policy.end_date}`,
+        });
+      } catch (e) {
+        console.warn('Failed to calculate commission for policy', item?.policy?.id, e);
+        item.commission = {
+          amount: 0,
+          percentage: 0,
+          gst_status: false,
+        };
       }
     }
 

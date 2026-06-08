@@ -103,8 +103,8 @@ export const commissionRuleService = {
   },
 
   // Get commission dashboard statistics
-  async getCommissionDashboardStats(timeRange: string) {
-    return commissionRuleRepository.getCommissionDashboardStats(timeRange);
+  async getCommissionDashboardStats(timeRange: string, year?: number) {
+    return commissionRuleRepository.getCommissionDashboardStats(timeRange, year);
   },
 
   // Simplified: get commission percentage for a product

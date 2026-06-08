@@ -538,6 +538,37 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                     {formatDate(item.policy.end_date)}
                                   </p>
                                 </div>
+                                {item.commission && (
+                                  <>
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Commission
+                                      </span>
+                                      <p className="text-xs font-semibold text-blue-600">
+                                        {formatCurrency(item.commission.amount)}
+                                        {item.commission.percentage > 0 && (
+                                          <span className="text-gray-500 ml-1">
+                                            ({item.commission.percentage}%)
+                                          </span>
+                                        )}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        GST Status
+                                      </span>
+                                      <span
+                                        className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full ${
+                                          item.commission.gst_status
+                                            ? 'bg-purple-100 text-purple-800 border-purple-200'
+                                            : 'bg-gray-100 text-gray-800 border-gray-200'
+                                        }`}
+                                      >
+                                        {item.commission.gst_status ? 'Applied' : 'Not Applied'}
+                                      </span>
+                                    </div>
+                                  </>
+                                )}
                               </div>
 
                               {/* Relationship indicator */}

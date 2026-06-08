@@ -45,6 +45,11 @@ export interface PolicyTransitionHistory {
     position: 'ANCESTOR' | 'PARENT' | 'CURRENT' | 'CHILD';
     generation: number; // Generation number (negative = child, 0 = current, positive = ancestor)
     claimsByYear?: Array<{ year: number; hasClaim: boolean; claimCount: number; totalPaid: number }>; // Optional claim summary
+    commission?: {
+      amount: number;
+      percentage: number;
+      gst_status: boolean;
+    }; // Commission data for this term
   }>;
 }
 
