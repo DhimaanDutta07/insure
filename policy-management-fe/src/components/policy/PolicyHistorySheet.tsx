@@ -8,15 +8,22 @@ import {
   Shield,
   AlertCircle,
   FileText,
+  Edit2,
+  X,
+  Save,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { Input } from "../ui/input";
+import { Label } from "../ui/label";
 import {
   PolicyTransitionService,
   PolicyTransitionHistory,
 } from "../../services/policyTransition.service";
 import type { Policy } from "../../types/index";
+import { useAuth } from "../../Context/AuthContext";
+import axios from 'axios';
 
 // Extended Policy interface to include transition_type
 interface ExtendedPolicy extends Policy {
@@ -34,9 +41,76 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
   onClose,
   policy,
 }) => {
+  const { role } = useAuth();
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<PolicyTransitionHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Check if user is admin
+  const isAdmin = role?.role_name?.toUpperCase() === 'ADMIN';
+
+  // Edit mode state
+  const [editingPolicyId, setEditingPolicyId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    policy_creation_status: string;
+    premium_amount: number;
+    sum_insured: number;
+    deductible_amount: number | null;
+    start_date: string;
+    end_date: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const API_BASE_URL = ((import.meta.env.VITE_BASE_URL as string || 'http://localhost:3001/api/v1')).replace(/\/$/, '');
+
+  const handleEdit = (item: any) => {
+    setEditingPolicyId(item.policy.id);
+    setEditFormData({
+      policy_creation_status: item.policy.policy_creation_status || 'Fresh',
+      premium_amount: item.policy.premium_amount,
+      sum_insured: item.policy.sum_insured,
+      deductible_amount: item.policy.deductible_amount || null,
+      start_date: item.policy.start_date,
+      end_date: item.policy.end_date,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingPolicyId(null);
+    setEditFormData(null);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editFormData || !editingPolicyId) return;
+
+    setSaving(true);
+    try {
+      const response = await axios.put(
+        `${API_BASE_URL}/api/v1/policies/${editingPolicyId}`,
+        editFormData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          }
+        }
+      );
+
+      if (response.status === 200) {
+        toast.success('Policy updated successfully. Commission recalculated automatically.');
+        handleCancelEdit();
+        fetchHistory(); // Refresh history to show updated commission
+      } else {
+        toast.error('Failed to update policy');
+      }
+    } catch (error: any) {
+      console.error('Error updating policy:', error);
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to update policy';
+      toast.error(errorMessage);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const fetchHistory = useCallback(async () => {
     if (!policy) return;
@@ -465,6 +539,16 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1">
+                                  {isAdmin && (
+                                    <Button
+                                      onClick={() => handleEdit(item)}
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                    </Button>
+                                  )}
                                   {item.transition_type && (
                                     <span
                                       className={`inline-flex items-center px-1.5 py-0.5 text-xs font-medium rounded-full border ${getTransitionBadgeColor(
@@ -487,58 +571,143 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                               </div>
 
                               <div className="grid grid-cols-2 gap-3 text-xs">
-                                <div>
-                                  <span className="text-xs font-medium text-gray-600">
-                                    Company
-                                  </span>
-                                  <p className="text-xs text-gray-900">
-                                    {getCompanyName(item.policy.company)}
-                                  </p>
-                                </div>
-                                <div>
-                                  <span className="text-xs font-medium text-gray-600">
-                                    Product Name
-                                  </span>
-                                  <p className="text-xs text-gray-900">
-                                    {getPolicyName(item.policy.policyName)}
-                                  </p>
-                                </div>
-                                <div>
-                                  <span className="text-xs font-medium text-gray-600">
-                                    Premium
-                                  </span>
-                                  <p className="text-xs font-semibold text-green-600">
-                                    {formatCurrency(item.policy.premium_amount)}
-                                  </p>
-                                </div>
-                                <div>
-                                  <span className="text-xs font-medium text-gray-600">
-                                    Sum Insured
-                                  </span>
-                                  <p className="text-xs font-semibold text-green-600">
-                                    {formatCurrency(item.policy.sum_insured)}
-                                  </p>
-                                </div>
-                                {item.policy.deductible_amount ? (
-                                  <div>
-                                    <span className="text-xs font-medium text-gray-600">
-                                      Deductible Amount
-                                    </span>
-                                    <p className="text-xs font-semibold text-green-600">
-                                      {formatCurrency(item.policy.deductible_amount)}
-                                    </p>
-                                  </div>
-                                ) : null}
-                                <div>
-                                  <span className="text-xs font-medium text-gray-600">
-                                    Period
-                                  </span>
-                                  <p className="text-xs text-gray-700">
-                                    {formatDate(item.policy.start_date)} -{" "}
-                                    {formatDate(item.policy.end_date)}
-                                  </p>
-                                </div>
-                                {item.commission && (
+                                {editingPolicyId === item.policy.id && editFormData ? (
+                                  <>
+                                    <div className="col-span-2">
+                                      <Label className="text-xs font-medium text-gray-600">Status</Label>
+                                      <select
+                                        value={editFormData.policy_creation_status}
+                                        onChange={(e) => setEditFormData({...editFormData, policy_creation_status: e.target.value})}
+                                        className="w-full mt-1 px-2 py-1 text-xs border rounded"
+                                      >
+                                        <option value="Fresh">Fresh</option>
+                                        <option value="Renewal">Renewal</option>
+                                        <option value="Migration">Migration</option>
+                                        <option value="Portablity">Portability</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs font-medium text-gray-600">Premium</Label>
+                                      <Input
+                                        type="number"
+                                        value={editFormData.premium_amount}
+                                        onChange={(e) => setEditFormData({...editFormData, premium_amount: Number(e.target.value)})}
+                                        className="mt-1 h-7 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs font-medium text-gray-600">Sum Insured</Label>
+                                      <Input
+                                        type="number"
+                                        value={editFormData.sum_insured}
+                                        onChange={(e) => setEditFormData({...editFormData, sum_insured: Number(e.target.value)})}
+                                        className="mt-1 h-7 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs font-medium text-gray-600">Deductible Amount</Label>
+                                      <Input
+                                        type="number"
+                                        value={editFormData.deductible_amount || ''}
+                                        onChange={(e) => setEditFormData({...editFormData, deductible_amount: e.target.value ? Number(e.target.value) : null})}
+                                        className="mt-1 h-7 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs font-medium text-gray-600">Start Date</Label>
+                                      <Input
+                                        type="date"
+                                        value={editFormData.start_date}
+                                        onChange={(e) => setEditFormData({...editFormData, start_date: e.target.value})}
+                                        className="mt-1 h-7 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs font-medium text-gray-600">End Date</Label>
+                                      <Input
+                                        type="date"
+                                        value={editFormData.end_date}
+                                        onChange={(e) => setEditFormData({...editFormData, end_date: e.target.value})}
+                                        className="mt-1 h-7 text-xs"
+                                      />
+                                    </div>
+                                    <div className="col-span-2 flex gap-2 mt-2">
+                                      <Button
+                                        onClick={handleSaveEdit}
+                                        disabled={saving}
+                                        size="sm"
+                                        className="text-xs h-7"
+                                      >
+                                        <Save className="w-3 h-3 mr-1" />
+                                        {saving ? 'Saving...' : 'Save'}
+                                      </Button>
+                                      <Button
+                                        onClick={handleCancelEdit}
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                      >
+                                        <X className="w-3 h-3 mr-1" />
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Company
+                                      </span>
+                                      <p className="text-xs text-gray-900">
+                                        {getCompanyName(item.policy.company)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Product Name
+                                      </span>
+                                      <p className="text-xs text-gray-900">
+                                        {getPolicyName(item.policy.policyName)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Premium
+                                      </span>
+                                      <p className="text-xs font-semibold text-green-600">
+                                        {formatCurrency(item.policy.premium_amount)}
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Sum Insured
+                                      </span>
+                                      <p className="text-xs font-semibold text-green-600">
+                                        {formatCurrency(item.policy.sum_insured)}
+                                      </p>
+                                    </div>
+                                    {item.policy.deductible_amount ? (
+                                      <div>
+                                        <span className="text-xs font-medium text-gray-600">
+                                          Deductible Amount
+                                        </span>
+                                        <p className="text-xs font-semibold text-green-600">
+                                          {formatCurrency(item.policy.deductible_amount)}
+                                        </p>
+                                      </div>
+                                    ) : null}
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Period
+                                      </span>
+                                      <p className="text-xs text-gray-700">
+                                        {formatDate(item.policy.start_date)} -{" "}
+                                        {formatDate(item.policy.end_date)}
+                                      </p>
+                                    </div>
+                                  </>
+                                )}
+                                {isAdmin && item.commission && (
                                   <>
                                     <div>
                                       <span className="text-xs font-medium text-gray-600">
