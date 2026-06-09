@@ -1,12 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import api from "../services/api";
-import { 
-  PieChart, 
-  Pie, 
-  Cell, 
-  Tooltip, 
-  Legend, 
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
   ResponsiveContainer,
   BarChart,
   Bar,
@@ -25,6 +25,7 @@ import {
 } from "./ui/select";
 import { useAuth } from "../Context/AuthContext";
 import { usePrefetchAll } from "../hooks/useApi";
+import { Filter, X } from "lucide-react";
 // Date utility functions
 const formatDate = (date: Date, formatStr: string) => {
   const year = date.getFullYear();
@@ -98,6 +99,9 @@ function PolicyDashBoardPage() {
   const { user, role } = useAuth();
   const [timeRange, setTimeRange] = useState("7d");
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [selectedPolicyType, setSelectedPolicyType] = useState<string>("all");
+  const [showFilters, setShowFilters] = useState(false);
   const [sessionStartTime] = useState(() => {
     const stored = localStorage.getItem("sessionStartTime");
     if (stored) return new Date(stored);
@@ -114,10 +118,12 @@ function PolicyDashBoardPage() {
 
   // React Query: dashboard stats with auto-caching
   const { data: statsData, isLoading: loading, error } = useQuery({
-    queryKey: ["dashboardStats", timeRange, selectedMonth],
+    queryKey: ["dashboardStats", timeRange, selectedMonth, selectedCompany, selectedPolicyType],
     queryFn: async () => {
       const params = new URLSearchParams({ timeRange });
       if (selectedMonth && selectedMonth !== "all") params.append("month", selectedMonth);
+      if (selectedCompany && selectedCompany !== "all") params.append("company", selectedCompany);
+      if (selectedPolicyType && selectedPolicyType !== "all") params.append("policyType", selectedPolicyType);
       const res = await api.get(`/api/v1/policies/dashboard-stats?${params}`);
       return res.data.data;
     },
@@ -202,7 +208,7 @@ const formatCurrency = (amount: number) => {
   );
 
   const Card = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-    <div className={`bg-white border border-gray-100 shadow-sm rounded-2xl hover:shadow-md transition-shadow duration-200 ${className}`}>
+    <div className={`bg-white border border-gray-100 shadow-lg shadow-gray-200/50 rounded-2xl hover:shadow-xl hover:shadow-gray-300/50 transition-all duration-300 ${className}`}>
       {children}
     </div>
   );
@@ -214,13 +220,13 @@ const formatCurrency = (amount: number) => {
   );
 
   const CardTitle = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-    <h3 className={`text-lg font-semibold text-gray-900 ${className || ''}`}>
+    <h3 className={`text-xl font-bold text-gray-900 ${className || ''}`}>
       {children}
     </h3>
   );
 
   const CardContent = ({ children, className }: { children: React.ReactNode, className?: string }) => (
-    <div className={`px-4 pb-6 ${className}`}>
+    <div className={`px-6 pb-6 ${className}`}>
       {children}
     </div>
   );
@@ -271,18 +277,18 @@ const formatCurrency = (amount: number) => {
     trend?: string;
     loading: boolean;
   }) => (
-    <Card className="overflow-hidden">
-      <CardContent className="p-3 sm:p-4">
-        <div className="flex items-start gap-2">
+    <Card className="overflow-hidden hover:scale-105 transition-transform duration-200 cursor-default">
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start gap-3">
           <div className="flex-shrink-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg flex items-center justify-center">
-              <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-purple-600" />
+            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-purple-200">
+              <Icon className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs sm:text-sm font-medium text-gray-600 mb-1 leading-tight">{title}</p>
-            <div className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 leading-tight">
-              {loading ? <Skeleton className="w-14 h-4 sm:h-5 lg:h-6" /> : value}
+            <p className="text-sm sm:text-base font-semibold text-gray-600 mb-1 leading-tight">{title}</p>
+            <div className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 leading-tight">
+              {loading ? <Skeleton className="w-20 h-6 sm:h-7 lg:h-8" /> : value}
             </div>
             {trend && (
               <p className="text-xs text-gray-500 mt-1">{trend}</p>
@@ -323,19 +329,85 @@ const formatCurrency = (amount: number) => {
           </div>
         </div>
 
-        {/* Original header controls */}
+        {/* Header controls with filters */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 lg:gap-6 mb-4 lg:mb-4">
           <div className="flex-1">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
               Dashboard Overview
             </h2>
           </div>
-          {role?.role_name === 'ADMIN' && (
-            <div className="w-[120px] flex-shrink-0">
-              <TimeRangeSelect value={timeRange} onValueChange={setTimeRange} />
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {role?.role_name === 'ADMIN' && (
+              <>
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-all duration-200"
+                >
+                  <Filter className="w-4 h-4" />
+                  Filters
+                  {(selectedCompany !== 'all' || selectedPolicyType !== 'all') && (
+                    <span className="w-2 h-2 bg-purple-500 rounded-full" />
+                  )}
+                </button>
+                <div className="w-[120px] flex-shrink-0">
+                  <TimeRangeSelect value={timeRange} onValueChange={setTimeRange} />
+                </div>
+              </>
+            )}
+          </div>
         </div>
+
+        {/* Advanced Filters Panel */}
+        {showFilters && role?.role_name === 'ADMIN' && (
+          <div className="bg-white border border-gray-200 rounded-xl p-4 mb-6 lg:mb-8 animate-in fade-in slide-in-from-top-4 duration-200">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Company</label>
+                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All Companies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Companies</SelectItem>
+                    {stats.companyDistribution?.map((company: any) => (
+                      <SelectItem key={company.company} value={company.company}>
+                        {company.company}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex-1 min-w-[200px]">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Policy Type</label>
+                <Select value={selectedPolicyType} onValueChange={setSelectedPolicyType}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    {stats.policyTypeDistribution?.map((type: any) => (
+                      <SelectItem key={type.type} value={type.type}>
+                        {type.type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  onClick={() => {
+                    setSelectedCompany('all');
+                    setSelectedPolicyType('all');
+                  }}
+                  className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors duration-200"
+                >
+                  <X className="w-4 h-4" />
+                  Clear Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Operations User Dashboard - Show time worked and simple stats */}
         {role?.role_name !== 'ADMIN' && (

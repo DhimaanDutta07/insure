@@ -835,21 +835,21 @@ const PolicyList: React.FC<PolicyListProps> = ({
           </div>
 
           {/* Filters */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search by policy number, customer name, company, or mobile number..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-gray-50 border border-gray-200 focus:border-blue-300"
+                className="pl-10 bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 rounded-lg"
               />
             </div>
             <Select
               value={policyGroupFilter}
               onValueChange={(v: string) => setPolicyGroupFilter(v)}
             >
-              <SelectTrigger className="w-full sm:w-[120px] bg-gray-50 border border-gray-200">
+              <SelectTrigger className="w-full sm:w-[140px] bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 rounded-lg">
                 <SelectValue placeholder="Policy Group" />
               </SelectTrigger>
               <SelectContent>
@@ -863,7 +863,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
               value={statusFilter}
               onValueChange={(v: PolicyStatus) => setStatusFilter(v)}
             >
-              <SelectTrigger className="w-full sm:w-[110px] bg-gray-50 border border-gray-200">
+              <SelectTrigger className="w-full sm:w-[140px] bg-white border border-gray-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all duration-200 rounded-lg">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -973,40 +973,40 @@ const PolicyList: React.FC<PolicyListProps> = ({
 
           {/* Optimized Table with Dropdown Actions */}
           <div className="mt-6">
-            <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+            <div className="rounded-xl border border-gray-200 bg-white shadow-lg shadow-gray-200/50 overflow-hidden">
               <Table className="w-full table-fixed">
                 <TableHeader>
-                  <TableRow className="border-b border-gray-200 bg-gray-50/80">
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[12%]">
+                  <TableRow className="border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100/50">
+                    <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[12%]">
                       Policy No.
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[10%]">
+                    <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[10%]">
                       Policy History
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[14%]">
+                    <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[14%]">
                       Customer Details
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[14%]">
+                    <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[14%]">
                       Company & Product
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[9%]">
+                    <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[9%]">
                       Policy Group
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-center font-semibold text-gray-700 text-xs w-[9%]">
+                    <TableHead className="h-12 px-4 text-center font-bold text-gray-800 text-xs uppercase tracking-wide w-[9%]">
                       Premium
                     </TableHead>
                     {role?.role_name === 'ADMIN' && (
-                      <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[9%]">
+                      <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[9%]">
                         Commission
                       </TableHead>
                     )}
-                    <TableHead className="h-10 px-3 text-left font-semibold text-gray-700 text-xs w-[8%]">
+                    <TableHead className="h-12 px-4 text-left font-bold text-gray-800 text-xs uppercase tracking-wide w-[8%]">
                       Period
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-center font-semibold text-gray-700 text-xs w-[6%]">
+                    <TableHead className="h-12 px-4 text-center font-bold text-gray-800 text-xs uppercase tracking-wide w-[6%]">
                       Status
                     </TableHead>
-                    <TableHead className="h-10 px-3 text-center font-semibold text-gray-700 text-xs w-[10%]">
+                    <TableHead className="h-12 px-4 text-center font-bold text-gray-800 text-xs uppercase tracking-wide w-[10%]">
                       Actions
                     </TableHead>
                   </TableRow>
@@ -1032,17 +1032,17 @@ const PolicyList: React.FC<PolicyListProps> = ({
                     paginatedPolicies.map((policy, index) => (
                       <TableRow
                         key={policy.id}
-                        className={`border-b border-gray-100 hover:bg-blue-50/30 transition-colors duration-150 cursor-pointer ${
-                          index % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'
+                        className={`border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-purple-50/30 transition-all duration-200 cursor-pointer transform hover:scale-[1.01] ${
+                          index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
                         }`}
                         onClick={() => handleViewPolicy(policy)}
                         onMouseEnter={() => prefetchPolicy(policy.id)}
                       >
 
                         {/* Policy Number */}
-                        <TableCell className="h-14 px-3 align-middle">
+                        <TableCell className="h-14 px-4 align-middle">
                           <div className="space-y-1">
-                            <span className="text-xs font-semibold text-blue-600 block truncate">
+                            <span className="text-xs font-bold text-blue-600 block truncate hover:text-blue-700 transition-colors">
                               {policy.policy_number}
                             </span>
                           </div>
