@@ -576,6 +576,9 @@ export class PolicyTransitionService {
           deductible_amount: true,
           deductible_amount_status: true,
           policy_name_id: true,
+          calculated_commission_amount: true,
+          commission_add_on_percentage: true,
+          gst_status: true,
           company: { select: { id: true, name: true } },
           policyName: { select: { id: true, name: true } },
         }
@@ -714,19 +717,67 @@ export class PolicyTransitionService {
     
     const policy = await prisma.policy.findUnique({
       where: { id: policyId },
-      include: {
-        company: true,
-        policyName: true,
+      select: {
+        id: true,
+        policy_number: true,
+        customer_name: true,
+        policy_creation_status: true,
+        transition_type: true,
+        created_at: true,
+        parent_policy_id: true,
+        start_date: true,
+        end_date: true,
+        premium_amount: true,
+        sum_insured: true,
+        deductible_amount: true,
+        deductible_amount_status: true,
+        policy_name_id: true,
+        calculated_commission_amount: true,
+        commission_add_on_percentage: true,
+        gst_status: true,
+        company: { select: { id: true, name: true } },
+        policyName: { select: { id: true, name: true } },
         parent_policy: {
-          include: {
-            company: true,
-            policyName: true
+          select: {
+            id: true,
+            policy_number: true,
+            policy_creation_status: true,
+            transition_type: true,
+            created_at: true,
+            start_date: true,
+            end_date: true,
+            premium_amount: true,
+            sum_insured: true,
+            deductible_amount: true,
+            deductible_amount_status: true,
+            policy_name_id: true,
+            calculated_commission_amount: true,
+            commission_add_on_percentage: true,
+            gst_status: true,
+            company: { select: { id: true, name: true } },
+            policyName: { select: { id: true, name: true } }
           }
         },
         children_policies: {
-          include: {
-            company: true,
-            policyName: true
+          select: {
+            id: true,
+            policy_number: true,
+            customer_name: true,
+            policy_creation_status: true,
+            transition_type: true,
+            created_at: true,
+            start_date: true,
+            end_date: true,
+            premium_amount: true,
+            sum_insured: true,
+            deductible_amount: true,
+            deductible_amount_status: true,
+            policy_name_id: true,
+            calculated_commission_amount: true,
+            commission_add_on_percentage: true,
+            gst_status: true,
+            company: { select: { id: true, name: true } },
+            policyName: { select: { id: true, name: true } }
           }
         }
       }
@@ -834,30 +885,13 @@ export class PolicyTransitionService {
       }
     }
 
-    // Enrich hierarchy with commission calculations for each term
+    // Use pre-calculated commission values from database (no recalculation needed)
     for (const item of completeHierarchy as any[]) {
-      try {
-        const commissionData = await calculateCommissionForPolicy(item.policy);
-        item.commission = {
-          amount: commissionData.calculated_commission_amount,
-          percentage: commissionData.commission_add_on_percentage,
-          gst_status: commissionData.gst_status,
-        };
-        
-        console.log(`[Commission] Calculated for policy ${item.policy.policy_number}:`, {
-          amount: commissionData.calculated_commission_amount,
-          percentage: commissionData.commission_add_on_percentage,
-          gst_status: commissionData.gst_status,
-          term: `${item.policy.start_date} - ${item.policy.end_date}`,
-        });
-      } catch (e) {
-        console.warn('Failed to calculate commission for policy', item?.policy?.id, e);
-        item.commission = {
-          amount: 0,
-          percentage: 0,
-          gst_status: false,
-        };
-      }
+      item.commission = {
+        amount: item.policy.calculated_commission_amount || 0,
+        percentage: item.policy.commission_add_on_percentage || 0,
+        gst_status: item.policy.gst_status || false,
+      };
     }
 
     return {
