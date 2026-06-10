@@ -1,8 +1,7 @@
 import { Request, Response } from "express";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { z } from 'zod';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 // Validation schemas
 const createPolicyTypeSchema = z.object({

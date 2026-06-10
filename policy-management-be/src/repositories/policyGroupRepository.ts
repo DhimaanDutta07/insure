@@ -1,6 +1,5 @@
 import { PrismaClient, PolicyGroup, PolicyName } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export const createPolicyGroup = async (data: { name: string; description?: string }): Promise<PolicyGroup> => {
   return prisma.policyGroup.create({ data });

@@ -1,6 +1,5 @@
 import { PrismaClient, Agent } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export const agentService = {
   // Create a new agent

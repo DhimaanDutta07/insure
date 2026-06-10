@@ -1,6 +1,5 @@
 import { PrismaClient, Revenue } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export async function findRevenuesByTimePeriod(siteId: string | null, period: string): Promise<Revenue[]> {
   const today = new Date();

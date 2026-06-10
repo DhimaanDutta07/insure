@@ -908,12 +908,9 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                                   >
                                                     <option value="Self">Self</option>
                                                     <option value="Spouse">Spouse</option>
-                                                    <option value="Son">Son</option>
-                                                    <option value="Daughter">Daughter</option>
-                                                    <option value="Father">Father</option>
-                                                    <option value="Mother">Mother</option>
-                                                    <option value="Brother">Brother</option>
-                                                    <option value="Sister">Sister</option>
+                                                    <option value="Child">Child</option>
+                                                    <option value="Parent">Parent</option>
+                                                    <option value="Sibling">Sibling</option>
                                                     <option value="Other">Other</option>
                                                   </select>
                                                 </div>

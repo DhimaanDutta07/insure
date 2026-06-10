@@ -1,6 +1,5 @@
 import { PrismaClient, PolicyTransitionType, DocumentCategory } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export interface DocumentWithAccess {
   id: string;

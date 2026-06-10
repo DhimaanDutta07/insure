@@ -1,6 +1,5 @@
 import { PrismaClient, Enquiry, User } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 type CreateEnquiryInput = Omit<Enquiry, "id" | "createdAt" | "updatedAt" | "is_deleted">;
 type UpdateEnquiryInput = Partial<CreateEnquiryInput> & {

@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
+import { prismaDirect } from './src/utils/prismaClient';
 
-const prisma = new PrismaClient();
+const prisma = prismaDirect;
 
 async function updateHDFCCommissionRules() {
   try {

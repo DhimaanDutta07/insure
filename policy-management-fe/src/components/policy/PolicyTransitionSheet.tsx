@@ -768,10 +768,9 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                               <SelectContent>
                                 <SelectItem value="Self">Self</SelectItem>
                                 <SelectItem value="Spouse">Spouse</SelectItem>
-                                <SelectItem value="Son">Son</SelectItem>
-                                <SelectItem value="Daughter">Daughter</SelectItem>
-                                <SelectItem value="Father">Father</SelectItem>
-                                <SelectItem value="Mother">Mother</SelectItem>
+                                <SelectItem value="Child">Child</SelectItem>
+                                <SelectItem value="Parent">Parent</SelectItem>
+                                <SelectItem value="Sibling">Sibling</SelectItem>
                                 <SelectItem value="Other">Other</SelectItem>
                               </SelectContent>
                             </Select>

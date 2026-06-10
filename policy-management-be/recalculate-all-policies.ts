@@ -1,7 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { calculateAndSetCommission } from './src/services/policy.service';
+import { prismaDirect } from './src/utils/prismaClient';
 
-const prisma = new PrismaClient();
+const prisma = prismaDirect;
 
 async function recalculateAllPolicies() {
   try {

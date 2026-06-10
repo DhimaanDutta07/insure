@@ -1,6 +1,5 @@
 import { PrismaClient, CompanyFormField } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export const companyFormFieldService = {
   // Create a new company form field

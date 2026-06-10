@@ -1,8 +1,7 @@
 import { PrismaClient, PolicyReceipt, UploadedDocument, FileType, DocumentCategory } from '@prisma/client';
 import { AppError } from '../utils/AppError';
 import { getCleanImageUrl } from '../controllers/policyReceiptController';
-
-const prisma = new PrismaClient();
+import prisma from '../utils/prismaClient';
 
 export interface PolicyReceiptData {
   policy_number: string;
