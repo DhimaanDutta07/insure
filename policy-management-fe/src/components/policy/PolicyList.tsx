@@ -750,16 +750,26 @@ const PolicyList: React.FC<PolicyListProps> = ({
     console.log("Attempting to delete policy:", policyToDelete.id);
     
     try {
+      let response;
       if (onDeletePolicy) {
         await onDeletePolicy(policyToDelete.id);
       } else {
         const token = localStorage.getItem("authToken");
-        await axios.delete(
+        const res = await axios.delete(
           `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyToDelete.id}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
+        response = res.data;
       }
-      toast.success("Policy deleted successfully");
+      
+      const deletedCount = response?.deletedCount || 1;
+      
+      if (deletedCount > 1) {
+        toast.success(`Successfully deleted ${deletedCount} policies from the chain`);
+      } else {
+        toast.success("Policy deleted successfully");
+      }
+      
       setDeleteDialogOpen(false);
       setPolicyToDelete(null);
       policiesQuery.refetch();
@@ -1464,14 +1474,23 @@ const PolicyList: React.FC<PolicyListProps> = ({
               <DialogHeader>
                 <DialogTitle className="text-left">Confirm Deletion</DialogTitle>
                 <DialogDescription>
-                  Please confirm that you want to delete this policy. This action cannot be undone.
+                  This will delete the entire policy chain including all renewals, migrations, portabilities, claims, and related documents.
                 </DialogDescription>
               </DialogHeader>
               <div className="py-4">
-                <span className="text-red-500 font-extrabold">* </span>
-                Are you sure you want to delete this policy? This action cannot be undone.
+                <span className="text-red-500 font-extrabold">⚠️ WARNING: </span>
+                <span className="text-red-600 font-semibold">This will delete the ENTIRE policy chain:</span>
+                <ul className="mt-2 ml-6 list-disc text-sm text-red-600">
+                  <li>Original policy (fresh)</li>
+                  <li>All renewals</li>
+                  <li>All migrations</li>
+                  <li>All portabilities</li>
+                  <li>All claims</li>
+                  <li>All documents and receipts</li>
+                  <li>All members and proposers</li>
+                </ul>
                 {policyToDelete && (
-                  <div className="mt-4 p-3 bg-gray-50 rounded">
+                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded">
                     <p className="text-sm font-medium text-gray-800">
                       Policy: {policyToDelete.policy_number}
                     </p>
