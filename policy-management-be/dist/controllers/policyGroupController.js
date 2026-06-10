@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getAllPolicyNames = exports.deletePolicyName = exports.updatePolicyName = exports.getPolicyName = exports.getPolicyNames = exports.createPolicyName = exports.deletePolicyGroup = exports.updatePolicyGroup = exports.getPolicyGroup = exports.getAllPolicyGroups = exports.createPolicyGroup = void 0;
+exports.createPolicyNameDirect = exports.getAllPolicyNames = exports.deletePolicyName = exports.updatePolicyName = exports.getPolicyName = exports.getPolicyNames = exports.createPolicyName = exports.deletePolicyGroup = exports.updatePolicyGroup = exports.getPolicyGroup = exports.getAllPolicyGroups = exports.createPolicyGroup = void 0;
 const policyGroupService_1 = require("../services/policyGroupService");
 const policyGroupSchema_1 = require("../schemas/policyGroupSchema");
 const errorHandler_1 = require("../utils/errorHandler");
@@ -111,4 +111,37 @@ exports.getAllPolicyNames = (0, errorHandler_1.asyncTryCatch)(async (req, res) =
         return;
     }
     res.status(200).json(policyNames);
+});
+// Create policy name directly with company_id (for commission dashboard product management)
+exports.createPolicyNameDirect = (0, errorHandler_1.asyncTryCatch)(async (req, res) => {
+    const { name, description, company_id, commission_percent = 10 } = req.body;
+    if (!name || !company_id) {
+        res.status(400).json({ error: 'Name and company_id are required' });
+        return;
+    }
+    const policyName = await prisma.policyName.create({
+        data: {
+            name,
+            description: description || null,
+            company_id,
+        },
+        include: {
+            company: true,
+            policyGroup: true,
+        }
+    });
+    // Create a single simple flat commission rule (no complex filters - like OPTIMA RESTORE)
+    // Use default values for required fields, but set siCondition to null to avoid SI classification
+    await prisma.commissionRule.create({
+        data: {
+            policy_name_id: policyName.id,
+            commissionPercent: commission_percent,
+            policyStatus: 'Fresh',
+            deductibleType: 'ALL_SI',
+            ageCondition: 'LESS_THAN_60',
+            siCondition: null,
+            is_active: true,
+        }
+    });
+    res.status(201).json(policyName);
 });

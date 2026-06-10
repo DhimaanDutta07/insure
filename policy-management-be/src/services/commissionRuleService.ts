@@ -6,20 +6,49 @@ import prisma from '../utils/prismaClient';
 
 export const commissionRuleService = {
   async createCommissionRule(data: any): Promise<any> {
-    // Check for duplicate rule with targeted DB query instead of loading all rules
-    const existing = await commissionRuleRepository.findByCompositeKey({
+    console.log('[Service] Creating commission rule with data:', data);
+
+    // Check for duplicate rule with targeted DB query
+    // For custom SI thresholds, include those in the duplicate check
+    const whereClause: any = {
       policy_name_id: data.policy_name_id,
       policyStatus: data.policyStatus,
       deductibleType: data.deductibleType,
       ageCondition: data.ageCondition,
-      productType: data.productType,
-      siCondition: data.siCondition,
+    };
+
+    if (data.productType !== undefined) {
+      whereClause.productType = data.productType;
+    }
+    if (data.siCondition !== undefined) {
+      whereClause.siCondition = data.siCondition;
+    }
+    if (data.deductibleStatus !== undefined) {
+      whereClause.deductibleStatus = data.deductibleStatus;
+    }
+
+    // If custom SI fields are present, include them in duplicate check
+    if (data.customSIThreshold !== undefined) {
+      whereClause.customSIThreshold = data.customSIThreshold;
+    }
+    if (data.customSIOperator !== undefined) {
+      whereClause.customSIOperator = data.customSIOperator;
+    }
+
+    console.log('[Service] Checking for existing rule with whereClause:', whereClause);
+    const existing = await prisma.commissionRule.findFirst({
+      where: whereClause,
     });
+
+    console.log('[Service] Existing rule found:', existing ? existing.id : 'none');
+
     if (existing) {
       throw new Error('A commission rule with the same conditions already exists.');
     }
     commissionStatsCache.deleteByPrefix('commissionRules');
-    return commissionRuleRepository.create(data);
+    const result = commissionRuleRepository.create(data);
+    console.log('[Service] Rule created successfully');
+    return result;
   },
 
   async getAllCommissionRules(): Promise<CommissionRule[]> {
@@ -54,7 +83,12 @@ export const commissionRuleService = {
   },
 
   async deleteCommissionRule(id: string) {
-    return commissionRuleRepository.delete(id);
+    const result = await commissionRuleRepository.delete(id);
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+    commissionStatsCache.deleteByPrefix('commissionRules');
+    return result;
   },
 
   // New search and pagination method

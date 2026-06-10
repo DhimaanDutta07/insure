@@ -16,6 +16,13 @@ import { Textarea } from "../ui/textarea";
 import DocumentPreviewModal from "../ui/DocumentPreviewModal";
 import { commissionCalculationService } from "../../services/commissionCalculation.service";
 import { useAuth } from "../../Context/AuthContext";
+import {
+  useCompanies,
+  usePolicyNames,
+  usePolicyTypes,
+  usePolicyGroups,
+  useCommissionRules,
+} from "../../hooks/useApi";
 // import { Checkbox } from "../ui/checkbox"; // Commented out as declaration section is hidden
 
 export type PolicyType =
@@ -106,12 +113,6 @@ export interface PolicyFormData {
   remarks?: string;
 }
 
-interface Company {
-  id: string;
-  name: string;
-  category: string;
-}
-
 interface PolicyFormProps {
   onSubmit: () => void;
   onClose?: () => void;
@@ -127,16 +128,14 @@ const HIDE_DEDUCTIBLE_FOR = ["ICICI LOMBARD"];
 
 const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const { hasPermission } = useAuth();
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [policyNames, setPolicyNames] = useState<
-    { id: string; name: string; company_id?: string }[]
-  >([]);
-  const [policyTypes, setPolicyTypes] = useState<
-    { id: string; name: string }[]
-  >([]);
-  const [policyGroups, setPolicyGroups] = useState<
-    { id: string; name: string }[]
-  >([]);
+  
+  // Use React Query hooks for instant data loading with caching
+  const { data: companies = [] } = useCompanies();
+  const { data: policyNames = [] } = usePolicyNames();
+  const { data: policyTypes = [] } = usePolicyTypes();
+  const { data: policyGroups = [] } = usePolicyGroups();
+  const { data: commissionRules = [] } = useCommissionRules();
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // File upload states
@@ -157,11 +156,16 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     calculated_commission_amount: number;
     base_percentage: number;
     rule_found: boolean;
+    si_condition?: string;
+    custom_si_threshold?: number;
+    custom_si_operator?: string;
   }>({
     calculated_commission_amount: 0,
     base_percentage: 0,
     rule_found: false,
   });
+
+  const [commissionPercentage, setCommissionPercentage] = useState<number | null>(null);
 
   const {
     register,
@@ -209,77 +213,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     name: "members",
   });
 
-  useEffect(() => {
-    const fetchCompanies = async () => {
-      try {
-        const res = await axios.get(
-          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-            },
-          }
-        );
-        setCompanies(res.data);
-      } catch {
-        toast.error("Failed to load companies");
-      }
-    };
-
-    const fetchPolicyNames = async () => {
-      try {
-        const res = await axios.get(
-          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-            },
-          }
-        );
-        setPolicyNames(res.data);
-      } catch {
-        toast.error("Failed to load policy names");
-      }
-    };
-
-    const fetchPolicyTypes = async () => {
-      try {
-        const res = await axios.get(
-          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-types`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-            },
-          }
-        );
-        setPolicyTypes(res.data);
-      } catch {
-        toast.error("Failed to load policy types");
-      }
-    };
-    const fetchPolicyGroups = async () => {
-      try {
-        const res = await axios.get(
-          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-            },
-          }
-        );
-        setPolicyGroups(
-          Array.isArray(res.data.policyGroups) ? res.data.policyGroups : []
-        );
-      } catch {
-        toast.error("Failed to load policy groups");
-      }
-    };
-
-    fetchCompanies();
-    fetchPolicyNames();
-    fetchPolicyTypes();
-    fetchPolicyGroups();
-  }, []);
+  // Data is now loaded via React Query hooks with caching - no manual fetch needed
 
   // Cleanup URLs when component unmounts
   useEffect(() => {
@@ -303,6 +237,43 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const wPolicyCreationStatus = watch("policy_creation_status");
   const wStartDate = watch("start_date");
   const wTenureYears = watch("tenure_years");
+
+  // Fetch commission percentage when product is selected
+  useEffect(() => {
+    const fetchCommissionPercentage = async () => {
+      if (!wPolicyNameId) {
+        setCommissionPercentage(null);
+        return;
+      }
+
+      try {
+        const res = await axios.get(
+          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/policy-name/${wPolicyNameId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+            },
+          }
+        );
+        
+        if (res.data && res.data.length > 0) {
+          // Get the first active commission rule
+          const activeRule = res.data.find((rule: any) => rule.is_active);
+          if (activeRule) {
+            setCommissionPercentage(activeRule.commissionPercent);
+          } else {
+            setCommissionPercentage(null);
+          }
+        } else {
+          setCommissionPercentage(null);
+        }
+      } catch (error) {
+        setCommissionPercentage(null);
+      }
+    };
+
+    fetchCommissionPercentage();
+  }, [wPolicyNameId]);
 
   // Commission calculation function
   const calculateCommission = useCallback(async () => {
@@ -643,6 +614,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     selectedCompany && HIDE_DEDUCTIBLE_FOR.includes(selectedCompany.name);
 
   // Filter policy names by selected company; when no company selected, keep list empty
+  // Use the same logic as CommissionRule to show products that have commission rules
   const filteredPolicyNames = selectedCompanyId
     ? (() => {
         const filtered = policyNames.filter((pn) => pn.company_id === selectedCompanyId);
@@ -656,30 +628,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
           filteredIds: filtered.map(p => ({ id: p.id, name: p.name, company_id: p.company_id })),
         });
 
-        if (company?.name === 'HDFC ERGO') {
-          const hdfcProducts = [
-            'OPTIMA RESTORE',
-            'OPTIMA SECURE',
-            'OPTIMA SUPER SECURE',
-            'ENERGY',
-            'EASY HEALTH',
-            'KOTI SURAKSHA',
-            'IPA',
-            'TRAVEL',
-            'OTHERS',
-            'STU',
-            'PA',
-            'SME',
-          ];
-          const hdfcFiltered = filtered.filter((pn) => hdfcProducts.includes(pn.name));
-          console.log('[PolicyForm] HDFC filtered:', hdfcFiltered.map(p => ({ id: p.id, name: p.name })));
-          // Deduplicate by name to ensure no duplicate product names
-          const uniqueMap = new Map(hdfcFiltered.map(pn => [pn.name, pn]));
-          return Array.from(uniqueMap.values())
-            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-        }
-
-        // Deduplicate by name for other companies
+        // Deduplicate by name to ensure no duplicate product names
         const uniqueMap = new Map(filtered.map(pn => [pn.name, pn]));
         return Array.from(uniqueMap.values())
           .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
@@ -691,11 +640,17 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     setValue("policy_name_id", undefined, { shouldValidate: true });
   }, [selectedCompanyId, setValue]);
 
-  // Determine if product has classifications
+  // Determine if product has classifications - check actual commission rules instead of name patterns
   const selectedPolicyName = policyNames.find(pn => pn.id === wPolicyNameId);
   const productName = selectedPolicyName?.name?.toUpperCase() || '';
   const companyName = companies.find(c => c.id === selectedCompanyId)?.name || '';
 
+  // Check actual commission rules for this product to determine if it has complex classifications
+  // This allows products like "OPTIMA SECURE +" to have simple single-rate if they have no complex rules
+  const commissionRulesArray = Array.isArray(commissionRules) ? commissionRules : [];
+  const productCommissionRules = commissionRulesArray.filter((rule: any) => rule.policy_name_id === wPolicyNameId);
+
+  // Fallback to name-based classification only if no rules exist yet (for new products)
   const isOptimaSecure = productName.includes('OPTIMA SECURE');
   const isOtherRetailHealth = companyName === 'HDFC ERGO' && productName === 'OTHERS';
   const isSTU = companyName === 'HDFC ERGO' && productName === 'STU';
@@ -704,14 +659,25 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const isTravel = companyName === 'HDFC ERGO' && productName === 'TRAVEL';
 
   let availableStatuses: ("Fresh" | "Renewal" | "Migration" | "Portablity")[] = ["Fresh", "Renewal", "Migration", "Portablity"];
-  if (isOptimaSecure || isOtherRetailHealth) {
-    availableStatuses = ["Fresh", "Portablity", "Renewal"];
-  } else if (isSTU) {
-    availableStatuses = ["Fresh", "Portablity", "Renewal"];
-  } else if (isPA || isSME) {
-    availableStatuses = ["Fresh", "Renewal"];
-  } else if (isTravel) {
-    availableStatuses = ["Fresh", "Renewal"];
+  
+  // Use actual rule classification if rules exist, otherwise fall back to name patterns
+  if (productCommissionRules.length > 0) {
+    // Extract unique statuses from actual rules
+    const uniqueStatuses = Array.from(new Set(productCommissionRules.map((rule: any) => rule.policyStatus).filter(Boolean)));
+    if (uniqueStatuses.length > 0) {
+      availableStatuses = uniqueStatuses as ("Fresh" | "Renewal" | "Migration" | "Portablity")[];
+    }
+  } else {
+    // No rules yet - use name-based classification for backward compatibility
+    if (isOptimaSecure || isOtherRetailHealth) {
+      availableStatuses = ["Fresh", "Portablity", "Renewal"];
+    } else if (isSTU) {
+      availableStatuses = ["Fresh", "Portablity", "Renewal"];
+    } else if (isPA || isSME) {
+      availableStatuses = ["Fresh", "Renewal"];
+    } else if (isTravel) {
+      availableStatuses = ["Fresh", "Renewal"];
+    }
   }
 
   // Reset irrelevant fields when company changes
@@ -1321,6 +1287,11 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
                 ))}
               </SelectContent>
             </Select>
+            {commissionPercentage !== null && (
+              <p className="text-xs text-green-600 mt-1">
+                Commission Rate: {commissionPercentage}%
+              </p>
+            )}
           </div>
           {/* Hidden field to register and submit customer_name synced from proposer.full_name */}
           <input
@@ -1620,6 +1591,18 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
                   className="h-9 text-sm bg-gray-50"
                   readOnly
                 />
+                {/* Display SI condition and commission percentage */}
+                {calculatedCommission.rule_found && (
+                  <div className="mt-1 text-xs text-gray-600">
+                    <span className="font-medium">{calculatedCommission.base_percentage}%</span>
+                    {calculatedCommission.si_condition && calculatedCommission.si_condition !== 'ALL_SI' && (
+                      <span> • {calculatedCommission.si_condition === 'LESS_THAN_10_LAKHS' ? 'SI < ₹10L' : calculatedCommission.si_condition === 'GREATER_EQUAL_10_LAKHS' ? 'SI ≥ ₹10L' : calculatedCommission.si_condition}</span>
+                    )}
+                    {calculatedCommission.custom_si_threshold && calculatedCommission.custom_si_operator && (
+                      <span> • SI {calculatedCommission.custom_si_operator === 'LESS_THAN' ? '<' : '>'} ₹{calculatedCommission.custom_si_threshold >= 100000 ? (calculatedCommission.custom_si_threshold / 100000).toFixed(0) + 'L' : calculatedCommission.custom_si_threshold.toLocaleString()}</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {/* Commission is now auto-calculated silently in the background */}

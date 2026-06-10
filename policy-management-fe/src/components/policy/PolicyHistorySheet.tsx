@@ -11,6 +11,10 @@ import {
   Edit2,
   X,
   Save,
+  Plus,
+  Download,
+  File,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../ui/sheet";
@@ -46,8 +50,10 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
   const [history, setHistory] = useState<PolicyTransitionHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Check if user is admin
+  // Check if user is admin or operations
   const isAdmin = role?.role_name?.toUpperCase() === 'ADMIN';
+  const isOperations = role?.role_name?.toUpperCase() === 'OPERATIONS';
+  const canEdit = isAdmin || isOperations;
 
   // Edit mode state
   const [editingPolicyId, setEditingPolicyId] = useState<string | null>(null);
@@ -58,10 +64,17 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
     deductible_amount: number | null;
     start_date: string;
     end_date: string;
+    insured_members?: any[];
   } | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const API_BASE_URL = ((import.meta.env.VITE_BASE_URL as string || 'http://localhost:3001/api/v1')).replace(/\/$/, '');
+  // Document upload state for edit mode
+  const [editUploadedFiles, setEditUploadedFiles] = useState<File[]>([]);
+
+  // Deletion loading state
+  const [deletingPolicyId, setDeletingPolicyId] = useState<string | null>(null);
+
+  const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
 
   const handleEdit = (item: any) => {
     setEditingPolicyId(item.policy.id);
@@ -70,14 +83,17 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
       premium_amount: item.policy.premium_amount,
       sum_insured: item.policy.sum_insured,
       deductible_amount: item.policy.deductible_amount || null,
-      start_date: item.policy.start_date,
-      end_date: item.policy.end_date,
+      start_date: item.policy.start_date ? new Date(item.policy.start_date).toISOString().split('T')[0] : '',
+      end_date: item.policy.end_date ? new Date(item.policy.end_date).toISOString().split('T')[0] : '',
+      insured_members: item.policy.proposer?.insured_members || [],
     });
+    setEditUploadedFiles([]);
   };
 
   const handleCancelEdit = () => {
     setEditingPolicyId(null);
     setEditFormData(null);
+    setEditUploadedFiles([]);
   };
 
   const handleSaveEdit = async () => {
@@ -85,15 +101,38 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
 
     setSaving(true);
     try {
-      const response = await axios.put(
-        `${API_BASE_URL}/api/v1/policies/${editingPolicyId}`,
-        editFormData,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      // Filter out incomplete members (only include members with at least a name)
+      const validMembers = editFormData.insured_members?.filter(
+        (member: any) => member.name && member.name.trim() !== ''
+      ) || [];
+
+      // Create FormData if there are files to upload
+      let payload: any = { ...editFormData, insured_members: validMembers };
+      let headers: any = {
+        'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      };
+
+      if (editUploadedFiles.length > 0) {
+        const formData = new FormData();
+        Object.entries(payload).forEach(([key, value]) => {
+          if (key === 'insured_members') {
+            formData.append(key, JSON.stringify(value));
+          } else if (value !== undefined && value !== null && value !== '') {
+            formData.append(key, String(value));
           }
-        }
+        });
+        editUploadedFiles.forEach((file) => {
+          formData.append('documents', file);
+        });
+        payload = formData;
+      } else {
+        headers['Content-Type'] = 'application/json';
+      }
+
+      const response = await axios.patch(
+        `${API_BASE_URL}/api/v1/policies/${editingPolicyId}`,
+        payload,
+        { headers }
       );
 
       if (response.status === 200) {
@@ -105,10 +144,82 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
       }
     } catch (error: any) {
       console.error('Error updating policy:', error);
-      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to update policy';
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error response:', error.response?.data);
+        console.error('Axios error status:', error.response?.status);
+        console.error('Axios error config:', error.config);
+      }
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.response?.data?.details || 'Failed to update policy';
       toast.error(errorMessage);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (item: any) => {
+    if (!confirm(`Are you sure you want to delete this policy term ${item.policy.policy_number}? This will only delete this term, not the entire policy chain.`)) {
+      return;
+    }
+
+    setDeletingPolicyId(item.policy.id);
+    try {
+      const response = await axios.delete(
+        `${API_BASE_URL}/api/v1/policies/${item.policy.id}/term`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          }
+        }
+      );
+
+      if (response.status === 200) {
+        toast.success('Policy term deleted successfully.');
+        fetchHistory(); // Refresh history
+      } else {
+        toast.error('Failed to delete policy');
+      }
+    } catch (error: any) {
+      console.error('Error deleting policy:', error);
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to delete policy';
+      toast.error(errorMessage);
+    } finally {
+      setDeletingPolicyId(null);
+    }
+  };
+
+  const handleRollback = async (item: any) => {
+    const hasParent = item.policy.parent_policy_id || item.relationship === 'CHILD';
+    const message = hasParent
+      ? `Are you sure you want to rollback to the previous policy term? This will delete the current term ${item.policy.policy_number} and restore the previous term.`
+      : `Are you sure you want to delete this policy? This will remove the entire policy as there is no previous term to rollback to.`;
+
+    if (!confirm(message)) {
+      return;
+    }
+
+    setDeletingPolicyId(item.policy.id);
+    try {
+      const response = await axios.delete(
+        `${API_BASE_URL}/api/v1/policies/${item.policy.id}/term`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          }
+        }
+      );
+
+      if (response.status === 200) {
+        toast.success(hasParent ? 'Rolled back to previous policy term successfully.' : 'Policy deleted successfully.');
+        fetchHistory(); // Refresh history
+      } else {
+        toast.error('Failed to rollback');
+      }
+    } catch (error: any) {
+      console.error('Error rolling back:', error);
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to rollback';
+      toast.error(errorMessage);
+    } finally {
+      setDeletingPolicyId(null);
     }
   };
 
@@ -539,7 +650,7 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1">
-                                  {isAdmin && (
+                                  {canEdit && (
                                     <Button
                                       onClick={() => handleEdit(item)}
                                       variant="ghost"
@@ -547,6 +658,37 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                       className="h-6 w-6 p-0"
                                     >
                                       <Edit2 className="w-3 h-3" />
+                                    </Button>
+                                  )}
+                                  {isAdmin && item.relationship === 'CURRENT' && (
+                                    <Button
+                                      onClick={() => handleRollback(item)}
+                                      disabled={deletingPolicyId === item.policy.id}
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                      title="Rollback to previous term"
+                                    >
+                                      {deletingPolicyId === item.policy.id ? (
+                                        <div className="w-3 h-3 border-2 border-orange-600 border-t-transparent rounded-full animate-spin" />
+                                      ) : (
+                                        <RotateCcw className="w-3 h-3" />
+                                      )}
+                                    </Button>
+                                  )}
+                                  {isAdmin && item.relationship !== 'CURRENT' && (
+                                    <Button
+                                      onClick={() => handleDelete(item)}
+                                      disabled={deletingPolicyId === item.policy.id}
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    >
+                                      {deletingPolicyId === item.policy.id ? (
+                                        <div className="w-3 h-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                                      ) : (
+                                        <X className="w-3 h-3" />
+                                      )}
                                     </Button>
                                   )}
                                   {item.transition_type && (
@@ -590,7 +732,7 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                       <Label className="text-xs font-medium text-gray-600">Premium</Label>
                                       <Input
                                         type="number"
-                                        value={editFormData.premium_amount}
+                                        value={editFormData.premium_amount || ''}
                                         onChange={(e) => setEditFormData({...editFormData, premium_amount: Number(e.target.value)})}
                                         className="mt-1 h-7 text-xs"
                                       />
@@ -599,7 +741,7 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                       <Label className="text-xs font-medium text-gray-600">Sum Insured</Label>
                                       <Input
                                         type="number"
-                                        value={editFormData.sum_insured}
+                                        value={editFormData.sum_insured || ''}
                                         onChange={(e) => setEditFormData({...editFormData, sum_insured: Number(e.target.value)})}
                                         className="mt-1 h-7 text-xs"
                                       />
@@ -650,6 +792,165 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                         <X className="w-3 h-3 mr-1" />
                                         Cancel
                                       </Button>
+                                    </div>
+                                    <div className="col-span-2 mt-3 pt-3 border-t border-gray-200">
+                                      <Label className="text-xs font-medium text-gray-600">Upload Documents</Label>
+                                      <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-3 bg-gray-50">
+                                        <input
+                                          type="file"
+                                          id="edit-document-upload"
+                                          multiple
+                                          accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xlsx,.xls,.csv"
+                                          onChange={(e) => {
+                                            const files = Array.from(e.target.files || []);
+                                            setEditUploadedFiles([...editUploadedFiles, ...files]);
+                                          }}
+                                          className="hidden"
+                                        />
+                                        <label
+                                          htmlFor="edit-document-upload"
+                                          className="flex flex-col items-center justify-center cursor-pointer"
+                                        >
+                                          <Plus className="w-6 h-6 text-gray-400 mb-1" />
+                                          <p className="text-xs text-gray-600">Click to upload documents</p>
+                                        </label>
+                                      </div>
+                                      {editUploadedFiles.length > 0 && (
+                                        <div className="mt-2 space-y-1">
+                                          {editUploadedFiles.map((file, index) => (
+                                            <div key={index} className="flex items-center justify-between p-1 bg-white border border-gray-200 rounded text-xs">
+                                              <span className="text-gray-700">{file.name}</span>
+                                              <Button
+                                                type="button"
+                                                onClick={() => {
+                                                  setEditUploadedFiles(editUploadedFiles.filter((_, i) => i !== index));
+                                                }}
+                                                size="sm"
+                                                variant="ghost"
+                                                className="h-5 w-5 p-0 text-red-600"
+                                              >
+                                                <X className="w-2 h-2" />
+                                              </Button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="col-span-2 mt-3 pt-3 border-t border-gray-200">
+                                      <div className="flex justify-between items-center mb-2">
+                                        <Label className="text-xs font-medium text-gray-600">Members ({editFormData.insured_members?.length || 0})</Label>
+                                        <Button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditFormData({
+                                              ...editFormData,
+                                              insured_members: [...(editFormData.insured_members || []), {
+                                                name: '',
+                                                relation_to_proposer: 'Self',
+                                                date_of_birth: '',
+                                                gender: 'Male',
+                                              }]
+                                            });
+                                          }}
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 text-xs"
+                                        >
+                                          <Plus className="w-3 h-3 mr-1" />
+                                          Add Member
+                                        </Button>
+                                      </div>
+                                      {editFormData.insured_members && editFormData.insured_members.length > 0 && (
+                                        <div className="space-y-3 max-h-60 overflow-y-auto">
+                                          {editFormData.insured_members.map((member: any, mIndex: number) => (
+                                            <div key={mIndex} className="p-3 bg-gray-50 rounded border border-gray-200">
+                                              <div className="flex justify-between items-start mb-2">
+                                                <span className="text-xs font-medium text-gray-700">Member {mIndex + 1}</span>
+                                                <Button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setEditFormData({
+                                                      ...editFormData,
+                                                      insured_members: editFormData.insured_members!.filter((_, i) => i !== mIndex)
+                                                    });
+                                                  }}
+                                                  size="sm"
+                                                  variant="ghost"
+                                                  className="h-6 w-6 p-0 text-red-600"
+                                                >
+                                                  <X className="w-3 h-3" />
+                                                </Button>
+                                              </div>
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                  <Label className="text-[10px] font-medium text-gray-600">Name *</Label>
+                                                  <Input
+                                                    value={member.name || ''}
+                                                    onChange={(e) => {
+                                                      const updated = [...editFormData.insured_members!];
+                                                      updated[mIndex].name = e.target.value;
+                                                      setEditFormData({ ...editFormData, insured_members: updated });
+                                                    }}
+                                                    placeholder="Full Name"
+                                                    className="h-6 text-xs mt-1"
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <Label className="text-[10px] font-medium text-gray-600">Relation *</Label>
+                                                  <select
+                                                    value={member.relation_to_proposer || 'Self'}
+                                                    onChange={(e) => {
+                                                      const updated = [...editFormData.insured_members!];
+                                                      updated[mIndex].relation_to_proposer = e.target.value;
+                                                      setEditFormData({ ...editFormData, insured_members: updated });
+                                                    }}
+                                                    className="w-full mt-1 px-2 py-1 text-xs border rounded h-6"
+                                                  >
+                                                    <option value="Self">Self</option>
+                                                    <option value="Spouse">Spouse</option>
+                                                    <option value="Son">Son</option>
+                                                    <option value="Daughter">Daughter</option>
+                                                    <option value="Father">Father</option>
+                                                    <option value="Mother">Mother</option>
+                                                    <option value="Brother">Brother</option>
+                                                    <option value="Sister">Sister</option>
+                                                    <option value="Other">Other</option>
+                                                  </select>
+                                                </div>
+                                                <div>
+                                                  <Label className="text-[10px] font-medium text-gray-600">Date of Birth</Label>
+                                                  <Input
+                                                    type="date"
+                                                    value={member.date_of_birth ? new Date(member.date_of_birth).toISOString().split('T')[0] : ''}
+                                                    onChange={(e) => {
+                                                      const updated = [...editFormData.insured_members!];
+                                                      updated[mIndex].date_of_birth = e.target.value;
+                                                      setEditFormData({ ...editFormData, insured_members: updated });
+                                                    }}
+                                                    className="h-6 text-xs mt-1"
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <Label className="text-[10px] font-medium text-gray-600">Gender</Label>
+                                                  <select
+                                                    value={member.gender || 'Male'}
+                                                    onChange={(e) => {
+                                                      const updated = [...editFormData.insured_members!];
+                                                      updated[mIndex].gender = e.target.value;
+                                                      setEditFormData({ ...editFormData, insured_members: updated });
+                                                    }}
+                                                    className="w-full mt-1 px-2 py-1 text-xs border rounded h-6"
+                                                  >
+                                                    <option value="Male">Male</option>
+                                                    <option value="Female">Female</option>
+                                                    <option value="Other">Other</option>
+                                                  </select>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
                                   </>
                                 ) : (
@@ -706,6 +1007,46 @@ const PolicyHistorySheet: React.FC<PolicyHistorySheetProps> = ({
                                       </p>
                                     </div>
                                   </>
+                                )}
+
+                                {/* Documents Section */}
+                                {item.policy.documents && item.policy.documents.length > 0 && (
+                                  <div className="col-span-2 mt-3 pt-3 border-t border-gray-200">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <File className="w-3 h-3 text-gray-600" />
+                                      <span className="text-xs font-medium text-gray-600">
+                                        Documents ({item.policy.documents.length})
+                                      </span>
+                                    </div>
+                                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                                      {item.policy.documents.map((doc: any) => (
+                                        <div
+                                          key={doc.id}
+                                          className="flex items-center justify-between p-1.5 bg-white border border-gray-200 rounded text-xs hover:bg-gray-50"
+                                        >
+                                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                                            <FileText className="w-3 h-3 text-gray-500 flex-shrink-0" />
+                                            <span className="text-gray-700 truncate">
+                                              {doc.original_name || doc.file_name}
+                                            </span>
+                                          </div>
+                                          <Button
+                                            onClick={() => {
+                                              const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
+                                              const docUrl = `${API_BASE_URL}/api/v1/uploads/policy-documents/${doc.file_name}`;
+                                              window.open(docUrl, '_blank');
+                                            }}
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-5 w-5 p-0 text-blue-600 hover:text-blue-700"
+                                            title="Download document"
+                                          >
+                                            <Download className="w-3 h-3" />
+                                          </Button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
                                 )}
                                 {isAdmin && item.commission && (
                                   <>

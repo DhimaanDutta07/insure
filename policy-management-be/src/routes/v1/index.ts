@@ -372,7 +372,8 @@ router.patch(
 router.get("/policies", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getAllPolicies));
 router.get("/policies/dashboard-stats", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.dashboardStats));
 router.get("/policies/:id", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getPolicyById));
-router.delete("/policies/:id", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.deletePolicy));
+router.delete("/policies/:id", restrictTo(['ADMIN']), asyncHandler(policyController.deletePolicy));
+router.delete("/policies/:id/term", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.deletePolicyTerm));
 router.get("/my-policies", restrictTo(['ADMIN','OPERATIONS']), asyncHandler(policyController.getMyPolicies));
 
 // Document management routes
@@ -434,7 +435,9 @@ router.delete('/policy-groups/:id', restrictTo(["ADMIN"]), policyGroupController
 
 // PolicyName CRUD (admin only except GET)
 router.post('/policy-groups/:id/policy-names', restrictTo(["ADMIN"]), policyGroupController.createPolicyName);
+router.post('/policy-names', restrictTo(["ADMIN"]), policyGroupController.createPolicyNameDirect); // New route for creating policy names directly with company_id
 router.get('/policy-names', restrictTo(['ADMIN','OPERATIONS']), policyGroupController.getAllPolicyNames);
+router.get('/policy-groups/policy-names/all', restrictTo(['ADMIN','OPERATIONS']), policyGroupController.getAllPolicyNames); // Alias for frontend
 router.get('/policy-groups/:id/policy-names', restrictTo(['ADMIN','OPERATIONS']), policyGroupController.getPolicyNames);
 router.get('/policy-names/:id', restrictTo(['ADMIN','OPERATIONS']), policyGroupController.getPolicyName);
 router.patch('/policy-names/:id', restrictTo(["ADMIN"]), policyGroupController.updatePolicyName);
@@ -463,6 +466,7 @@ router.delete('/commissions/:id', restrictTo(['ADMIN']), (req, res) => { commiss
 
 // Commission Rules by Policy Name (for frontend calculation)
 router.get('/commission-rules/policy/:policyNameId', restrictTo(['ADMIN', 'OPERATIONS']), (req, res) => { commissionController.getCommissionRulesByPolicyName(req, res); });
+router.get('/commission-rules/policy-name/:policyNameId', restrictTo(['ADMIN', 'OPERATIONS']), (req, res) => { commissionController.getCommissionRulesByPolicyName(req, res); }); // Alias for frontend
 
 // CommissionRule Routes
 router.post('/commission-rules', restrictTo(['ADMIN']), (req, res) => { commissionRuleController.createCommissionRule(req, res); });

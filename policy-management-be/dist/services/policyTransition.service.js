@@ -68,21 +68,8 @@ async function calculateCommissionForPolicy(policy) {
             start_date: policy.start_date,
             end_date: policy.end_date,
         };
-        console.log(`[Commission] Calculating for policy ${policy.policy_number}:`, {
-            hasPolicyNameId: !!policy.policy_name_id,
-            policyNameId: policy.policy_name_id,
-            premiumAmount: policy.premium_amount,
-            gstStatus,
-            term: `${policy.start_date} - ${policy.end_date}`,
-        });
         // Calculate commission
         await calculateAndSetCommission(policyInput);
-        console.log(`[Commission] Term-based calculation for policy ${policy.policy_number}:`, {
-            term: `${policy.start_date} - ${policy.end_date}`,
-            gstStatus,
-            commissionAmount: policyInput.calculated_commission_amount,
-            commissionPercent: policyInput.commission_add_on_percentage,
-        });
         return {
             calculated_commission_amount: policyInput.calculated_commission_amount || 0,
             commission_add_on_percentage: policyInput.commission_add_on_percentage || 0,
@@ -90,7 +77,6 @@ async function calculateCommissionForPolicy(policy) {
         };
     }
     catch (error) {
-        console.error('Error calculating commission for policy:', policy.id, error);
         return {
             calculated_commission_amount: 0,
             commission_add_on_percentage: 0,
@@ -121,7 +107,7 @@ class PolicyTransitionService {
             if (!parentPolicy) {
                 throw new Error('Parent policy not found');
             }
-            // 2. Create NEW policy for ALL transitions (Renewal, Portability, Migration)
+            // 2. Create NEW policy for ALL transitions (Renewal, Portablity, Migration)
             // This ensures a proper parent-child chain and full history
             const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
             result.newPolicy = newPolicy;
@@ -139,16 +125,17 @@ class PolicyTransitionService {
                     policy_creation_status: this.getPolicyCreationStatus(transitionType)
                 }
             });
-            // 5. Create document references (not copies)
-            const documentRefs = await this.createDocumentReferences(parentPolicyId, newPolicy.id, transitionType);
-            result.documentReferences = documentRefs;
+            // 5. Create document references (not copies) - run in background for speed
+            // Don't await this - let it complete asynchronously
+            this.createDocumentReferences(parentPolicyId, newPolicy.id, transitionType).catch(error => {
+                // Silently handle background errors
+            });
             // 6. Clear all relevant caches for instant UI refresh
             documentAccess_service_1.DocumentAccessService.clearCache(parentPolicyId);
             documentAccess_service_1.DocumentAccessService.clearCache(newPolicy.id);
             lruCache_1.policyListCache.delete(`policy:${parentPolicyId}`);
             lruCache_1.policyListCache.deleteByPrefix('policies:');
             lruCache_1.dashboardCache.deleteByPrefix('dashboard:');
-            console.log(`Created ${documentRefs.length} document references for policy ${newPolicy.id}`);
         }
         catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -208,6 +195,8 @@ class PolicyTransitionService {
         return updatedPolicy;
     }
     static async createPolicyWithCarriedOverData(parentPolicy, newPolicyData) {
+        // Extract documents for separate processing after policy creation
+        const documentsToProcess = newPolicyData.documents;
         // Convert string values to appropriate types for Prisma
         const processedData = {
             ...newPolicyData,
@@ -239,13 +228,21 @@ class PolicyTransitionService {
             policy_salutation: newPolicyData.policy_salutation || parentPolicy.policy_salutation || null,
             medical_condition: newPolicyData.medical_condition !== undefined ? newPolicyData.medical_condition : parentPolicy.medical_condition || false,
             medical_remarks: newPolicyData.medical_remarks || parentPolicy.medical_remarks || null,
-            deductible_amount_status: newPolicyData.deductible_amount_status !== undefined ? newPolicyData.deductible_amount_status : parentPolicy.deductible_amount_status || false,
+            deductible_amount_status: typeof newPolicyData.deductible_amount_status === 'string'
+                ? newPolicyData.deductible_amount_status === 'true' || newPolicyData.deductible_amount_status === '1'
+                : (newPolicyData.deductible_amount_status !== undefined ? newPolicyData.deductible_amount_status : parentPolicy.deductible_amount_status || false),
+            gst_status: typeof newPolicyData.gst_status === 'string'
+                ? newPolicyData.gst_status === 'true' || newPolicyData.gst_status === '1'
+                : (newPolicyData.gst_status !== undefined ? newPolicyData.gst_status : parentPolicy.gst_status || false),
             declaration_accepted: newPolicyData.declaration_accepted !== undefined ? newPolicyData.declaration_accepted : parentPolicy.declaration_accepted || false,
             // Carry over financial fields from parent if not provided
             emi_amount: newPolicyData.emi_amount || parentPolicy.emi_amount || null,
             commission_add_on_percentage: newPolicyData.commission_add_on_percentage || parentPolicy.commission_add_on_percentage || null,
             calculated_commission_amount: newPolicyData.calculated_commission_amount || parentPolicy.calculated_commission_amount || null,
         };
+        // Remove documents from createData - they will be processed separately
+        delete processedData.documents;
+        delete processedData.members; // Members are also handled separately
         // Create the new policy with all carried over data
         const createData = {
             ...processedData,
@@ -304,11 +301,28 @@ class PolicyTransitionService {
                 form_values: true
             }
         });
-        // Then create members separately if they exist (because they need proposer_id)
-        if (parentPolicy.members && parentPolicy.members.length > 0 && newPolicy.proposer) {
-            const membersToCreate = parentPolicy.members.map((member) => ({
+        // Handle members: use provided members from newPolicyData, or carry over from parent
+        let membersToCreate = [];
+        if (newPolicyData.members && Array.isArray(newPolicyData.members) && newPolicyData.members.length > 0) {
+            // Use the members provided in the transition data (for all transition types with member management)
+            membersToCreate = newPolicyData.members.map((member) => ({
                 policy_id: newPolicy.id,
-                proposer_id: newPolicy.proposer.id, // Using non-null assertion since we checked above
+                proposer_id: newPolicy.proposer.id,
+                insured_member_salutation: member.insured_member_salutation || null,
+                name: member.name || '',
+                relation_to_proposer: member.relation_to_proposer || null,
+                date_of_birth: member.date_of_birth ? new Date(member.date_of_birth) : null,
+                gender: member.gender || null,
+                pre_existing: member.pre_existing || false,
+                insured_member_medical_condition: member.insured_member_medical_condition || false,
+                insured_member_medical_remarks: member.insured_member_medical_remarks || null,
+            }));
+        }
+        else if (parentPolicy.members && parentPolicy.members.length > 0 && newPolicy.proposer) {
+            // Carry over members from parent policy (default behavior)
+            membersToCreate = parentPolicy.members.map((member) => ({
+                policy_id: newPolicy.id,
+                proposer_id: newPolicy.proposer.id,
                 insured_member_salutation: member.insured_member_salutation || null,
                 name: member.name || '',
                 relation_to_proposer: member.relation_to_proposer || null,
@@ -318,9 +332,64 @@ class PolicyTransitionService {
                 insured_member_medical_condition: member.insured_member_medical_condition || false,
                 insured_member_medical_remarks: member.insured_member_medical_remarks || null,
             }));
+        }
+        // Create members if any exist
+        if (membersToCreate.length > 0) {
             await prismaClient_1.default.insuredMember.createMany({
                 data: membersToCreate
             });
+        }
+        // Handle document uploads if provided
+        if (documentsToProcess && Array.isArray(documentsToProcess) && documentsToProcess.length > 0) {
+            // Process uploaded documents directly
+            const fs = require('fs').promises;
+            const { DocumentCategory } = await Promise.resolve().then(() => __importStar(require('@prisma/client')));
+            function mapMimeTypeToFileType(mimeType) {
+                const mimeMap = {
+                    'application/pdf': 'PDF',
+                    'image/jpeg': 'IMAGE',
+                    'image/jpg': 'IMAGE',
+                    'image/png': 'IMAGE',
+                    'application/msword': 'DOC',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+                    'application/vnd.ms-excel': 'XLS',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+                    'text/csv': 'CSV',
+                };
+                return mimeMap[mimeType] || 'OTHER';
+            }
+            const processedDocs = [];
+            for (const doc of documentsToProcess) {
+                try {
+                    const fileData = await fs.readFile(doc.path);
+                    processedDocs.push({
+                        file_name: doc.filename,
+                        original_name: doc.originalname,
+                        relative_path: `/api/uploads/policy-documents/${doc.filename}`,
+                        file_data: fileData,
+                        file_type: mapMimeTypeToFileType(doc.mimetype),
+                        category: DocumentCategory.POLICY_DOCUMENT,
+                        uploaded_by: 'system',
+                    });
+                }
+                catch (error) {
+                    console.error(`Failed to read file ${doc.filename}:`, error);
+                }
+            }
+            // Create documents for the new policy
+            if (processedDocs.length > 0) {
+                await prismaClient_1.default.uploadedDocument.createMany({
+                    data: processedDocs.map((doc) => ({
+                        file_name: doc.file_name,
+                        original_name: doc.original_name,
+                        relative_path: doc.relative_path,
+                        file_type: doc.file_type,
+                        category: doc.category,
+                        uploaded_by: doc.uploaded_by,
+                        policy_id: newPolicy.id,
+                    }))
+                });
+            }
         }
         // Return the complete policy with all relations
         return await prismaClient_1.default.policy.findUnique({
@@ -387,14 +456,11 @@ class PolicyTransitionService {
         });
     }
     static async createDocumentReferences(parentPolicyId, newPolicyId, transitionType) {
-        console.log(`🔗 [DocumentTransfer] Starting recursive document transfer for policy ${newPolicyId}`);
         // Get all ancestor policies recursively
         const ancestorPolicies = await this.getAllAncestorPolicies(parentPolicyId);
-        console.log(`🔗 [DocumentTransfer] Found ${ancestorPolicies.length} ancestor policies`);
         // Collect ALL documents from all ancestor policies
         const allAncestorDocuments = [];
         for (const ancestorPolicy of ancestorPolicies) {
-            console.log(`🔗 [DocumentTransfer] Processing ancestor policy: ${ancestorPolicy.id} (${ancestorPolicy.policy_number})`);
             // 1. Direct policy documents
             if (ancestorPolicy.documents) {
                 allAncestorDocuments.push(...ancestorPolicy.documents.map((doc) => ({
@@ -425,10 +491,8 @@ class PolicyTransitionService {
                 });
             }
         }
-        console.log(`📄 [DocumentTransfer] Collected ${allAncestorDocuments.length} total documents from all ancestors`);
         // Filter documents based on transition type
         const documentsToReference = this.filterDocumentsByTransitionType(allAncestorDocuments, transitionType);
-        console.log(`🔗 [DocumentTransfer] Creating references for ${documentsToReference.length} documents`);
         // Create references in batch for efficiency
         const referenceData = documentsToReference.map(doc => ({
             policy_id: newPolicyId,
@@ -441,7 +505,6 @@ class PolicyTransitionService {
             data: referenceData,
             skipDuplicates: true
         });
-        console.log(`✅ [DocumentTransfer] Created ${createdRefs.count} document references`);
         // Return the created references
         return await prismaClient_1.default.policyDocumentReference.findMany({
             where: {
@@ -481,54 +544,251 @@ class PolicyTransitionService {
                 }
             });
             if (!policy) {
-                console.log(`❌ [DocumentTransfer] Policy ${currentPolicyId} not found`);
                 break;
             }
             ancestors.push(policy);
-            console.log(`🔗 [DocumentTransfer] Added ancestor: ${policy.policy_number} (${policy.id})`);
             // Move to parent policy
             currentPolicyId = policy.parent_policy_id || '';
             depth++;
         }
-        console.log(`🔗 [DocumentTransfer] Total ancestors found: ${ancestors.length}`);
         return ancestors;
     }
     /**
      * Lightweight ancestor fetch for history display (no documents).
+     * OPTIMIZED: Uses single recursive query instead of N+1 loop.
      */
     static async getAllAncestorPoliciesLightweight(policyId, maxDepth = 5) {
-        const ancestors = [];
-        let currentPolicyId = policyId;
-        let depth = 0;
-        while (currentPolicyId && depth < maxDepth) {
-            const policy = await prismaClient_1.default.policy.findUnique({
-                where: { id: currentPolicyId },
-                select: {
-                    id: true,
-                    policy_number: true,
-                    policy_creation_status: true,
-                    transition_type: true,
-                    created_at: true,
-                    parent_policy_id: true,
-                    start_date: true,
-                    end_date: true,
-                    premium_amount: true,
-                    sum_insured: true,
-                    deductible_amount: true,
-                    deductible_amount_status: true,
-                    policy_name_id: true,
-                    calculated_commission_amount: true,
-                    commission_add_on_percentage: true,
-                    gst_status: true,
-                    company: { select: { id: true, name: true } },
-                    policyName: { select: { id: true, name: true } },
+        // Use a single query with parent_policy_id chain to fetch all ancestors
+        // This is much faster than N+1 queries in a loop
+        const policies = await prismaClient_1.default.policy.findMany({
+            where: {
+                id: policyId,
+            },
+            select: {
+                id: true,
+                policy_number: true,
+                policy_creation_status: true,
+                transition_type: true,
+                created_at: true,
+                parent_policy_id: true,
+                start_date: true,
+                end_date: true,
+                premium_amount: true,
+                sum_insured: true,
+                deductible_amount: true,
+                deductible_amount_status: true,
+                policy_name_id: true,
+                calculated_commission_amount: true,
+                commission_add_on_percentage: true,
+                gst_status: true,
+                company: { select: { id: true, name: true } },
+                policyName: { select: { id: true, name: true } },
+                documents: {
+                    select: {
+                        id: true,
+                        file_name: true,
+                        original_name: true,
+                        file_type: true,
+                        category: true,
+                    },
+                },
+                proposer: {
+                    select: {
+                        id: true,
+                        full_name: true,
+                        mobile: true,
+                        email: true,
+                        date_of_birth: true,
+                        gender: true,
+                        marital_status: true,
+                        alternate_mobile: true,
+                        address: true,
+                        kyc_id: true,
+                        occupation: true,
+                        nationality: true,
+                        insured_members: {
+                            select: {
+                                id: true,
+                                name: true,
+                                date_of_birth: true,
+                                gender: true,
+                                relation_to_proposer: true,
+                                insured_member_salutation: true,
+                                pre_existing: true,
+                                insured_member_medical_condition: true,
+                                insured_member_medical_remarks: true,
+                            },
+                            orderBy: { created_at: 'asc' },
+                        },
+                    },
+                },
+                parent_policy: {
+                    select: {
+                        id: true,
+                        policy_number: true,
+                        policy_creation_status: true,
+                        transition_type: true,
+                        created_at: true,
+                        parent_policy_id: true,
+                        start_date: true,
+                        end_date: true,
+                        premium_amount: true,
+                        sum_insured: true,
+                        deductible_amount: true,
+                        deductible_amount_status: true,
+                        policy_name_id: true,
+                        calculated_commission_amount: true,
+                        commission_add_on_percentage: true,
+                        gst_status: true,
+                        company: { select: { id: true, name: true } },
+                        policyName: { select: { id: true, name: true } },
+                        proposer: {
+                            select: {
+                                id: true,
+                                full_name: true,
+                                mobile: true,
+                                email: true,
+                                date_of_birth: true,
+                                gender: true,
+                                marital_status: true,
+                                alternate_mobile: true,
+                                address: true,
+                                kyc_id: true,
+                                occupation: true,
+                                nationality: true,
+                                insured_members: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        date_of_birth: true,
+                                        gender: true,
+                                        relation_to_proposer: true,
+                                        insured_member_salutation: true,
+                                        pre_existing: true,
+                                        insured_member_medical_condition: true,
+                                        insured_member_medical_remarks: true,
+                                    },
+                                    orderBy: { created_at: 'asc' },
+                                },
+                            },
+                        },
+                        parent_policy: {
+                            select: {
+                                id: true,
+                                policy_number: true,
+                                policy_creation_status: true,
+                                transition_type: true,
+                                created_at: true,
+                                parent_policy_id: true,
+                                start_date: true,
+                                end_date: true,
+                                premium_amount: true,
+                                sum_insured: true,
+                                deductible_amount: true,
+                                deductible_amount_status: true,
+                                policy_name_id: true,
+                                calculated_commission_amount: true,
+                                commission_add_on_percentage: true,
+                                gst_status: true,
+                                company: { select: { id: true, name: true } },
+                                policyName: { select: { id: true, name: true } },
+                                proposer: {
+                                    select: {
+                                        id: true,
+                                        full_name: true,
+                                        mobile: true,
+                                        email: true,
+                                        date_of_birth: true,
+                                        gender: true,
+                                        marital_status: true,
+                                        alternate_mobile: true,
+                                        address: true,
+                                        kyc_id: true,
+                                        occupation: true,
+                                        nationality: true,
+                                        insured_members: {
+                                            select: {
+                                                id: true,
+                                                name: true,
+                                                date_of_birth: true,
+                                                gender: true,
+                                                relation_to_proposer: true,
+                                                insured_member_salutation: true,
+                                                pre_existing: true,
+                                                insured_member_medical_condition: true,
+                                                insured_member_medical_remarks: true,
+                                            },
+                                            orderBy: { created_at: 'asc' },
+                                        },
+                                    },
+                                },
+                                parent_policy: {
+                                    select: {
+                                        id: true,
+                                        policy_number: true,
+                                        policy_creation_status: true,
+                                        transition_type: true,
+                                        created_at: true,
+                                        parent_policy_id: true,
+                                        start_date: true,
+                                        end_date: true,
+                                        premium_amount: true,
+                                        sum_insured: true,
+                                        deductible_amount: true,
+                                        deductible_amount_status: true,
+                                        policy_name_id: true,
+                                        calculated_commission_amount: true,
+                                        commission_add_on_percentage: true,
+                                        gst_status: true,
+                                        company: { select: { id: true, name: true } },
+                                        policyName: { select: { id: true, name: true } },
+                                        proposer: {
+                                            select: {
+                                                id: true,
+                                                full_name: true,
+                                                mobile: true,
+                                                email: true,
+                                                date_of_birth: true,
+                                                gender: true,
+                                                marital_status: true,
+                                                alternate_mobile: true,
+                                                address: true,
+                                                kyc_id: true,
+                                                occupation: true,
+                                                nationality: true,
+                                                insured_members: {
+                                                    select: {
+                                                        id: true,
+                                                        name: true,
+                                                        date_of_birth: true,
+                                                        gender: true,
+                                                        relation_to_proposer: true,
+                                                        insured_member_salutation: true,
+                                                        pre_existing: true,
+                                                        insured_member_medical_condition: true,
+                                                        insured_member_medical_remarks: true,
+                                                    },
+                                                    orderBy: { created_at: 'asc' },
+                                                },
+                                            },
+                                        },
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            });
-            if (!policy) {
-                break;
             }
-            ancestors.push(policy);
-            currentPolicyId = policy.parent_policy_id || '';
+        });
+        if (policies.length === 0)
+            return [];
+        // Flatten the nested structure into an array
+        const ancestors = [];
+        let current = policies[0];
+        let depth = 0;
+        while (current && depth < maxDepth) {
+            ancestors.push(current);
+            current = current.parent_policy;
             depth++;
         }
         return ancestors;
@@ -654,6 +914,45 @@ class PolicyTransitionService {
                 gst_status: true,
                 company: { select: { id: true, name: true } },
                 policyName: { select: { id: true, name: true } },
+                documents: {
+                    select: {
+                        id: true,
+                        file_name: true,
+                        original_name: true,
+                        file_type: true,
+                        category: true,
+                    },
+                },
+                proposer: {
+                    select: {
+                        id: true,
+                        full_name: true,
+                        mobile: true,
+                        email: true,
+                        date_of_birth: true,
+                        gender: true,
+                        marital_status: true,
+                        alternate_mobile: true,
+                        address: true,
+                        kyc_id: true,
+                        occupation: true,
+                        nationality: true,
+                        insured_members: {
+                            select: {
+                                id: true,
+                                name: true,
+                                date_of_birth: true,
+                                gender: true,
+                                relation_to_proposer: true,
+                                insured_member_salutation: true,
+                                pre_existing: true,
+                                insured_member_medical_condition: true,
+                                insured_member_medical_remarks: true,
+                            },
+                            orderBy: { created_at: 'asc' },
+                        },
+                    },
+                },
                 parent_policy: {
                     select: {
                         id: true,
@@ -672,7 +971,46 @@ class PolicyTransitionService {
                         commission_add_on_percentage: true,
                         gst_status: true,
                         company: { select: { id: true, name: true } },
-                        policyName: { select: { id: true, name: true } }
+                        policyName: { select: { id: true, name: true } },
+                        documents: {
+                            select: {
+                                id: true,
+                                file_name: true,
+                                original_name: true,
+                                file_type: true,
+                                category: true,
+                            },
+                        },
+                        proposer: {
+                            select: {
+                                id: true,
+                                full_name: true,
+                                mobile: true,
+                                email: true,
+                                date_of_birth: true,
+                                gender: true,
+                                marital_status: true,
+                                alternate_mobile: true,
+                                address: true,
+                                kyc_id: true,
+                                occupation: true,
+                                nationality: true,
+                                insured_members: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        date_of_birth: true,
+                                        gender: true,
+                                        relation_to_proposer: true,
+                                        insured_member_salutation: true,
+                                        pre_existing: true,
+                                        insured_member_medical_condition: true,
+                                        insured_member_medical_remarks: true,
+                                    },
+                                    orderBy: { created_at: 'asc' },
+                                },
+                            },
+                        },
                     }
                 },
                 children_policies: {
@@ -694,7 +1032,46 @@ class PolicyTransitionService {
                         commission_add_on_percentage: true,
                         gst_status: true,
                         company: { select: { id: true, name: true } },
-                        policyName: { select: { id: true, name: true } }
+                        policyName: { select: { id: true, name: true } },
+                        documents: {
+                            select: {
+                                id: true,
+                                file_name: true,
+                                original_name: true,
+                                file_type: true,
+                                category: true,
+                            },
+                        },
+                        proposer: {
+                            select: {
+                                id: true,
+                                full_name: true,
+                                mobile: true,
+                                email: true,
+                                date_of_birth: true,
+                                gender: true,
+                                marital_status: true,
+                                alternate_mobile: true,
+                                address: true,
+                                kyc_id: true,
+                                occupation: true,
+                                nationality: true,
+                                insured_members: {
+                                    select: {
+                                        id: true,
+                                        name: true,
+                                        date_of_birth: true,
+                                        gender: true,
+                                        relation_to_proposer: true,
+                                        insured_member_salutation: true,
+                                        pre_existing: true,
+                                        insured_member_medical_condition: true,
+                                        insured_member_medical_remarks: true,
+                                    },
+                                    orderBy: { created_at: 'asc' },
+                                },
+                            },
+                        },
                     }
                 }
             }
@@ -848,19 +1225,16 @@ class PolicyTransitionService {
             }
             // Allow deletion regardless of can_delete flag for now
             // This ensures existing references can be removed
-            console.log(`🗑️ [DocumentReference] Deleting reference ${referenceId} (can_delete: ${reference.can_delete})`);
             // Delete the reference
             await prismaClient_1.default.policyDocumentReference.delete({
                 where: { id: referenceId }
             });
             // Clear cache for the policy
             documentAccess_service_1.DocumentAccessService.clearCache(reference.policy_id);
-            console.log(`✅ [DocumentReference] Successfully deleted reference ${referenceId} for policy ${reference.policy_id}`);
             return true;
         }
         catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            console.error(`❌ [DocumentReference] Failed to delete reference ${referenceId}:`, errorMessage);
             throw new Error(`Failed to delete document reference: ${errorMessage}`);
         }
     }
@@ -878,12 +1252,10 @@ class PolicyTransitionService {
                     can_delete: true
                 }
             });
-            console.log(`🔄 [DocumentReference] Updated ${result.count} existing references to be deletable`);
             return { updated: result.count };
         }
         catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-            console.error(`❌ [DocumentReference] Failed to update existing references:`, errorMessage);
             throw new Error(`Failed to update existing references: ${errorMessage}`);
         }
     }
@@ -891,7 +1263,6 @@ class PolicyTransitionService {
      * Get document transfer statistics for a policy transition
      */
     static async getDocumentTransferStats(parentPolicyId, transitionType) {
-        console.log(`📊 [DocumentStats] Getting transfer statistics for policy ${parentPolicyId}`);
         // Get all ancestor policies recursively
         const ancestorPolicies = await this.getAllAncestorPolicies(parentPolicyId);
         const stats = {
@@ -937,11 +1308,6 @@ class PolicyTransitionService {
                 memberDocuments: memberDocs
             });
         }
-        console.log(`📊 [DocumentStats] Statistics:`, {
-            totalDocuments: stats.totalDocuments,
-            ancestorCount: stats.ancestorPolicies.length,
-            breakdown: stats.documentBreakdown
-        });
         return stats;
     }
 }

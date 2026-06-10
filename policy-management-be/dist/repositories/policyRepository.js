@@ -163,6 +163,30 @@ exports.POLICY_LIST_INCLUDE = {
             id: true,
             full_name: true,
             mobile: true,
+            email: true,
+            date_of_birth: true,
+            gender: true,
+            marital_status: true,
+            alternate_mobile: true,
+            address: true,
+            kyc_id: true,
+            occupation: true,
+            nationality: true,
+            proposer_salutation: true,
+            insured_members: {
+                select: {
+                    id: true,
+                    name: true,
+                    date_of_birth: true,
+                    gender: true,
+                    relation_to_proposer: true,
+                    insured_member_salutation: true,
+                    pre_existing: true,
+                    insured_member_medical_condition: true,
+                    insured_member_medical_remarks: true,
+                },
+                orderBy: { created_at: 'asc' },
+            },
         },
     },
 };
@@ -952,7 +976,12 @@ exports.policyRepository = {
           pt.name as "type.name",
           pn.id as "policyName.id", pn.name as "policyName.name",
           pg.id as "policyGroup.id", pg.name as "policyGroup.name",
-          pr.id as "proposer.id", pr.full_name as "proposer.full_name", pr.mobile as "proposer.mobile"
+          pr.id as "proposer.id", pr.full_name as "proposer.full_name", pr.mobile as "proposer.mobile",
+          pr.email as "proposer.email", pr."date_of_birth" as "proposer.date_of_birth",
+          pr.gender as "proposer.gender", pr."marital_status" as "proposer.marital_status",
+          pr."alternate_mobile" as "proposer.alternate_mobile", pr.address as "proposer.address",
+          pr."kyc_id" as "proposer.kyc_id", pr.occupation as "proposer.occupation",
+          pr.nationality as "proposer.nationality", pr."proposer_salutation" as "proposer.proposer_salutation"
         FROM "policy" p
         LEFT JOIN "company" c ON p."company_id" = c.id
         LEFT JOIN "policy_types" pt ON p."policy_type_id" = pt.id
@@ -1221,6 +1250,67 @@ exports.policyRepository = {
             });
             console.log(`✅ Successfully deleted ${deletedPolicies.count} policies in the chain`);
             return { deletedCount: deletedPolicies.count, policyIds: policyIdsArray };
+        }, {
+            maxWait: 5000,
+            timeout: 15000,
+        });
+    },
+    // Delete only a single policy term (not the entire chain)
+    async deletePolicyTerm(id) {
+        console.log(`🗑️ Deleting single policy term ${id}`);
+        return await prismaClient_1.default.$transaction(async (tx) => {
+            // Check if policy has children
+            const policy = await tx.policy.findUnique({
+                where: { id },
+                include: {
+                    _count: {
+                        select: { children_policies: true }
+                    }
+                }
+            });
+            if (!policy) {
+                throw new Error('Policy not found');
+            }
+            // If policy has children, we need to handle the parent-child relationship
+            if (policy._count.children_policies > 0) {
+                // Get the parent of this policy
+                const parent = await tx.policy.findUnique({
+                    where: { id: policy.parent_policy_id || '' }
+                });
+                // Update all children to point to this policy's parent (skip the deleted policy)
+                await tx.policy.updateMany({
+                    where: { parent_policy_id: id },
+                    data: { parent_policy_id: policy.parent_policy_id }
+                });
+            }
+            // Delete document references for this policy only
+            await Promise.all([
+                tx.policyDocumentReference.deleteMany({
+                    where: { source_document: { policy_id: id } }
+                }),
+                tx.policyDocumentReference.deleteMany({
+                    where: { policy_id: id }
+                }),
+            ]);
+            // Delete all related records for this policy only
+            await Promise.all([
+                tx.commissionJournal.deleteMany({ where: { policy_id: id } }),
+                tx.policyFormValue.deleteMany({ where: { policy_id: id } }),
+                tx.policyReceipt.deleteMany({ where: { policy_id: id } }),
+                tx.revenue.deleteMany({ where: { policyId: id } }),
+                tx.reminder.deleteMany({ where: { policy_id: id } }),
+                tx.claim.deleteMany({ where: { policy_id: id } }),
+                tx.uploadedDocument.deleteMany({ where: { policy_id: id } }),
+                tx.insuredMember.deleteMany({ where: { policy_id: id } }),
+                tx.proposer.deleteMany({ where: { policy_id: id } }),
+                tx.nomineeAndPayment.deleteMany({ where: { policy_id: id } }),
+            ]);
+            // Delete the policy
+            await tx.policy.delete({
+                where: { id }
+            });
+            console.log(`✅ Successfully deleted policy term ${id}`);
+            return { deletedCount: 1, policyIds: [id] };
         }, {
             maxWait: 5000,
             timeout: 15000,

@@ -43,13 +43,16 @@ const commissionRuleStatusSchema = zod_1.z.object({ is_active: zod_1.z.boolean()
 exports.commissionRuleController = {
     async createCommissionRule(req, res) {
         try {
+            console.log('[Controller] Creating commission rule with data:', req.body);
             const data = commissionRuleSchema_1.commissionRuleSchema.parse(req.body);
             const rule = await commissionRuleService_1.commissionRuleService.createCommissionRule(data);
             res.status(201).json(rule);
         }
         catch (error) {
+            console.error('[Controller] Error creating commission rule:', error);
             if (error instanceof zod_1.z.ZodError) {
-                res.status(400).json({ error: error.errors });
+                console.log('[Controller] Zod validation errors:', error.errors);
+                res.status(400).json({ error: error.errors.map(e => e.message).join(', ') });
             }
             else {
                 res.status(400).json({ error: error.message || 'Internal server error' });
@@ -127,14 +130,11 @@ exports.commissionRuleController = {
     },
     async deleteCommissionRule(req, res) {
         try {
-            const result = await commissionRuleService_1.commissionRuleService.deleteCommissionRule(req.params.id);
-            if (result.success === false) {
-                return res.status(400).json({ error: result.error });
-            }
+            await commissionRuleService_1.commissionRuleService.deleteCommissionRule(req.params.id);
             res.status(204).send();
         }
         catch (error) {
-            res.status(500).json({ error: 'Internal server error' });
+            res.status(400).json({ error: error.message || 'Failed to delete commission rule' });
         }
     },
     // New method for updating CommissionRule status
@@ -246,11 +246,17 @@ exports.commissionRuleController = {
                 calculated_commission_amount: policyInput.calculated_commission_amount,
                 _commissionPercent: policyInput._commissionPercent,
                 _commissionRuleId: policyInput._commissionRuleId,
+                _siCondition: policyInput._siCondition,
+                _customSIThreshold: policyInput._customSIThreshold,
+                _customSIOperator: policyInput._customSIOperator,
             });
             res.status(200).json({
                 calculated_commission_amount: policyInput.calculated_commission_amount,
                 base_percentage: policyInput._commissionPercent,
                 rule_found: policyInput._commissionPercent > 0,
+                si_condition: policyInput._siCondition,
+                custom_si_threshold: policyInput._customSIThreshold,
+                custom_si_operator: policyInput._customSIOperator,
             });
         }
         catch (error) {

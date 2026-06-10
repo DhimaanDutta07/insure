@@ -26,24 +26,28 @@ const getAllPolicyNames = async () => {
             policyGroup: {
                 select: { id: true, name: true, description: true, created_at: true, updated_at: true },
             },
+            company: {
+                select: { id: true, name: true },
+            },
         },
     });
-    // Filter out null policyGroup and return proper typed objects
-    return results
-        .filter((item) => item.policyGroup !== null)
-        .map((item) => {
-        const pg = item.policyGroup;
-        return {
-            ...item,
-            policyGroup: {
-                id: pg.id,
-                name: pg.name,
-                description: pg.description,
-                created_at: pg.created_at,
-                updated_at: pg.updated_at,
-            },
-        };
-    });
+    // Return all results, including those without policyGroup
+    // Flatten company data to include company_id directly for frontend compatibility
+    return results.map((item) => ({
+        ...item,
+        company_id: item.company_id, // Ensure company_id is present
+        policyGroup: item.policyGroup ? {
+            id: item.policyGroup.id,
+            name: item.policyGroup.name,
+            description: item.policyGroup.description,
+            created_at: item.policyGroup.created_at,
+            updated_at: item.policyGroup.updated_at,
+        } : null,
+        company: item.company ? {
+            id: item.company.id,
+            name: item.company.name,
+        } : null,
+    }));
 };
 exports.getAllPolicyNames = getAllPolicyNames;
 // Use findFirst when filtering by multiple conditions including is_deleted

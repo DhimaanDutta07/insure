@@ -453,6 +453,7 @@ model CommissionRule {
   policy_name_id    String
   policyStatus      PolicyCreationStatus
   deductibleType    DeductibleType
+  deductibleStatus  Boolean?             @map("deductible_status")
   ageCondition      AgeCondition
   commissionPercent Float
   createdAt         DateTime             @default(now())
@@ -460,9 +461,11 @@ model CommissionRule {
   is_active         Boolean              @default(true)
   productType       ProductType?         @default(OTHER)
   siCondition       SICondition?         @default(ALL_SI)
+  customSIThreshold Int?                 @map("custom_si_threshold")
+  customSIOperator  String?              @map("custom_si_operator")
   policyName        PolicyName           @relation(fields: [policy_name_id], references: [id], onDelete: Cascade)
 
-  @@unique([policy_name_id, policyStatus, deductibleType, ageCondition, productType, siCondition])
+  @@unique([policy_name_id, policyStatus, deductibleType, deductibleStatus, ageCondition, productType, siCondition, customSIThreshold, customSIOperator])
   @@index([policy_name_id])
   @@index([productType])
   @@map("commission_rules")

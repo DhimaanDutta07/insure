@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   upsertCommissionByProduct,
   getAllCommissionRules,
+  createCommissionRule,
+  deleteCommissionRule,
 } from "../../services/commissionRule.service";
 import {
   getAllPolicyNames,
@@ -16,9 +18,26 @@ import {
   Package,
   Loader2,
   ChevronDown,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import CommissionDashboard from "../CommissionDashboard";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 const DEFAULT_COMMISSION = 12.0;
 
@@ -28,10 +47,21 @@ const CommissionRulePage: React.FC = () => {
   const [commissionRules, setCommissionRules] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
   const [renewalCommission, setRenewalCommission] = useState<string>('15');
   const [isSavingRenewal, setIsSavingRenewal] = useState(false);
+  
+  // Add filter modal state
+  const [addFilterModalOpen, setAddFilterModalOpen] = useState(false);
+  const [selectedProductForFilter, setSelectedProductForFilter] = useState<PolicyName | null>(null);
+  const [newRulePolicyStatus, setNewRulePolicyStatus] = useState<string>('Fresh');
+  const [newRuleSICondition, setNewRuleSICondition] = useState<string>('ALL_SI');
+  const [customSIThreshold, setCustomSIThreshold] = useState<string>('1000000');
+  const [customSIOperator, setCustomSIOperator] = useState<string>('LESS_THAN');
+  const [newRuleCommission, setNewRuleCommission] = useState<string>('12');
+  const [isSavingNewRule, setIsSavingNewRule] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -44,6 +74,7 @@ const CommissionRulePage: React.FC = () => {
       setPolicyNames(names);
       setCompanies(companyData);
       setCommissionRules(Array.isArray(rules) ? rules : rules.data);
+      console.log('[Frontend] Data updated:', { rulesCount: Array.isArray(rules) ? rules.length : rules.data?.length });
     } catch {
       toast.error("Failed to fetch data");
     } finally {
@@ -88,6 +119,125 @@ const CommissionRulePage: React.FC = () => {
 
   const toggleExpand = (productId: string) => {
     setExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
+  };
+
+  const openAddFilterModal = (product: PolicyName) => {
+    setSelectedProductForFilter(product);
+    setNewRulePolicyStatus('Fresh');
+    setNewRuleSICondition('ALL_SI');
+    setCustomSIThreshold('1000000');
+    setCustomSIOperator('LESS_THAN');
+    setNewRuleCommission('12');
+    setAddFilterModalOpen(true);
+  };
+
+  const closeAddFilterModal = () => {
+    setAddFilterModalOpen(false);
+    setSelectedProductForFilter(null);
+  };
+
+  const handleSaveNewRule = async () => {
+    if (!selectedProductForFilter) return;
+    
+    const percent = parseFloat(newRuleCommission);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      toast.error("Enter a valid percentage between 0 and 100");
+      return;
+    }
+
+    if (newRuleSICondition === 'CUSTOM') {
+      const threshold = parseInt(customSIThreshold);
+      if (isNaN(threshold) || threshold < 0) {
+        toast.error("Enter a valid custom SI threshold");
+        return;
+      }
+    }
+
+    setIsSavingNewRule(true);
+    try {
+      const ruleData: any = {
+        policy_name_id: selectedProductForFilter.id,
+        commissionPercent: percent,
+        policyStatus: newRulePolicyStatus as any,
+        deductibleType: 'ALL_SI' as any,
+        ageCondition: 'LESS_THAN_60' as any,
+        productType: 'OTHER',
+        is_active: true,
+      };
+
+      // Only set siCondition if not CUSTOM
+      if (newRuleSICondition !== 'CUSTOM') {
+        ruleData.siCondition = newRuleSICondition;
+      } else {
+        ruleData.siCondition = null;
+      }
+
+      // Only add custom SI fields if CUSTOM is selected
+      if (newRuleSICondition === 'CUSTOM') {
+        ruleData.customSIThreshold = parseInt(customSIThreshold);
+        ruleData.customSIOperator = customSIOperator;
+      } else {
+        ruleData.customSIThreshold = null;
+        ruleData.customSIOperator = null;
+      }
+
+      // Check if DEDUCTIBLE_ON is selected - this ignores SI and applies when deductible is ON
+      if (newRuleSICondition === 'DEDUCTIBLE_ON') {
+        ruleData.deductibleStatus = true;
+        ruleData.siCondition = null; // Ignore SI for deductible-specific rules
+      } else {
+        ruleData.deductibleStatus = null;
+      }
+
+      console.log('[Frontend] Creating commission rule with data:', ruleData);
+      await createCommissionRule(ruleData);
+      toast.success("Commission rule added successfully");
+      closeAddFilterModal();
+      fetchData();
+    } catch (error: any) {
+      console.error('Error creating commission rule:', error);
+      console.error('Error response:', error.response?.data);
+      let errorMessage = "Failed to add commission rule";
+      
+      if (error.response?.data?.error) {
+        // Handle Zod validation errors
+        if (Array.isArray(error.response.data.error)) {
+          errorMessage = error.response.data.error.map((e: any) => e.message).join(', ');
+        } else if (typeof error.response.data.error === 'string') {
+          errorMessage = error.response.data.error;
+        } else if (error.response.data.error.message) {
+          errorMessage = error.response.data.error.message;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+    } finally {
+      setIsSavingNewRule(false);
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!confirm('Are you sure you want to delete this commission rule?')) {
+      return;
+    }
+
+    setDeletingId(ruleId);
+    try {
+      console.log('[Frontend] Deleting commission rule with id:', ruleId);
+      await deleteCommissionRule(ruleId);
+      console.log('[Frontend] Successfully deleted rule, refreshing data');
+      toast.success("Commission rule deleted successfully");
+      // Force a fresh fetch without cache
+      await fetchData();
+    } catch (error: any) {
+      console.error('[Frontend] Error deleting commission rule:', error);
+      const errorMessage = error.response?.data?.error || error.message || "Failed to delete commission rule";
+      toast.error(errorMessage);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleSaveRenewalCommission = async () => {
@@ -209,22 +359,14 @@ const CommissionRulePage: React.FC = () => {
                 {/* Products Grid */}
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {companyProducts.map((product) => {
-                    const productName = product.name.toUpperCase();
-                    const isOptimaSecure = productName.includes('OPTIMA SECURE');
-                    const isOtherRetailHealth = company.name === 'HDFC ERGO' && productName === 'OTHERS';
-                    const isSTU = company.name === 'HDFC ERGO' && productName === 'STU';
-                    const isPA = company.name === 'HDFC ERGO' && productName === 'PA';
-                    const isSME = company.name === 'HDFC ERGO' && productName === 'SME';
-                    const isTravel = company.name === 'HDFC ERGO' && productName === 'TRAVEL';
+                    // Check actual commission rules instead of hardcoded name patterns
+                    const productRules = commissionRules.filter(rule => rule.policy_name_id === product.id);
+                    const hasSI = productRules.some(rule => rule.siCondition && rule.siCondition !== 'ALL_SI');
+                    const hasStatus = productRules.some(rule => rule.policyStatus);
+                    const hasClassification = hasSI || hasStatus;
 
-                    const hasClassification = isOptimaSecure || isOtherRetailHealth || isSTU || isPA || isSME || isTravel;
-                    const hasSI = isOptimaSecure || isOtherRetailHealth;
-
-                    let statuses: string[] = [];
-                    if (isOptimaSecure || isOtherRetailHealth) statuses = ['Fresh', 'Portablity'];
-                    else if (isSTU) statuses = ['Fresh', 'Portablity'];
-                    else if (isPA || isSME) statuses = ['Fresh', 'Renewal'];
-                    else if (isTravel) statuses = ['Fresh'];
+                    // Get unique statuses from actual rules
+                    const statuses = Array.from(new Set(productRules.map(rule => rule.policyStatus).filter(Boolean)));
 
                     const isExpanded = expandedProducts[product.id];
                     const key = product.id;
@@ -272,17 +414,33 @@ const CommissionRulePage: React.FC = () => {
 
                         {isExpanded && hasClassification && (
                           <div className="p-4 pt-0 border-t border-gray-100">
+                            <div className="flex justify-end mb-3">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openAddFilterModal(product)}
+                                className="text-xs"
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                Add New Filter
+                              </Button>
+                            </div>
                             <div className="space-y-3">
                               {statuses.map((status) => {
                                 const siConditions = hasSI
                                   ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS']
                                   : ['DEFAULT'];
 
+                                // Also find any custom/deductible rules for this status that don't match standard SI
+                                const customRulesForStatus = commissionRules.filter(
+                                  (rule) =>
+                                    rule.policy_name_id === product.id &&
+                                    rule.policyStatus === status &&
+                                    !siConditions.includes(rule.siCondition || '')
+                                );
+
                                 return (
                                   <div key={status} className="border border-gray-200 rounded p-3">
-                                    <div className="text-xs font-semibold text-gray-700 mb-2">
-                                      {status}
-                                    </div>
                                     {siConditions.map((si) => {
                                       const rowKey = `${product.id}-${status}-${si}`;
                                       const rowHasEdit = editValues[rowKey] !== undefined;
@@ -292,29 +450,50 @@ const CommissionRulePage: React.FC = () => {
                                         (rule) =>
                                           rule.policy_name_id === product.id &&
                                           rule.policyStatus === status &&
-                                          (si === 'DEFAULT' ? !rule.siCondition : rule.siCondition === si)
+                                          (si === 'DEFAULT' ? !rule.siCondition : rule.siCondition === si) &&
+                                          // Exclude deductible rules from standard SI display
+                                          !rule.deductibleStatus
                                       );
 
                                       const rowDisplayValue = rowHasEdit
                                         ? editValues[rowKey]
                                         : (matchingRule?.commissionPercent ?? DEFAULT_COMMISSION).toString();
                                       const rowIsSaving = savingId === rowKey;
-                                      const siLabel = si === 'DEFAULT'
-                                        ? 'Default'
+                                      
+                                      // Determine SI label - check for custom threshold first
+                                      let siLabel = si === 'DEFAULT'
+                                        ? 'All SI'
                                         : si === 'LESS_THAN_10_LAKHS'
                                         ? 'SI < ₹10L'
                                         : 'SI ≥ ₹10L';
+
+                                      // If rule has custom SI threshold, display that instead
+                                      if (matchingRule?.customSIThreshold && matchingRule?.customSIOperator) {
+                                        const threshold = matchingRule.customSIThreshold;
+                                        const operator = matchingRule.customSIOperator === 'LESS_THAN' ? '<' : '>';
+                                        // Format threshold in lakhs if >= 100000, otherwise show full amount
+                                        const formattedThreshold = threshold >= 100000
+                                          ? `₹${(threshold / 100000).toFixed(0)}L`
+                                          : `₹${threshold.toLocaleString()}`;
+                                        siLabel = `SI ${operator} ${formattedThreshold}`;
+                                      }
+
+                                      // Add deductible status label if set
+                                      if (matchingRule?.deductibleStatus === true) {
+                                        siLabel += ' (Deductible On)';
+                                      }
+
+                                      // Display as: Policy Status (Sum Insured Condition)
+                                      siLabel = `${status} (${siLabel})`;
 
                                       return (
                                         <div
                                           key={si}
                                           className="flex items-center gap-2 mb-2 last:mb-0"
                                         >
-                                          {hasSI && (
-                                            <span className="text-xs text-gray-500 w-20">
-                                              {siLabel}
-                                            </span>
-                                          )}
+                                          <span className="text-xs text-gray-500 w-72 truncate">
+                                            {siLabel}
+                                          </span>
                                           <Input
                                             type="number"
                                             min={0}
@@ -353,6 +532,108 @@ const CommissionRulePage: React.FC = () => {
                                               )}
                                             </Button>
                                           )}
+                                          {matchingRule && (
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => handleDeleteRule(matchingRule.id)}
+                                              disabled={deletingId === matchingRule.id}
+                                              className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                            >
+                                              {deletingId === matchingRule.id ? (
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                              ) : (
+                                                <Trash2 className="w-3 h-3" />
+                                              )}
+                                            </Button>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    {/* Display custom/deductible rules */}
+                                    {customRulesForStatus.map((rule) => {
+                                      const rowKey = `${product.id}-${status}-custom-${rule.id}`;
+                                      const rowHasEdit = editValues[rowKey] !== undefined;
+                                      const rowDisplayValue = rowHasEdit
+                                        ? editValues[rowKey]
+                                        : (rule.commissionPercent ?? DEFAULT_COMMISSION).toString();
+                                      const rowIsSaving = savingId === rowKey;
+
+                                      let siLabel = 'All SI';
+                                      if (rule.customSIThreshold && rule.customSIOperator) {
+                                        const threshold = rule.customSIThreshold;
+                                        const operator = rule.customSIOperator === 'LESS_THAN' ? '<' : '>';
+                                        const formattedThreshold = threshold >= 100000
+                                          ? `₹${(threshold / 100000).toFixed(0)}L`
+                                          : `₹${threshold.toLocaleString()}`;
+                                        siLabel = `SI ${operator} ${formattedThreshold}`;
+                                      }
+
+                                      if (rule.deductibleStatus === true) {
+                                        siLabel = 'Deductible On (ignores SI)';
+                                      }
+
+                                      siLabel = `${status} (${siLabel})`;
+
+                                      return (
+                                        <div
+                                          key={rule.id}
+                                          className="flex items-center gap-2 mb-2 last:mb-0"
+                                        >
+                                          <span className="text-xs text-gray-500 w-72 truncate">
+                                            {siLabel}
+                                          </span>
+                                          <Input
+                                            type="number"
+                                            min={0}
+                                            max={100}
+                                            step={0.1}
+                                            value={rowDisplayValue}
+                                            onChange={(e) =>
+                                              handlePercentChange(
+                                                product.id,
+                                                status,
+                                                `custom-${rule.id}`,
+                                                e.target.value
+                                              )
+                                            }
+                                            className="h-7 text-xs text-center w-16"
+                                          />
+                                          <span className="text-xs text-gray-500">%</span>
+                                          {rowHasEdit && (
+                                            <Button
+                                              size="sm"
+                                              onClick={() =>
+                                                handleSavePercent(
+                                                  product.id,
+                                                  '',
+                                                  status,
+                                                  `custom-${rule.id}`
+                                                )
+                                              }
+                                              disabled={rowIsSaving}
+                                              className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-white"
+                                            >
+                                              {rowIsSaving ? (
+                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                              ) : (
+                                                <Save className="w-3 h-3" />
+                                              )}
+                                            </Button>
+                                          )}
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            onClick={() => handleDeleteRule(rule.id)}
+                                            disabled={deletingId === rule.id}
+                                            className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                          >
+                                            {deletingId === rule.id ? (
+                                              <Loader2 className="w-3 h-3 animate-spin" />
+                                            ) : (
+                                              <Trash2 className="w-3 h-3" />
+                                            )}
+                                          </Button>
                                         </div>
                                       );
                                     })}
@@ -390,6 +671,30 @@ const CommissionRulePage: React.FC = () => {
                                   )}
                                 </Button>
                               )}
+                              {matchingRule && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteRule(matchingRule.id)}
+                                  disabled={deletingId === matchingRule.id}
+                                  className="h-9 px-3 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                >
+                                  {deletingId === matchingRule.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openAddFilterModal(product)}
+                                className="h-9 px-3 text-xs"
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                Add Filter
+                              </Button>
                             </div>
                           </div>
                         )}
@@ -409,6 +714,107 @@ const CommissionRulePage: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Add Filter Modal */}
+      <Dialog open={addFilterModalOpen} onOpenChange={setAddFilterModalOpen}>
+        <DialogContent className="sm:max-w-[425px] bg-white rounded-lg shadow-lg">
+          <DialogHeader>
+            <DialogTitle className="text-left text-gray-700">Add Commission Filter</DialogTitle>
+            <DialogDescription className="text-left text-gray-600">
+              Add a new commission rule for <b>{selectedProductForFilter?.name}</b>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Policy Status</label>
+              <Select value={newRulePolicyStatus} onValueChange={setNewRulePolicyStatus}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Fresh">Fresh</SelectItem>
+                  <SelectItem value="Portablity">Portability</SelectItem>
+                  <SelectItem value="Renewal">Renewal</SelectItem>
+                  <SelectItem value="Migration">Migration</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Sum Insured Condition</label>
+              <Select value={newRuleSICondition} onValueChange={setNewRuleSICondition}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select SI condition (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL_SI">None (All SI)</SelectItem>
+                  <SelectItem value="LESS_THAN_10_LAKHS">SI &lt; 10L</SelectItem>
+                  <SelectItem value="GREATER_EQUAL_10_LAKHS">SI &gt;= 10L</SelectItem>
+                  <SelectItem value="DEDUCTIBLE_ON">Deductible Amount Status ON (ignores SI)</SelectItem>
+                  <SelectItem value="CUSTOM">Custom Threshold</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {newRuleSICondition === 'CUSTOM' && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Custom SI Threshold (₹)</label>
+                <div className="flex gap-2">
+                  <Select value={customSIOperator} onValueChange={setCustomSIOperator}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LESS_THAN">Less than</SelectItem>
+                      <SelectItem value="GREATER_THAN">Greater than</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={10000}
+                    value={customSIThreshold}
+                    onChange={(e) => setCustomSIThreshold(e.target.value)}
+                    className="flex-1"
+                    placeholder="Enter threshold amount"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Commission Percentage</label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={0.1}
+                value={newRuleCommission}
+                onChange={(e) => setNewRuleCommission(e.target.value)}
+                className="w-full"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeAddFilterModal}
+              disabled={isSavingNewRule}
+              className="text-gray-700 hover:text-gray-900 hover:bg-gray-100 border border-gray-300"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveNewRule}
+              disabled={isSavingNewRule}
+              className="bg-blue-600 text-white hover:bg-blue-700"
+            >
+              {isSavingNewRule ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                'Add Rule'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

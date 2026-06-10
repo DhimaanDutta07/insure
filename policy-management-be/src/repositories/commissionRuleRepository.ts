@@ -144,9 +144,14 @@ export const commissionRuleRepository = {
   
   delete: async (id: string): Promise<DeleteResult> => {
     try {
+      console.log('[Repository] Deleting commission rule with id:', id);
       const deleted = await prisma.commissionRule.delete({ where: { id } });
+      console.log('[Repository] Successfully deleted rule:', deleted.id);
+      // Invalidate cache when rule is deleted
+      commissionStatsCache.deleteByPrefix('commissionRules');
       return { success: true, data: deleted };
     } catch (error) {
+      console.error('[Repository] Error deleting commission rule:', error);
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
         return {
           success: false,

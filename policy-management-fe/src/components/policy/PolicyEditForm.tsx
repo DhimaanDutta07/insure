@@ -137,6 +137,7 @@ interface PolicyName {
   name: string;
   description?: string;
   policy_group_id?: string;
+  company_id?: string;
 }
 interface PolicyGroup {
   id: string;
@@ -179,6 +180,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const [policyTypes, setPolicyTypes] = useState<PolicyTypeOption[]>([]);
   const [policyNames, setPolicyNames] = useState<PolicyName[]>([]);
   const [policyGroups, setPolicyGroups] = useState<PolicyGroup[]>([]);
+  const [commissionRules, setCommissionRules] = useState<any[]>([]);
   
   // File upload states - organized by entity
   const [policyDocs, setPolicyDocs] = useState<File[]>([]);
@@ -200,6 +202,9 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     calculated_commission_amount: number;
     base_percentage: number;
     rule_found: boolean;
+    si_condition?: string;
+    custom_si_threshold?: number;
+    custom_si_operator?: string;
   }>({
     calculated_commission_amount: 0,
     base_percentage: 0,
@@ -280,12 +285,13 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         const headers = { Authorization: `Bearer ${token}` };
 
         // Fetch dropdown data and policy details in parallel
-        const [policyRes, companiesRes, policyTypesRes, policyNamesRes, policyGroupsRes] = await Promise.all([
+        const [policyRes, companiesRes, policyTypesRes, policyNamesRes, policyGroupsRes, commissionRulesRes] = await Promise.all([
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-types`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`, { headers }),
+          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules`, { headers }),
         ]);
 
         // Extract policy data from the response (backend returns { success: true, data: policy })
@@ -297,6 +303,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         setPolicyTypes(Array.isArray(policyTypesRes.data) ? policyTypesRes.data : []);
         setPolicyNames(Array.isArray(policyNamesRes.data) ? policyNamesRes.data : []);
         setPolicyGroups(Array.isArray(policyGroupsRes.data.policyGroups) ? policyGroupsRes.data.policyGroups : []);
+        setCommissionRules(Array.isArray(commissionRulesRes.data) ? commissionRulesRes.data : []);
         
         // Process and categorize documents
         const allDocs: PolicyDocument[] = policy.documents || [];
@@ -655,6 +662,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wTenureYears = watch("tenure_years");
   const wPremiumAmount = watch("premium_amount");
   const wPolicyNameId = watch("policy_name_id");
+  const wCompanyId = watch("company_id");
   const wProposerDob = watch("proposer.date_of_birth");
   const wProposerGender = watch("proposer.gender");
   const wProposerSalutation = watch("proposer.proposer_salutation");
@@ -663,6 +671,44 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wPolicyCreationStatus = watch("policy_creation_status");
   const wProposerFullName = watch("proposer.full_name");
   const wMembers = watch("members");
+
+  // Determine available statuses based on commission rules (like PolicyForm)
+  const selectedPolicyName = policyNames.find(pn => pn.id === wPolicyNameId);
+  const productName = selectedPolicyName?.name?.toUpperCase() || '';
+  const companyName = companies.find(c => c.id === wCompanyId)?.name || '';
+
+  // Check actual commission rules for this product to determine if it has complex classifications
+  const productCommissionRules = commissionRules.filter(rule => rule.policy_name_id === wPolicyNameId);
+
+  // Fallback to name-based classification only if no rules exist yet (for new products)
+  const isOptimaSecure = productName.includes('OPTIMA SECURE');
+  const isOtherRetailHealth = companyName === 'HDFC ERGO' && productName === 'OTHERS';
+  const isSTU = companyName === 'HDFC ERGO' && productName === 'STU';
+  const isPA = companyName === 'HDFC ERGO' && productName === 'PA';
+  const isSME = companyName === 'HDFC ERGO' && productName === 'SME';
+  const isTravel = companyName === 'HDFC ERGO' && productName === 'TRAVEL';
+
+  let availableStatuses: ("Fresh" | "Renewal" | "Migration" | "Portablity")[] = ["Fresh", "Renewal", "Migration", "Portablity"];
+
+  // Use actual rule classification if rules exist, otherwise fall back to name patterns
+  if (productCommissionRules.length > 0) {
+    // Extract unique statuses from actual rules
+    const uniqueStatuses = Array.from(new Set(productCommissionRules.map(rule => rule.policyStatus).filter(Boolean)));
+    if (uniqueStatuses.length > 0) {
+      availableStatuses = uniqueStatuses as ("Fresh" | "Renewal" | "Migration" | "Portablity")[];
+    }
+  } else {
+    // No rules yet - use name-based classification for backward compatibility
+    if (isOptimaSecure || isOtherRetailHealth) {
+      availableStatuses = ["Fresh", "Portablity", "Renewal"];
+    } else if (isSTU) {
+      availableStatuses = ["Fresh", "Portablity", "Renewal"];
+    } else if (isPA || isSME) {
+      availableStatuses = ["Fresh", "Renewal"];
+    } else if (isTravel) {
+      availableStatuses = ["Fresh", "Renewal"];
+    }
+  }
 
 
   // Auto-calculate end date based on start date and tenure years
@@ -1720,22 +1766,9 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
                   const company = companies.find(c => c.id === watch('company_id'));
                   let filtered = policyNames || [];
 
-                  if (company?.name === 'HDFC ERGO') {
-                    const hdfcProducts = [
-                      'OPTIMA RESTORE',
-                      'OPTIMA SECURE',
-                      'OPTIMA SUPER SECURE',
-                      'ENERGY',
-                      'EASY HEALTH',
-                      'KOTI SURAKSHA',
-                      'IPA',
-                      'TRAVEL',
-                      'OTHERS',
-                      'STU',
-                      'PA',
-                      'SME',
-                    ];
-                    filtered = filtered.filter((pn) => hdfcProducts.includes(pn.name));
+                  // Filter by selected company
+                  if (company) {
+                    filtered = filtered.filter((pn) => pn.company_id === company.id);
                   }
 
                   // Deduplicate by name to ensure no duplicate product names
@@ -1919,10 +1952,11 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Fresh">Fresh</SelectItem>
-                <SelectItem value="Renewal">Renewal</SelectItem>
-                <SelectItem value="Migration">Internal Portability</SelectItem>
-                <SelectItem value="Portablity">Portablity</SelectItem>
+                {availableStatuses.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status === "Migration" ? "Internal Portability" : status}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -2010,13 +2044,18 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       </div>
     )}
   </div>
-  {/* {calculatedCommission.rule_found && (
-    <div className="text-xs text-gray-600 mt-1 space-y-1">
-      <div>Base Commission: {calculatedCommission.base_percentage}%</div>
-      <div>Add-on Commission: {calculatedCommission.add_on_percentage}%</div>
-      <div>Total Commission: {calculatedCommission.total_percentage}%</div>
+  {/* Display SI condition and commission percentage */}
+  {calculatedCommission.rule_found && (
+    <div className="mt-1 text-xs text-gray-600">
+      <span className="font-medium">{calculatedCommission.base_percentage}%</span>
+      {calculatedCommission.si_condition && calculatedCommission.si_condition !== 'ALL_SI' && (
+        <span> • {calculatedCommission.si_condition === 'LESS_THAN_10_LAKHS' ? 'SI < ₹10L' : calculatedCommission.si_condition === 'GREATER_EQUAL_10_LAKHS' ? 'SI ≥ ₹10L' : calculatedCommission.si_condition}</span>
+      )}
+      {calculatedCommission.custom_si_threshold && calculatedCommission.custom_si_operator && (
+        <span> • SI {calculatedCommission.custom_si_operator === 'LESS_THAN' ? '<' : '>'} ₹{calculatedCommission.custom_si_threshold >= 100000 ? (calculatedCommission.custom_si_threshold / 100000).toFixed(0) + 'L' : calculatedCommission.custom_si_threshold.toLocaleString()}</span>
+      )}
     </div>
-  )} */}
+  )}
   {!calculatedCommission.rule_found && watch("premium_amount") && watch("policy_name_id") && (
     <div className="text-xs text-orange-600 mt-1">
       No commission rule found for the selected criteria

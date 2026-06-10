@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
-import { RefreshCw, ArrowRight, Building2, Shield, AlertCircle } from 'lucide-react';
+import { RefreshCw, ArrowRight, Building2, Shield, AlertCircle, Plus, Trash2, FileText } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../ui/sheet';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
-import { PolicyTransitionService, TransitionEligibility, PolicyTransitionData } from '../../services/policyTransition.service';
+import { PolicyTransitionService, PolicyTransitionData } from '../../services/policyTransition.service';
 import type { Policy } from '../../types/index';
+import { useCompanies, usePolicyNames } from '../../hooks/useApi';
 
 // Extended interfaces for the transition sheet
 interface ExtendedProposer {
@@ -37,6 +38,7 @@ interface ExtendedMember {
   relation_to_proposer?: string;
   date_of_birth?: string;
   gender?: string;
+  age?: number;
   pre_existing?: boolean;
   insured_member_medical_condition?: boolean;
   insured_member_medical_remarks?: string;
@@ -83,13 +85,20 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
   onSuccess
 }) => {
   const [loading, setLoading] = useState(false);
-  const [eligibility, setEligibility] = useState<TransitionEligibility | null>(null);
-  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
-  const [policyNames, setPolicyNames] = useState<{ id: string; name: string; company_id?: string }[]>([]);
   const [error, setError] = useState<string | null>(null);
+  
+  // Use React Query hooks for instant data loading with caching
+  const { data: companies = [] } = useCompanies();
+  const { data: policyNames = [] } = usePolicyNames();
   
   // Local state for premium amount input to prevent input interference
   const [premiumAmountInput, setPremiumAmountInput] = useState<string>("");
+  
+  // Local state for member management
+  const [members, setMembers] = useState<ExtendedMember[]>([]);
+  
+  // Local state for document upload
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
 
   const {
     register,
@@ -123,8 +132,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
     if (!policy) return;
     try {
       setError(null);
-      const result = await PolicyTransitionService.validateEligibility(policy.id, transitionType);
-      setEligibility(result);
+      await PolicyTransitionService.validateEligibility(policy.id, transitionType);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to validate eligibility';
       setError(errorMessage);
@@ -197,18 +205,11 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
   //     setDocumentTransferStats(stats);
   //   } catch (error: unknown) {
   //     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch document transfer statistics';
-  //     console.error('Document transfer stats error:', errorMessage);
   //     // Don't show error to user as this is not critical
   //   }
   // };
 
-  // Fetch companies and policy names
-  useEffect(() => {
-    if (open) {
-      fetchCompanies();
-      fetchPolicyNames();
-    }
-  }, [open]);
+  // Data is now loaded via React Query hooks with caching - no manual fetch needed
 
   // Pre-fill form with parent policy data - only after policy names are loaded
   useEffect(() => {
@@ -249,6 +250,12 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
         setValue('deductible_amount', undefined);
       }
       
+      // Initialize members from parent policy
+      // Use the same path that works in the display section
+      const parentMembers = policy.proposer?.insured_members || [];
+
+      setMembers(parentMembers);
+
       // Set dates based on transition type
       const startDate = new Date();
       const endDate = new Date();
@@ -275,38 +282,6 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
     }
   }, [policy, policyNames, setValue, transitionType, clearErrors, checkEligibility]);
 
-  const fetchCompanies = async () => {
-    try {
-      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        }
-      });
-      const data = await response.json();
-      // Handle both array and object with data property
-      const companiesData = Array.isArray(data) ? data : (data.data || []);
-      setCompanies(companiesData);
-    } catch (error) {
-      console.error('Failed to fetch companies:', error);
-    }
-  };
-
-  const fetchPolicyNames = async () => {
-    try {
-      const response = await fetch(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        }
-      });
-      const data = await response.json();
-      // Handle both array and object with data property
-      const policyNamesData = Array.isArray(data) ? data : (data.data || []);
-      setPolicyNames(policyNamesData);
-    } catch (error) {
-      console.error('Failed to fetch policy names:', error);
-    }
-  };
-
   const resetForm = () => {
     // Reset all form values
     setValue('customer_name', '');
@@ -326,51 +301,87 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
     // Clear local state
     setPremiumAmountInput("");
     setError(null);
-    setEligibility(null);
-    
+
     // Clear form validation errors
     clearErrors();
   };
 
   const onSubmit = async (data: PolicyTransitionData) => {
-    if (!policy) return;
+    console.log('onSubmit called with data:', data);
+    console.log('policy:', policy);
+    console.log('transitionType:', transitionType);
+    
+    if (!policy) {
+      console.error('No policy provided');
+      return;
+    }
 
     setLoading(true);
     setError(null);
     try {
       // Prepare payload with deductible and GST handling
-      const payload: Record<string, string | number | boolean | null | undefined> = { ...data };
-      
+      const payload: Record<string, string | number | boolean | null | undefined | any[]> = { ...data };
+      console.log('Payload prepared:', payload);
+
       // Handle deductible fields
       if (!payload.deductible_amount_status) {
         delete payload.deductible_amount;
       }
-      
+
+      // Add members to payload for all transition types
+      if (members.length > 0) {
+        payload.members = members;
+      }
+      console.log('Members added:', members);
+
+      // Create FormData for file upload
+      const formData = new FormData();
+
+      // Add all non-file fields to FormData
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key === 'members') {
+          formData.append(key, JSON.stringify(value));
+        } else if (value !== undefined && value !== null && value !== '') {
+          formData.append(key, String(value));
+        }
+      });
+      console.log('FormData created, entries count:', formData.entries.length);
+
+      // Add documents to FormData
+      uploadedFiles.forEach((file) => {
+        formData.append('documents', file);
+      });
+      console.log('Uploaded files:', uploadedFiles);
+
       let result;
-      
+
       switch (transitionType) {
         case 'RENEWAL':
-          result = await PolicyTransitionService.createRenewal(policy.id, payload as PolicyTransitionData);
+          console.log('Calling createRenewal');
+          result = await PolicyTransitionService.createRenewal(policy.id, formData);
           break;
         case 'MIGRATION':
-          result = await PolicyTransitionService.createMigration(policy.id, payload as PolicyTransitionData);
+          result = await PolicyTransitionService.createMigration(policy.id, formData);
           break;
         case 'PORTABILITY':
-          result = await PolicyTransitionService.createPortability(policy.id, payload as PolicyTransitionData);
+          result = await PolicyTransitionService.createPortability(policy.id, formData);
           break;
         default:
           throw new Error('Invalid transition type');
       }
 
+      console.log('Result received:', result);
       toast.success(result.message);
       onSuccess?.(result);
       resetForm();
       onClose();
     } catch (error: unknown) {
+      console.error('Error in onSubmit:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to create policy transition';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
+      console.log('Setting loading to false');
       setLoading(false);
     }
   };
@@ -490,11 +501,11 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                     </div>
                     <div>
                       <Label className="text-xs font-medium text-gray-600">Gender</Label>
-                      <p className="text-sm text-gray-900">{policy.proposer.gender}</p>
+                      <p className="text-sm text-gray-900">{policy.proposer.gender || '-'}</p>
                     </div>
                     <div>
                       <Label className="text-xs font-medium text-gray-600">Marital Status</Label>
-                      <p className="text-sm text-gray-900">{policy.proposer.marital_status}</p>
+                      <p className="text-sm text-gray-900">{policy.proposer.marital_status || '-'}</p>
                     </div>
                     <div>
                       <Label className="text-xs font-medium text-gray-600">Mobile</Label>
@@ -522,7 +533,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                     </div>
                     <div className="col-span-3">
                       <Label className="text-xs font-medium text-gray-600">Address</Label>
-                      <p className="text-sm text-gray-900">{policy.proposer.address}</p>
+                      <p className="text-sm text-gray-900">{policy.proposer.address || '-'}</p>
                     </div>
                   </div>
                 </div>
@@ -657,7 +668,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                           </div>
                           <div>
                             <Label className="text-xs font-medium text-gray-600">Gender</Label>
-                            <p className="text-sm text-gray-900">{member.gender}</p>
+                            <p className="text-sm text-gray-900">{member.gender || '-'}</p>
                           </div>
                           <div>
                             <Label className="text-xs font-medium text-gray-600">Pre-existing Condition</Label>
@@ -683,6 +694,198 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Member Management Section - For all transition types */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3 border-b border-gray-200 pb-2">
+                  <h4 className="text-sm font-semibold text-gray-800">
+                    Manage Members ({members.length} members)
+                  </h4>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setMembers([...members, {
+                        name: '',
+                        relation_to_proposer: '',
+                        date_of_birth: '',
+                        gender: '',
+                        pre_existing: false,
+                        insured_member_medical_condition: false,
+                        insured_member_medical_remarks: '',
+                      }]);
+                    }}
+                    size="sm"
+                    className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Add Member
+                  </Button>
+                </div>
+                  <div className="space-y-3">
+                    {members.map((member, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-3 bg-white">
+                        <div className="flex justify-between items-start mb-3">
+                          <h5 className="text-sm font-medium text-gray-800">Member {index + 1}</h5>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              setMembers(members.filter((_, i) => i !== index));
+                            }}
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <Label className="text-xs font-medium text-gray-600">Name</Label>
+                            <Input
+                              value={member.name || ''}
+                              onChange={(e) => {
+                                const updated = [...members];
+                                updated[index].name = e.target.value;
+                                setMembers(updated);
+                              }}
+                              className="h-7 text-xs mt-1"
+                              placeholder="Enter name"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-600">Relation</Label>
+                            <Select
+                              value={member.relation_to_proposer || ''}
+                              onValueChange={(value) => {
+                                const updated = [...members];
+                                updated[index].relation_to_proposer = value;
+                                setMembers(updated);
+                              }}
+                            >
+                              <SelectTrigger className="h-7 text-xs mt-1">
+                                <SelectValue placeholder="Select relation" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Self">Self</SelectItem>
+                                <SelectItem value="Spouse">Spouse</SelectItem>
+                                <SelectItem value="Son">Son</SelectItem>
+                                <SelectItem value="Daughter">Daughter</SelectItem>
+                                <SelectItem value="Father">Father</SelectItem>
+                                <SelectItem value="Mother">Mother</SelectItem>
+                                <SelectItem value="Other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-600">Date of Birth</Label>
+                            <Input
+                              type="date"
+                              value={member.date_of_birth ? new Date(member.date_of_birth).toISOString().split('T')[0] : ''}
+                              onChange={(e) => {
+                                const updated = [...members];
+                                updated[index].date_of_birth = e.target.value;
+                                // Auto-calculate age from date of birth
+                                if (e.target.value) {
+                                  const dob = new Date(e.target.value);
+                                  const today = new Date();
+                                  let age = today.getFullYear() - dob.getFullYear();
+                                  const monthDiff = today.getMonth() - dob.getMonth();
+                                  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+                                    age--;
+                                  }
+                                  updated[index].age = age;
+                                }
+                                setMembers(updated);
+                              }}
+                              className="h-7 text-xs mt-1"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs font-medium text-gray-600">Gender</Label>
+                            <Select
+                              value={member.gender || ''}
+                              onValueChange={(value) => {
+                                const updated = [...members];
+                                updated[index].gender = value;
+                                setMembers(updated);
+                              }}
+                            >
+                              <SelectTrigger className="h-7 text-xs mt-1">
+                                <SelectValue placeholder="Select gender" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Male">Male</SelectItem>
+                                <SelectItem value="Female">Female</SelectItem>
+                                <SelectItem value="Other">Other</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {members.length === 0 && (
+                      <div className="text-center py-4 text-gray-500 text-sm">
+                        No members added. Click "Add Member" to add members to the new policy.
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              {/* Document Upload Section - For all transition types */}
+              <div className="mb-6">
+                <div className="flex justify-between items-center mb-3 border-b border-gray-200 pb-2">
+                  <h4 className="text-sm font-semibold text-gray-800">
+                    Upload Documents ({uploadedFiles.length} files)
+                  </h4>
+                </div>
+                <div className="space-y-3">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 bg-gray-50">
+                    <input
+                      type="file"
+                      id="document-upload"
+                      multiple
+                      accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xlsx,.xls,.csv"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        setUploadedFiles([...uploadedFiles, ...files]);
+                      }}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="document-upload"
+                      className="flex flex-col items-center justify-center cursor-pointer"
+                    >
+                      <Plus className="w-8 h-8 text-gray-400 mb-2" />
+                      <p className="text-sm text-gray-600">Click to upload documents</p>
+                      <p className="text-xs text-gray-500 mt-1">PDF, JPG, PNG, DOC, XLSX, XLS, CSV</p>
+                    </label>
+                  </div>
+                  {uploadedFiles.length > 0 && (
+                    <div className="space-y-2">
+                      {uploadedFiles.map((file, index) => (
+                        <div key={index} className="flex items-center justify-between p-2 bg-white border border-gray-200 rounded">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-gray-500" />
+                            <span className="text-xs text-gray-700">{file.name}</span>
+                            <span className="text-xs text-gray-500">({(file.size / 1024).toFixed(1)} KB)</span>
+                          </div>
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              setUploadedFiles(uploadedFiles.filter((_, i) => i !== index));
+                            }}
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {/* 4. Nominee and Payment Information */}
               {policy.nominee_payment && (
@@ -965,6 +1168,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                       id="start_date"
                       type="date"
                       {...register('start_date', { required: 'Start date is required' })}
+                      value={watch('start_date') || ''}
                       className={`h-8 text-xs ${errors.start_date ? 'border-red-500' : ''}`}
                     />
                     {errors.start_date && (
@@ -979,6 +1183,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                       id="end_date"
                       type="date"
                       {...register('end_date', { required: 'End date is required' })}
+                      value={watch('end_date') || ''}
                       className={`h-8 text-xs ${errors.end_date ? 'border-red-500' : ''}`}
                     />
                     {errors.end_date && (
@@ -993,6 +1198,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                       id="issued_date"
                       type="date"
                       {...register('issued_date', { required: 'Issued date is required' })}
+                      value={watch('issued_date') || ''}
                       className={`h-8 text-xs ${errors.issued_date ? 'border-red-500' : ''}`}
                     />
                     {errors.issued_date && (
@@ -1017,7 +1223,7 @@ const PolicyTransitionSheet: React.FC<PolicyTransitionSheetProps> = ({
                   </Button>
                   <Button
                     type="submit"
-                    disabled={loading || !eligibility?.eligible}
+                    disabled={loading}
                     className="bg-blue-600 hover:bg-blue-700 text-white"
                   >
                     {loading ? (

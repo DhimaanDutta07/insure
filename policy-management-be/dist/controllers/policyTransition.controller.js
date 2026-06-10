@@ -52,19 +52,37 @@ function validatePolicyTransitionInput(data) {
 }
 // Create policy renewal
 exports.createPolicyRenewal = (0, asyncTryCatch_1.asyncTryCatch)(async (req, res) => {
+    console.log('🔍 [Controller] createPolicyRenewal called');
+    console.log('🔍 [Controller] parentPolicyId:', req.params.parentPolicyId);
+    console.log('🔍 [Controller] req.body keys:', Object.keys(req.body));
+    console.log('🔍 [Controller] req.files:', req.files);
     const parentPolicyId = req.params.parentPolicyId;
     const newPolicyData = req.body;
-    // Validate transition eligibility
-    const eligibility = await policyTransition_service_1.PolicyTransitionService.validateTransitionEligibility(parentPolicyId, 'RENEWAL');
-    if (!eligibility.eligible) {
-        res.status(400).json({
-            error: 'Policy not eligible for renewal',
-            reasons: eligibility.reasons,
-            requirements: eligibility.requirements
-        });
-        return;
+    // Handle FormData with file uploads
+    let processedData = newPolicyData;
+    if (req.files && Array.isArray(req.files)) {
+        // Extract files from multer
+        const files = req.files;
+        processedData = {
+            ...newPolicyData,
+            documents: files.map(file => ({
+                path: file.path,
+                filename: file.filename,
+                originalname: file.originalname,
+                mimetype: file.mimetype
+            }))
+        };
     }
-    const result = await policyTransition_service_1.PolicyTransitionService.createPolicyTransition(parentPolicyId, 'RENEWAL', newPolicyData);
+    // Parse members if sent as JSON string
+    if (typeof newPolicyData.members === 'string') {
+        try {
+            processedData.members = JSON.parse(newPolicyData.members);
+        }
+        catch (e) {
+            // Silently handle parse error
+        }
+    }
+    const result = await policyTransition_service_1.PolicyTransitionService.createPolicyTransition(parentPolicyId, 'RENEWAL', processedData);
     if (result.errors.length > 0) {
         res.status(400).json({
             error: 'Failed to create policy renewal',
@@ -88,17 +106,30 @@ exports.createPolicyRenewal = (0, asyncTryCatch_1.asyncTryCatch)(async (req, res
 exports.createPolicyMigration = (0, asyncTryCatch_1.asyncTryCatch)(async (req, res) => {
     const parentPolicyId = req.params.parentPolicyId;
     const newPolicyData = req.body;
-    // Validate transition eligibility
-    const eligibility = await policyTransition_service_1.PolicyTransitionService.validateTransitionEligibility(parentPolicyId, 'MIGRATION');
-    if (!eligibility.eligible) {
-        res.status(400).json({
-            error: 'Policy not eligible for migration',
-            reasons: eligibility.reasons,
-            requirements: eligibility.requirements
-        });
-        return;
+    // Handle FormData with file uploads
+    let processedData = newPolicyData;
+    if (req.files && Array.isArray(req.files)) {
+        const files = req.files;
+        processedData = {
+            ...newPolicyData,
+            documents: files.map(file => ({
+                path: file.path,
+                filename: file.filename,
+                originalname: file.originalname,
+                mimetype: file.mimetype
+            }))
+        };
     }
-    const result = await policyTransition_service_1.PolicyTransitionService.createPolicyTransition(parentPolicyId, 'MIGRATION', newPolicyData);
+    // Parse members if sent as JSON string
+    if (typeof newPolicyData.members === 'string') {
+        try {
+            processedData.members = JSON.parse(newPolicyData.members);
+        }
+        catch (e) {
+            // Silently handle parse error
+        }
+    }
+    const result = await policyTransition_service_1.PolicyTransitionService.createPolicyTransition(parentPolicyId, 'MIGRATION', processedData);
     if (result.errors.length > 0) {
         res.status(400).json({
             error: 'Failed to create policy migration',
@@ -122,17 +153,30 @@ exports.createPolicyMigration = (0, asyncTryCatch_1.asyncTryCatch)(async (req, r
 exports.createPolicyPortability = (0, asyncTryCatch_1.asyncTryCatch)(async (req, res) => {
     const parentPolicyId = req.params.parentPolicyId;
     const newPolicyData = req.body;
-    // Validate transition eligibility
-    const eligibility = await policyTransition_service_1.PolicyTransitionService.validateTransitionEligibility(parentPolicyId, 'PORTABILITY');
-    if (!eligibility.eligible) {
-        res.status(400).json({
-            error: 'Policy not eligible for portability',
-            reasons: eligibility.reasons,
-            requirements: eligibility.requirements
-        });
-        return;
+    // Handle FormData with file uploads
+    let processedData = newPolicyData;
+    if (req.files && Array.isArray(req.files)) {
+        const files = req.files;
+        processedData = {
+            ...newPolicyData,
+            documents: files.map(file => ({
+                path: file.path,
+                filename: file.filename,
+                originalname: file.originalname,
+                mimetype: file.mimetype
+            }))
+        };
     }
-    const result = await policyTransition_service_1.PolicyTransitionService.createPolicyTransition(parentPolicyId, 'PORTABILITY', newPolicyData);
+    // Parse members if sent as JSON string
+    if (typeof newPolicyData.members === 'string') {
+        try {
+            processedData.members = JSON.parse(newPolicyData.members);
+        }
+        catch (e) {
+            // Silently handle parse error
+        }
+    }
+    const result = await policyTransition_service_1.PolicyTransitionService.createPolicyTransition(parentPolicyId, 'PORTABILITY', processedData);
     if (result.errors.length > 0) {
         res.status(400).json({
             error: 'Failed to create policy portability',
@@ -165,16 +209,12 @@ exports.getPolicyTransitionHistory = (0, asyncTryCatch_1.asyncTryCatch)(async (r
 exports.getPolicyDocuments = (0, asyncTryCatch_1.asyncTryCatch)(async (req, res) => {
     const policyId = req.params.policyId;
     const { includeInherited = 'true', transitionType } = req.query;
-    console.log(`🌐 getPolicyDocuments API called for policy: ${policyId}`);
-    console.log(`🌐 Query params:`, { includeInherited, transitionType });
     const documents = await documentAccess_service_1.DocumentAccessService.getPolicyDocuments(policyId, {
         includeInherited: includeInherited === 'true',
         transitionType: transitionType,
         cacheResults: true
     });
-    console.log(`🌐 Documents retrieved:`, documents.length);
     const stats = await documentAccess_service_1.DocumentAccessService.getDocumentAccessStats(policyId);
-    console.log(`🌐 Stats:`, stats);
     res.json({
         data: documents,
         stats,

@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = require("../utils/prismaClient");
 async function seedRequiredData() {
     try {
         console.log('🌱 Seeding required data...');
@@ -13,17 +12,31 @@ async function seedRequiredData() {
             'TRAVEL INSURANCE',
             'HOME INSURANCE',
         ];
+        console.log('📦 Seeding Policy Groups...');
+        const existingGroups = await prismaClient_1.prismaDirect.policyGroup.findMany({
+            where: { name: { in: policyGroups } },
+            select: { name: true, id: true },
+        });
+        const existingGroupMap = new Map(existingGroups.map(g => [g.name, g.id]));
+        const newGroups = policyGroups.filter(name => !existingGroupMap.has(name));
+        if (newGroups.length > 0) {
+            const createdGroups = await prismaClient_1.prismaDirect.policyGroup.createMany({
+                data: newGroups.map(name => ({ name })),
+                skipDuplicates: true,
+            });
+            console.log(`  ✅ Created ${createdGroups.count} new policy groups`);
+        }
+        else {
+            console.log(`  ✅ All policy groups already exist`);
+        }
+        const allGroups = await prismaClient_1.prismaDirect.policyGroup.findMany({
+            where: { name: { in: policyGroups } },
+            select: { name: true, id: true },
+        });
         const policyGroupMap = {};
-        for (const name of policyGroups) {
-            const existing = await prisma.policyGroup.findUnique({ where: { name } });
-            if (!existing) {
-                const group = await prisma.policyGroup.create({ data: { name } });
-                policyGroupMap[name] = group.id;
-                console.log(`✅ Added Policy Group: ${name}`);
-            }
-            else {
-                policyGroupMap[name] = existing.id;
-                console.log(`ℹ️ Policy Group already exists: ${name}`);
+        for (const group of allGroups) {
+            if (group.name) {
+                policyGroupMap[group.name] = group.id;
             }
         }
         // Seed Companies
@@ -34,33 +47,29 @@ async function seedRequiredData() {
             'CARE HEALTH',
             'ICICI LOMBARD',
         ];
+        console.log('📦 Seeding Companies...');
         const companyMap = {};
         for (const name of companies) {
-            const existing = await prisma.company.findUnique({ where: { name } });
-            if (!existing) {
-                const company = await prisma.company.create({ data: { name, category: 'HEALTH' } });
-                companyMap[name] = company.id;
-                console.log(`✅ Added Company: ${name}`);
-            }
-            else {
-                companyMap[name] = existing.id;
-                console.log(`ℹ️ Company already exists: ${name}`);
-            }
+            const company = await prismaClient_1.prismaDirect.company.upsert({
+                where: { name },
+                update: {},
+                create: { name, category: 'HEALTH' },
+            });
+            companyMap[name] = company.id;
+            console.log(`  ✅ ${name}`);
         }
         // Seed Policy Types
         const policyTypes = ['Individual', 'Family', 'Group'];
+        console.log('📦 Seeding Policy Types...');
         const policyTypeMap = {};
         for (const name of policyTypes) {
-            const existing = await prisma.policyType.findUnique({ where: { name } });
-            if (!existing) {
-                const type = await prisma.policyType.create({ data: { name } });
-                policyTypeMap[name] = type.id;
-                console.log(`✅ Added Policy Type: ${name}`);
-            }
-            else {
-                policyTypeMap[name] = existing.id;
-                console.log(`ℹ️ Policy Type already exists: ${name}`);
-            }
+            const type = await prismaClient_1.prismaDirect.policyType.upsert({
+                where: { name },
+                update: {},
+                create: { name },
+            });
+            policyTypeMap[name] = type.id;
+            console.log(`  ✅ ${name}`);
         }
         // Seed Policy Names
         const policiesByCompany = {
@@ -114,38 +123,30 @@ async function seedRequiredData() {
                 'OTHERS',
             ],
         };
+        console.log('📦 Seeding Policy Names...');
+        const policyNameData = [];
         for (const [company, policies] of Object.entries(policiesByCompany)) {
             for (const policyName of policies) {
-                const existing = await prisma.policyName.findFirst({
-                    where: {
-                        name: policyName,
-                        company_id: companyMap[company],
-                        policy_group_id: policyGroupMap['HEALTH INSURANCE'],
-                    },
+                policyNameData.push({
+                    name: policyName,
+                    policy_group_id: policyGroupMap['HEALTH INSURANCE'],
+                    company_id: companyMap[company],
                 });
-                if (!existing) {
-                    await prisma.policyName.create({
-                        data: {
-                            name: policyName,
-                            policy_group_id: policyGroupMap['HEALTH INSURANCE'],
-                            company_id: companyMap[company],
-                        },
-                    });
-                    console.log(`✅ Added policy: ${policyName} (${company})`);
-                }
-                else {
-                    console.log(`ℹ️ Policy already exists: ${policyName} (${company})`);
-                }
             }
         }
+        await prismaClient_1.prismaDirect.policyName.createMany({
+            data: policyNameData,
+            skipDuplicates: true,
+        });
+        console.log(`  ✅ Total policies seeded: ${policyNameData.length}`);
         console.log('🎉 Seeding completed successfully!');
+        // Disconnect the direct connection after seeding
+        await prismaClient_1.prismaDirect.$disconnect();
     }
     catch (error) {
         console.error('❌ Error during seeding:', error);
+        await prismaClient_1.prismaDirect.$disconnect();
         throw error;
-    }
-    finally {
-        await prisma.$disconnect();
     }
 }
 if (require.main === module) {

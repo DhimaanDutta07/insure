@@ -108,10 +108,15 @@ exports.commissionRuleRepository = {
     },
     delete: async (id) => {
         try {
+            console.log('[Repository] Deleting commission rule with id:', id);
             const deleted = await prismaClient_1.default.commissionRule.delete({ where: { id } });
+            console.log('[Repository] Successfully deleted rule:', deleted.id);
+            // Invalidate cache when rule is deleted
+            lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
             return { success: true, data: deleted };
         }
         catch (error) {
+            console.error('[Repository] Error deleting commission rule:', error);
             if (error instanceof client_1.Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
                 return {
                     success: false,

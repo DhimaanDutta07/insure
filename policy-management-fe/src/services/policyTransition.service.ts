@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Policy } from '../types/index';
 
-const API_BASE_URL = ((import.meta.env.VITE_BASE_URL as string || 'http://localhost:3001/api/v1')).replace(/\/$/, '');
+const API_BASE_URL = (import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '');
 
 export interface PolicyTransitionData {
   policy_number: string;
@@ -56,35 +56,53 @@ export interface PolicyTransitionHistory {
 export class PolicyTransitionService {
   
   // Create policy renewal
-  static async createRenewal(parentPolicyId: string, newPolicyData: PolicyTransitionData): Promise<PolicyTransitionResult> {
+  static async createRenewal(parentPolicyId: string, newPolicyData: PolicyTransitionData | FormData): Promise<PolicyTransitionResult> {
     try {
+      const isFormData = newPolicyData instanceof FormData;
+      const url = `${API_BASE_URL}/api/v1/policies/${parentPolicyId}/renew`;
+      console.log('Creating renewal with URL:', url);
+      console.log('API_BASE_URL:', API_BASE_URL);
+      console.log('Is FormData:', isFormData);
+      console.log('Auth token:', localStorage.getItem('authToken')?.substring(0, 20) + '...');
+      
       const response = await axios.post(
-        `${API_BASE_URL}/api/v1/policies/${parentPolicyId}/renew`,
+        url,
         newPolicyData,
         {
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-          }
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' })
+          },
+          timeout: 30000 // 30 second timeout
         }
       );
+      console.log('Renewal response:', response.data);
       return response.data;
     } catch (error: unknown) {
+      console.error('Renewal error:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('Axios error response:', error.response?.data);
+        console.error('Axios error status:', error.response?.status);
+        console.error('Axios error code:', error.code);
+        console.error('Axios error message:', error.message);
+        console.error('Axios error config:', error.config);
+      }
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       throw new Error(errorMessage);
     }
   }
 
   // Create policy migration
-  static async createMigration(parentPolicyId: string, newPolicyData: PolicyTransitionData): Promise<PolicyTransitionResult> {
+  static async createMigration(parentPolicyId: string, newPolicyData: PolicyTransitionData | FormData): Promise<PolicyTransitionResult> {
     try {
+      const isFormData = newPolicyData instanceof FormData;
       const response = await axios.post(
         `${API_BASE_URL}/api/v1/policies/${parentPolicyId}/migrate`,
         newPolicyData,
         {
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' })
           }
         }
       );
@@ -96,15 +114,16 @@ export class PolicyTransitionService {
   }
 
   // Create policy portability
-  static async createPortability(parentPolicyId: string, newPolicyData: PolicyTransitionData): Promise<PolicyTransitionResult> {
+  static async createPortability(parentPolicyId: string, newPolicyData: PolicyTransitionData | FormData): Promise<PolicyTransitionResult> {
     try {
+      const isFormData = newPolicyData instanceof FormData;
       const response = await axios.post(
         `${API_BASE_URL}/api/v1/policies/${parentPolicyId}/port`,
         newPolicyData,
         {
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+            ...(isFormData ? {} : { 'Content-Type': 'application/json' })
           }
         }
       );

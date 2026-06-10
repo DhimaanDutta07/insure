@@ -177,6 +177,13 @@ function convertDataTypes(data) {
         if (typeof result.gst_status === 'string') {
             result.gst_status = result.gst_status === 'true' || result.gst_status === '1';
         }
+        // Ensure boolean fields are actually booleans (handle "false" string case)
+        if (result.gst_status === 'false' || result.gst_status === '0') {
+            result.gst_status = false;
+        }
+        if (result.deductible_amount_status === 'false' || result.deductible_amount_status === '0') {
+            result.deductible_amount_status = false;
+        }
         // Handle individual form fields that should be nested objects
         // If proposer fields exist as individual fields but proposer is not an object, construct it
         const proposerFields = [
@@ -719,6 +726,12 @@ exports.policyController = {
                 });
             }
             const updatedPolicy = await policy_service_1.policyService.updatePolicy(policyId, dataWithDates, files, userId);
+            // Propagate member changes to all descendant policies
+            // TODO: Re-enable after fixing function structure
+            // if (dataWithDates.insured_members && Array.isArray(dataWithDates.insured_members)) {
+            //   console.log('[UPDATE] Propagating member changes to descendant policies');
+            //   await propagateMemberChanges(policyId, dataWithDates.insured_members);
+            // }
             const duration = Date.now() - startTime;
             console.log(`✅ [UPDATE] Policy updated successfully in ${duration}ms`);
             console.log("✅ [Controller] Service Response:", {
@@ -819,6 +832,51 @@ exports.policyController = {
             console.error("Error deleting policy:", error);
             res.status(500).json({
                 error: "Failed to delete policy",
+                message: error instanceof Error ? error.message : "An unexpected error occurred",
+                timestamp: new Date().toISOString()
+            });
+        }
+    },
+    // Delete only a single policy term (not the entire chain)
+    async deletePolicyTerm(req, res) {
+        const userId = extractUserId(req);
+        if (!userId) {
+            res.status(401).json({ error: "Unauthorized" });
+            return;
+        }
+        try {
+            // Check if user has ADMIN role
+            const user = await prismaClient_1.default.user.findUnique({
+                where: { id: userId },
+                include: { role: true }
+            });
+            if (!user || (user.role.role_name !== 'ADMIN' && user.role.role_name !== 'OPERATIONS')) {
+                return res.status(403).json({
+                    error: "Forbidden",
+                    message: "Only Admin and Operations users can delete policy terms",
+                    timestamp: new Date().toISOString()
+                });
+            }
+            const existingPolicy = await policy_service_1.policyService.getPolicyById(req.params.id);
+            if (!existingPolicy) {
+                return res.status(404).json({
+                    error: "Policy not found",
+                    message: `Policy with ID ${req.params.id} does not exist`,
+                    timestamp: new Date().toISOString()
+                });
+            }
+            const result = await policy_service_1.policyService.deletePolicyTerm(req.params.id);
+            res.status(200).json({
+                success: true,
+                message: `Successfully deleted policy term`,
+                deletedCount: result.deletedCount,
+                deletedPolicyIds: result.policyIds
+            });
+        }
+        catch (error) {
+            console.error("Error deleting policy term:", error);
+            res.status(500).json({
+                error: "Failed to delete policy term",
                 message: error instanceof Error ? error.message : "An unexpected error occurred",
                 timestamp: new Date().toISOString()
             });

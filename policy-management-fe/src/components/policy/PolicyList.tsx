@@ -171,7 +171,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
   const [policyGroupFilter, setPolicyGroupFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<PolicyStatus>("all");
   const [currentPage, setCurrentPage] = useState(1);
-  const [policiesPerPage, setPoliciesPerPage] = useState(10);
+  const [policiesPerPage, setPoliciesPerPage] = useState(10000); // Set to high number for infinite
   // Date filter state (must be before useMemo that references it)
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [customDateRange, setCustomDateRange] = useState<{ from: Date | null, to: Date | null }>({ from: null, to: null });
@@ -287,15 +287,44 @@ const PolicyList: React.FC<PolicyListProps> = ({
   // Fetch policy history for loaded policies (after declaration)
   useEffect(() => {
     if (policies.length > 0) {
-      policies.forEach(policy => {
-        fetchPolicyHistory(policy.id);
-      });
+      // Process sequentially to avoid ERR_INSUFFICIENT_RESOURCES
+      const fetchSequentially = async () => {
+        for (const policy of policies) {
+          await fetchPolicyHistory(policy.id);
+          // Small delay between requests to avoid overwhelming the browser
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      };
+      fetchSequentially();
     }
   }, [policies, fetchPolicyHistory]);
 
   // Use backend pagination - no need for frontend slicing
-  const paginatedPolicies = policies;
   const prefetchPolicy = usePrefetchPolicy();
+
+  // Group policies by customer name, showing only latest
+  const groupedByCustomer = React.useMemo(() => {
+    const groups: Record<string, Policy[]> = {};
+    policies.forEach(policy => {
+      const customerName = policy.customer_name || 'Unknown';
+      if (!groups[customerName]) {
+        groups[customerName] = [];
+      }
+      groups[customerName].push(policy);
+    });
+    return groups;
+  }, [policies]);
+
+  // Get latest policy for each customer
+  const customerLatestPolicies = React.useMemo(() => {
+    return Object.entries(groupedByCustomer).map(([customerName, customerPolicies]) => ({
+      customerName,
+      policies: customerPolicies,
+      latestPolicy: customerPolicies.sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      )[0],
+    }));
+  }, [groupedByCustomer]);
 
   // File handling functions
   const handleFileSelect = useCallback((file: File) => {
@@ -1020,7 +1049,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                         </div>
                       </TableCell>
                     </TableRow>
-                  ) : paginatedPolicies.length === 0 ? (
+                  ) : customerLatestPolicies.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={9} className="h-32 text-center">
                         <div className="flex items-center justify-center">
@@ -1029,21 +1058,21 @@ const PolicyList: React.FC<PolicyListProps> = ({
                       </TableCell>
                     </TableRow>
                   ) : (
-                    paginatedPolicies.map((policy, index) => (
+                    customerLatestPolicies.map((group, index) => (
                       <TableRow
-                        key={policy.id}
+                        key={group.customerName}
                         className={`border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50/50 hover:to-purple-50/30 transition-all duration-200 cursor-pointer transform hover:scale-[1.01] ${
                           index % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
                         }`}
-                        onClick={() => handleViewPolicy(policy)}
-                        onMouseEnter={() => prefetchPolicy(policy.id)}
+                        onClick={() => handleViewPolicy(group.latestPolicy)}
+                        onMouseEnter={() => prefetchPolicy(group.latestPolicy.id)}
                       >
 
                         {/* Policy Number */}
                         <TableCell className="h-14 px-4 align-middle">
                           <div className="space-y-1">
                             <span className="text-xs font-bold text-blue-600 block truncate hover:text-blue-700 transition-colors">
-                              {policy.policy_number}
+                              {group.latestPolicy.policy_number}
                             </span>
                           </div>
                         </TableCell>
@@ -1053,18 +1082,18 @@ const PolicyList: React.FC<PolicyListProps> = ({
                           className="h-14 px-1 align-middle cursor-pointer hover:bg-blue-50/50 transition-colors"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleViewHistory(policy);
+                            handleViewHistory(group.latestPolicy);
                           }}
                         >
                           <div className="space-y-1">
-                            {loadingHistory[policy.id] ? (
+                            {loadingHistory[group.latestPolicy.id] ? (
                               <div className="flex items-center gap-1">
                                 <div className="w-3 h-3 border border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                                 <span className="text-xs text-gray-500">Loading...</span>
                               </div>
                             ) : (
                               (() => {
-                                const linkedPolicies = getLinkedPolicyNumbers(policy);
+                                const linkedPolicies = getLinkedPolicyNumbers(group.latestPolicy);
                                 if (!linkedPolicies || linkedPolicies.length === 0) {
                                   return (
                                     <div className="flex items-center gap-1">
@@ -1118,13 +1147,13 @@ const PolicyList: React.FC<PolicyListProps> = ({
                         <TableCell className="h-14 px-3 align-middle">
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-gray-900 truncate">
-                              {policy.customer_name}
+                              {group.customerName}
                             </p>
                             {/* <p className="text-xs text-gray-600 truncate">
-                              {policy.proposer?.mobile || 'No mobile'}
+                              {group.latestPolicy.proposer?.mobile || 'No mobile'}
                             </p>
                             <p className="text-xs text-gray-500 truncate">
-                              {policy.proposer?.email || 'No email'}
+                              {group.latestPolicy.proposer?.email || 'No email'}
                             </p> */}
                           </div>
                         </TableCell>
@@ -1133,14 +1162,14 @@ const PolicyList: React.FC<PolicyListProps> = ({
                         <TableCell className="h-14 px-3 align-middle">
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-gray-900 truncate">
-                              {getCompanyName(policy.company)}
+                              {getCompanyName(group.latestPolicy.company)}
                             </p>
                             <p className="text-xs text-gray-600 truncate">
                               {/* Show policy_name as product */}
-                              {typeof policy.policyName === 'object' && policy.policyName?.name
-                                ? policy.policyName.name
-                                : typeof policy.policyName === 'string' && policy.policyName
-                                ? policy.policyName
+                              {typeof group.latestPolicy.policyName === 'object' && group.latestPolicy.policyName?.name
+                                ? group.latestPolicy.policyName.name
+                                : typeof group.latestPolicy.policyName === 'string' && group.latestPolicy.policyName
+                                ? group.latestPolicy.policyName
                                 : 'No product'}
                             </p>
                           </div>
@@ -1152,19 +1181,19 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                 <TooltipTrigger asChild>
                                   <p className="text-xs font-medium text-gray-900 truncate ">
                                     {/* Show policy_name as product */}
-                                    {typeof policy.policyGroup === 'object' && policy.policyGroup?.name
-                                      ? policy.policyGroup.name
-                                      : typeof policy.policyGroup === 'string' && policy.policyGroup
-                                      ? policy.policyGroup
+                                    {typeof group.latestPolicy.policyGroup === 'object' && group.latestPolicy.policyGroup?.name
+                                      ? group.latestPolicy.policyGroup.name
+                                      : typeof group.latestPolicy.policyGroup === 'string' && group.latestPolicy.policyGroup
+                                      ? group.latestPolicy.policyGroup
                                       : 'No policy group'}
                                   </p>
                                 </TooltipTrigger>
                                 <TooltipContent>
                                   <p>
-                                    {typeof policy.policyGroup === 'object' && policy.policyGroup?.name
-                                      ? policy.policyGroup.name
-                                      : typeof policy.policyGroup === 'string' && policy.policyGroup
-                                      ? policy.policyGroup
+                                    {typeof group.latestPolicy.policyGroup === 'object' && group.latestPolicy.policyGroup?.name
+                                      ? group.latestPolicy.policyGroup.name
+                                      : typeof group.latestPolicy.policyGroup === 'string' && group.latestPolicy.policyGroup
+                                      ? group.latestPolicy.policyGroup
                                       : 'No policy group'}
                                   </p>
                                 </TooltipContent>
@@ -1176,21 +1205,21 @@ const PolicyList: React.FC<PolicyListProps> = ({
                         {/* Type */}
                         {/* <TableCell className="h-14 px-3 align-middle text-center">
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                            {getPolicyTypeName(policy.type)}
+                            {getPolicyTypeName(group.latestPolicy.type)}
                           </span>
                         </TableCell> */}
 
                         {/* Premium */}
                         <TableCell className="h-14 px-3 align-middle text-center">
                           <span className="text-xs font-semibold text-gray-900">
-                            {formatCurrency(policy.premium_amount)}
+                            {formatCurrency(group.latestPolicy.premium_amount)}
                           </span>
                         </TableCell>
                         {/* Commission - admin only */}
                         {role?.role_name === 'ADMIN' && (
                           <TableCell className="h-14 px-3 align-middle text-center">
                             <span className="text-xs font-semibold text-green-700">
-                              {policy.calculated_commission_amount !== undefined && policy.calculated_commission_amount !== null ? formatCurrency(policy.calculated_commission_amount) : '-'}
+                              {group.latestPolicy.calculated_commission_amount !== undefined && group.latestPolicy.calculated_commission_amount !== null ? formatCurrency(group.latestPolicy.calculated_commission_amount) : '-'}
                             </span>
                           </TableCell>
                         )}
@@ -1199,23 +1228,23 @@ const PolicyList: React.FC<PolicyListProps> = ({
                         <TableCell className="h-14 px-3 align-middle text-left">
                           <div className="space-y-1">
                             <p className="text-xs text-gray-700">
-                              {formatDate(policy.start_date)}
+                              {formatDate(group.latestPolicy.start_date)}
                             </p>
                             <p className="text-xs text-gray-500">
-                              to {formatDate(policy.end_date)}
+                              to {formatDate(group.latestPolicy.end_date)}
                             </p>
                           </div>
                         </TableCell>
 
                         {/* Status */}
                         <TableCell className="h-14 px-3 align-middle text-center">
-                          <StatusBadge status={policy.policy_creation_status || "Fresh"} />
+                          <StatusBadge status={group.latestPolicy.policy_creation_status || "Fresh"} />
                         </TableCell>
 
                         {/* Actions - Three Dot Menu */}
                         <TableCell className="h-14 px-3 align-middle" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center">
-                            <DropdownMenu open={openDropdownId === policy.id} onOpenChange={(open) => setOpenDropdownId(open ? policy.id : null)}>
+                            <DropdownMenu open={openDropdownId === group.latestPolicy.id} onOpenChange={(open) => setOpenDropdownId(open ? group.latestPolicy.id : null)}>
                               <DropdownMenuTrigger asChild>
                                 <Button
                                   size="icon"
@@ -1237,7 +1266,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 cursor-pointer"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleViewPolicy(policy);
+                                    handleViewPolicy(group.latestPolicy);
                                   }}
                                 >
                                   <Eye size={14} />
@@ -1248,7 +1277,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenDropdownId(null);
-                                    handleEditPolicy(policy);
+                                    handleEditPolicy(group.latestPolicy);
                                   }}
                                 >
                                   <Pencil size={14} />
@@ -1259,7 +1288,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenDropdownId(null);
-                                    handleClaimPolicy(policy);
+                                    handleClaimPolicy(group.latestPolicy);
                                   }}
                                 >
                                   <FileText size={14} />
@@ -1274,7 +1303,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenDropdownId(null);
-                                    handleRenewPolicy(policy);
+                                    handleRenewPolicy(group.latestPolicy);
                                   }}
                                 >
                                   <RefreshCw size={14} />
@@ -1286,7 +1315,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenDropdownId(null);
-                                    handleMigratePolicy(policy);
+                                    handleMigratePolicy(group.latestPolicy);
                                   }}
                                 >
                                   <Building2 size={14} />
@@ -1298,7 +1327,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenDropdownId(null);
-                                    handlePortPolicy(policy);
+                                    handlePortPolicy(group.latestPolicy);
                                   }}
                                 >
                                   <ArrowRight size={14} />
@@ -1313,7 +1342,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setOpenDropdownId(null);
-                                    handleViewHistory(policy);
+                                    handleViewHistory(group.latestPolicy);
                                   }}
                                 >
                                   <History size={14} />
@@ -1327,7 +1356,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       setOpenDropdownId(null);
-                                      handleDeleteClick(policy);
+                                      handleDeleteClick(group.latestPolicy);
                                     }}
                                   >
                                     <Trash2 size={14} />
@@ -1347,8 +1376,8 @@ const PolicyList: React.FC<PolicyListProps> = ({
             </div>
           </div>
 
-          {/* Pagination */}
-          {totalPolicies > 0 && (
+          {/* Pagination - hidden for infinite scroll */}
+          {false && totalPolicies > 0 && (
             <div className="flex flex-col sm:flex-row items-center justify-between mt-6 px-4 py-4 bg-gray-50/50 border-t border-gray-200 gap-4 sm:gap-0">
               <div className="flex items-center gap-3 w-full sm:w-auto justify-center sm:justify-start">
                 <span className="text-sm font-medium text-gray-700">Rows per page:</span>

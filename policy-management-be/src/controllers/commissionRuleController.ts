@@ -11,12 +11,15 @@ const commissionRuleStatusSchema = z.object({ is_active: z.boolean() });
 export const commissionRuleController = {
   async createCommissionRule(req: Request, res: Response) {
     try {
+      console.log('[Controller] Creating commission rule with data:', req.body);
       const data = commissionRuleSchema.parse(req.body);
       const rule = await commissionRuleService.createCommissionRule(data);
       res.status(201).json(rule);
     } catch (error: any) {
+      console.error('[Controller] Error creating commission rule:', error);
       if (error instanceof z.ZodError) {
-        res.status(400).json({ error: error.errors });
+        console.log('[Controller] Zod validation errors:', error.errors);
+        res.status(400).json({ error: error.errors.map(e => e.message).join(', ') });
       } else {
         res.status(400).json({ error: error.message || 'Internal server error' });
       }
@@ -93,13 +96,10 @@ export const commissionRuleController = {
 
   async deleteCommissionRule(req: Request, res: Response) {
     try {
-      const result = await commissionRuleService.deleteCommissionRule(req.params.id as string);
-      if (result.success === false) {
-        return res.status(400).json({ error: result.error });
-      }
+      await commissionRuleService.deleteCommissionRule(req.params.id as string);
       res.status(204).send();
     } catch (error: any) {
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(400).json({ error: error.message || 'Failed to delete commission rule' });
     }
   },
 
@@ -226,12 +226,18 @@ export const commissionRuleController = {
         calculated_commission_amount: policyInput.calculated_commission_amount,
         _commissionPercent: policyInput._commissionPercent,
         _commissionRuleId: policyInput._commissionRuleId,
+        _siCondition: policyInput._siCondition,
+        _customSIThreshold: policyInput._customSIThreshold,
+        _customSIOperator: policyInput._customSIOperator,
       });
 
       res.status(200).json({
         calculated_commission_amount: policyInput.calculated_commission_amount,
         base_percentage: policyInput._commissionPercent,
         rule_found: policyInput._commissionPercent > 0,
+        si_condition: policyInput._siCondition,
+        custom_si_threshold: policyInput._customSIThreshold,
+        custom_si_operator: policyInput._customSIOperator,
       });
     } catch (error: any) {
       console.error('Error calculating commission:', error);

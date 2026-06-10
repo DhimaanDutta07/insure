@@ -363,7 +363,8 @@ router.patch("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERAT
 router.get("/policies", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.getAllPolicies));
 router.get("/policies/dashboard-stats", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.dashboardStats));
 router.get("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.getPolicyById));
-router.delete("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.deletePolicy));
+router.delete("/policies/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN']), asyncHandler(policy_controller_1.policyController.deletePolicy));
+router.delete("/policies/:id/term", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.deletePolicyTerm));
 router.get("/my-policies", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.getMyPolicies));
 // Document management routes
 router.delete("/documents/:id", (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), asyncHandler(policy_controller_1.policyController.deleteDocument));
@@ -402,7 +403,9 @@ router.patch('/policy-groups/:id', (0, AuthMiddleware_1.restrictTo)(["ADMIN"]), 
 router.delete('/policy-groups/:id', (0, AuthMiddleware_1.restrictTo)(["ADMIN"]), policyGroupController.deletePolicyGroup);
 // PolicyName CRUD (admin only except GET)
 router.post('/policy-groups/:id/policy-names', (0, AuthMiddleware_1.restrictTo)(["ADMIN"]), policyGroupController.createPolicyName);
+router.post('/policy-names', (0, AuthMiddleware_1.restrictTo)(["ADMIN"]), policyGroupController.createPolicyNameDirect); // New route for creating policy names directly with company_id
 router.get('/policy-names', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), policyGroupController.getAllPolicyNames);
+router.get('/policy-groups/policy-names/all', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), policyGroupController.getAllPolicyNames); // Alias for frontend
 router.get('/policy-groups/:id/policy-names', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), policyGroupController.getPolicyNames);
 router.get('/policy-names/:id', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), policyGroupController.getPolicyName);
 router.patch('/policy-names/:id', (0, AuthMiddleware_1.restrictTo)(["ADMIN"]), policyGroupController.updatePolicyName);
@@ -427,6 +430,7 @@ router.patch('/commissions/:id', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (r
 router.delete('/commissions/:id', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (req, res) => { commissionController_1.commissionController.deleteCommission(req, res); });
 // Commission Rules by Policy Name (for frontend calculation)
 router.get('/commission-rules/policy/:policyNameId', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), (req, res) => { commissionController_1.commissionController.getCommissionRulesByPolicyName(req, res); });
+router.get('/commission-rules/policy-name/:policyNameId', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), (req, res) => { commissionController_1.commissionController.getCommissionRulesByPolicyName(req, res); }); // Alias for frontend
 // CommissionRule Routes
 router.post('/commission-rules', (0, AuthMiddleware_1.restrictTo)(['ADMIN']), (req, res) => { commissionRuleController_1.commissionRuleController.createCommissionRule(req, res); });
 router.get('/commission-rules', (0, AuthMiddleware_1.restrictTo)(['ADMIN', 'OPERATIONS']), (req, res) => { commissionRuleController_1.commissionRuleController.getAllCommissionRules(req, res); });

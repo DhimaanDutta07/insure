@@ -43,20 +43,43 @@ const lruCache_1 = require("../utils/lruCache");
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 exports.commissionRuleService = {
     async createCommissionRule(data) {
-        // Check for duplicate rule with targeted DB query instead of loading all rules
-        const existing = await commissionRuleRepository_1.commissionRuleRepository.findByCompositeKey({
+        console.log('[Service] Creating commission rule with data:', data);
+        // Check for duplicate rule with targeted DB query
+        // For custom SI thresholds, include those in the duplicate check
+        const whereClause = {
             policy_name_id: data.policy_name_id,
             policyStatus: data.policyStatus,
             deductibleType: data.deductibleType,
             ageCondition: data.ageCondition,
-            productType: data.productType,
-            siCondition: data.siCondition,
+        };
+        if (data.productType !== undefined) {
+            whereClause.productType = data.productType;
+        }
+        if (data.siCondition !== undefined) {
+            whereClause.siCondition = data.siCondition;
+        }
+        if (data.deductibleStatus !== undefined) {
+            whereClause.deductibleStatus = data.deductibleStatus;
+        }
+        // If custom SI fields are present, include them in duplicate check
+        if (data.customSIThreshold !== undefined) {
+            whereClause.customSIThreshold = data.customSIThreshold;
+        }
+        if (data.customSIOperator !== undefined) {
+            whereClause.customSIOperator = data.customSIOperator;
+        }
+        console.log('[Service] Checking for existing rule with whereClause:', whereClause);
+        const existing = await prismaClient_1.default.commissionRule.findFirst({
+            where: whereClause,
         });
+        console.log('[Service] Existing rule found:', existing ? existing.id : 'none');
         if (existing) {
             throw new Error('A commission rule with the same conditions already exists.');
         }
         lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
-        return commissionRuleRepository_1.commissionRuleRepository.create(data);
+        const result = commissionRuleRepository_1.commissionRuleRepository.create(data);
+        console.log('[Service] Rule created successfully');
+        return result;
     },
     async getAllCommissionRules() {
         const cached = lruCache_1.commissionStatsCache.get('commissionRules:all');
@@ -86,7 +109,12 @@ exports.commissionRuleService = {
         return rule;
     },
     async deleteCommissionRule(id) {
-        return commissionRuleRepository_1.commissionRuleRepository.delete(id);
+        const result = await commissionRuleRepository_1.commissionRuleRepository.delete(id);
+        if (!result.success) {
+            throw new Error(result.error);
+        }
+        lruCache_1.commissionStatsCache.deleteByPrefix('commissionRules');
+        return result;
     },
     // New search and pagination method
     async searchCommissionRules(params) {
