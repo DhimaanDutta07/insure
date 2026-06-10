@@ -12,7 +12,13 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 5 * 60_000, // 5min - data stays fresh much longer
       gcTime: 30 * 60_000, // 30min garbage collection (was cacheTime)
-      retry: 2,
+      retry: (failureCount, error) => {
+        // Don't retry on 401 authentication errors
+        if (error instanceof Error && error.message.includes('401')) {
+          return false;
+        }
+        return failureCount < 2;
+      },
       retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 5000),
       refetchOnWindowFocus: false,
       refetchOnMount: false,
@@ -20,7 +26,13 @@ const queryClient = new QueryClient({
       networkMode: 'online', // Only fetch when online, show cached data when offline
     },
     mutations: {
-      retry: 2,
+      retry: (failureCount, error) => {
+        // Don't retry on 401 authentication errors
+        if (error instanceof Error && error.message.includes('401')) {
+          return false;
+        }
+        return failureCount < 2;
+      },
       networkMode: 'online',
     },
   },

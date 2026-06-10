@@ -240,6 +240,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [policyHistoryData, setPolicyHistoryData] = useState<Record<string, PolicyTransitionHistory>>({});
   const [loadingHistory, setLoadingHistory] = useState<Record<string, boolean>>({});
+  const [historyErrors, setHistoryErrors] = useState<Record<string, boolean>>({});
 
   // Import dialog state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -271,6 +272,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
   // Fetch policy history for a specific policy
   const fetchPolicyHistory = useCallback(async (policyId: string) => {
     if (policyHistoryData[policyId]) return; // Already loaded
+    if (historyErrors[policyId]) return; // Already failed, don't retry
     
     setLoadingHistory(prev => ({ ...prev, [policyId]: true }));
     try {
@@ -278,11 +280,15 @@ const PolicyList: React.FC<PolicyListProps> = ({
       setPolicyHistoryData(prev => ({ ...prev, [policyId]: history }));
     } catch (error) {
       console.error('Failed to fetch policy history:', error);
+      // Mark as failed to prevent infinite retries
+      if (error instanceof Error && error.message.includes('401')) {
+        setHistoryErrors(prev => ({ ...prev, [policyId]: true }));
+      }
       // Don't show toast for background loading
     } finally {
       setLoadingHistory(prev => ({ ...prev, [policyId]: false }));
     }
-  }, [policyHistoryData]);
+  }, [policyHistoryData, historyErrors]);
 
   // Fetch policy history for loaded policies (after declaration)
   useEffect(() => {
