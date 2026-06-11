@@ -1,7 +1,7 @@
 import { CommissionRule } from '@prisma/client';
 import { commissionRuleRepository } from '../repositories/commissionRuleRepository';
 import { AppError } from '../utils/AppError';
-import { commissionStatsCache, policyListCache } from '../utils/lruCache';
+import { commissionStatsCache, policyListCache, dashboardCache } from '../utils/lruCache';
 import prisma from '../utils/prismaClient';
 
 export const commissionRuleService = {
@@ -138,7 +138,12 @@ export const commissionRuleService = {
 
   // Get commission dashboard statistics
   async getCommissionDashboardStats(timeRange: string, year?: number) {
-    return commissionRuleRepository.getCommissionDashboardStats(timeRange, year);
+    const cacheKey = `commission:dashboard:${timeRange}:${year || 'all'}`;
+    const cached = commissionStatsCache.get(cacheKey);
+    if (cached) return cached;
+    const result = await commissionRuleRepository.getCommissionDashboardStats(timeRange, year);
+    commissionStatsCache.set(cacheKey, result, 30_000);
+    return result;
   },
 
   // Simplified: get commission percentage for a product
@@ -168,12 +173,8 @@ export const commissionRuleService = {
   async recalculateCommissionsForPolicyName(policyNameId: string) {
     const { calculateAndSetCommission } = await import('./policy.service');
 
-    // Find all policies with the given policy_name_id
     const policies = await prisma.policy.findMany({
-      where: {
-        policy_name_id: policyNameId,
-        status: 'Active', // Only update active policies
-      },
+      where: { policy_name_id: policyNameId, status: 'Active' },
       select: {
         id: true,
         policy_name_id: true,
@@ -181,55 +182,48 @@ export const commissionRuleService = {
         sum_insured: true,
         premium_amount: true,
         gst_status: true,
-        calculated_commission_amount: true,
-        commission_add_on_percentage: true,
+        deductible_amount_status: true,
       },
     });
 
-    if (policies.length === 0) {
+    if (!policies.length) {
       return { updatedCount: 0, message: 'No active policies found for this product' };
     }
 
     let updatedCount = 0;
+    const updates: any[] = [];
 
     for (const policy of policies) {
       try {
-        // Create a policy input object for commission calculation
         const policyInput: any = {
           policy_name_id: policy.policy_name_id,
           policy_creation_status: policy.policy_creation_status || 'Fresh',
           sum_insured: policy.sum_insured || 0,
           premium_amount: policy.premium_amount,
           gst_status: policy.gst_status,
+          deductible_amount_status: policy.deductible_amount_status,
         };
 
-        console.log('[Recalculate] Processing policy:', {
-          policyId: policy.id,
-          status: policy.policy_creation_status,
-          sumInsured: policy.sum_insured,
-        });
-
-        // Calculate new commission
         await calculateAndSetCommission(policyInput);
-
-        // Update the policy with new commission values
-        await prisma.policy.update({
+        updates.push(prisma.policy.update({
           where: { id: policy.id },
           data: {
             calculated_commission_amount: policyInput.calculated_commission_amount,
             commission_add_on_percentage: policyInput._commissionPercent,
           },
-        });
-
+        }));
         updatedCount++;
-        console.log('[Recalculate] Updated policy:', policy.id, 'New commission:', policyInput.calculated_commission_amount);
       } catch (error) {
         console.error(`Error recalculating commission for policy ${policy.id}:`, error);
       }
     }
 
-    // Invalidate policy list cache to ensure fresh data
+    // Execute all updates in parallel
+    await Promise.all(updates);
+
+    // Invalidate caches to ensure fresh data on dashboard
     policyListCache.clear();
+    dashboardCache.deleteByPrefix('dashboard:');
 
     return {
       updatedCount,

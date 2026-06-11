@@ -236,42 +236,18 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const wStartDate = watch("start_date");
   const wTenureYears = watch("tenure_years");
 
-  // Fetch commission percentage when product is selected
+  // Set commission percentage based on the same backend calculation logic
+  // (deductible ON should ignore SI; otherwise SI/custom SI thresholds apply).
   useEffect(() => {
-    const fetchCommissionPercentage = async () => {
-      if (!wPolicyNameId) {
-        setCommissionPercentage(null);
-        return;
-      }
+    if (!calculatedCommission?.rule_found) {
+      setCommissionPercentage(null);
+      return;
+    }
 
-      try {
-        const res = await axios.get(
-          `${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules/policy-name/${wPolicyNameId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-            },
-          }
-        );
-        
-        if (res.data && res.data.length > 0) {
-          // Get the first active commission rule
-          const activeRule = res.data.find((rule: any) => rule.is_active);
-          if (activeRule) {
-            setCommissionPercentage(activeRule.commissionPercent);
-          } else {
-            setCommissionPercentage(null);
-          }
-        } else {
-          setCommissionPercentage(null);
-        }
-      } catch (error) {
-        setCommissionPercentage(null);
-      }
-    };
-
-    fetchCommissionPercentage();
-  }, [wPolicyNameId]);
+    // base_percentage is the commission % selected by backend rule.
+    // If backend returns 0, keep UI consistent.
+    setCommissionPercentage(calculatedCommission.base_percentage ?? 0);
+  }, [calculatedCommission]);
 
   // Commission calculation function
   const calculateCommission = useCallback(async () => {
@@ -317,6 +293,12 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
 
       console.log("🔍 [Commission Debug] Result:", result);
       setCalculatedCommission(result);
+      // Sync the form field so the displayed amount stays up to date
+      if (result.rule_found) {
+        setValue("calculated_commission_amount", result.calculated_commission_amount, { shouldValidate: false });
+      } else {
+        setValue("calculated_commission_amount", 0, { shouldValidate: false });
+      }
     } catch (error) {
       console.error("Error calculating commission:", error);
       setCalculatedCommission({
@@ -342,7 +324,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     }, 200);
 
     return () => clearTimeout(timeoutId);
-  }, [calculateCommission, wPolicyCreationStatus, wPolicyNameId, wProposerDob]);
+  }, [calculateCommission, wPolicyCreationStatus, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPremiumAmount]);
 
   const onFormSubmit = async (
     data: PolicyFormData & { policy_name_id?: string; policy_type_id?: string }
@@ -1251,6 +1233,16 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
             {commissionPercentage !== null && (
               <p className="text-xs text-green-600 mt-1">
                 Commission Rate: {commissionPercentage}%
+                {calculatedCommission.si_condition && calculatedCommission.si_condition !== 'ALL_SI' && (
+                  <span className="ml-1 text-gray-500">
+                    ({calculatedCommission.si_condition === 'LESS_THAN_10_LAKHS' ? 'SI < ₹10L' : calculatedCommission.si_condition === 'GREATER_EQUAL_10_LAKHS' ? 'SI ≥ ₹10L' : calculatedCommission.si_condition})
+                  </span>
+                )}
+                {calculatedCommission.custom_si_threshold && calculatedCommission.custom_si_operator && (
+                  <span className="ml-1 text-gray-500">
+                    (SI {calculatedCommission.custom_si_operator === 'LESS_THAN' ? '<' : '>'} ₹{calculatedCommission.custom_si_threshold >= 100000 ? (calculatedCommission.custom_si_threshold / 100000).toFixed(0) + 'L' : calculatedCommission.custom_si_threshold.toLocaleString()})
+                  </span>
+                )}
               </p>
             )}
           </div>

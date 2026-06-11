@@ -4,6 +4,7 @@ import {
   getAllCommissionRules,
   createCommissionRule,
   deleteCommissionRule,
+  updateCommissionRule,
 } from "../../services/commissionRule.service";
 import {
   getAllPolicyNames,
@@ -39,8 +40,6 @@ import {
   SelectValue,
 } from "../ui/select";
 
-const DEFAULT_COMMISSION = 12.0;
-
 const CommissionRulePage: React.FC = () => {
   const [policyNames, setPolicyNames] = useState<PolicyName[]>([]);
   const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
@@ -48,17 +47,18 @@ const CommissionRulePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // editValues keyed by rule.id for classified rules, or productId for flat rules
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
-  
+
   // Add filter modal state
   const [addFilterModalOpen, setAddFilterModalOpen] = useState(false);
   const [selectedProductForFilter, setSelectedProductForFilter] = useState<PolicyName | null>(null);
-  const [newRulePolicyStatus, setNewRulePolicyStatus] = useState<string>('Fresh');
-  const [newRuleSICondition, setNewRuleSICondition] = useState<string>('ALL_SI');
-  const [customSIThreshold, setCustomSIThreshold] = useState<string>('1000000');
-  const [customSIOperator, setCustomSIOperator] = useState<string>('LESS_THAN');
-  const [newRuleCommission, setNewRuleCommission] = useState<string>('12');
+  const [newRulePolicyStatus, setNewRulePolicyStatus] = useState<string>("Fresh");
+  const [newRuleSICondition, setNewRuleSICondition] = useState<string>("ALL_SI");
+  const [customSIThreshold, setCustomSIThreshold] = useState<string>("1000000");
+  const [customSIOperator, setCustomSIOperator] = useState<string>("LESS_THAN");
+  const [newRuleCommission, setNewRuleCommission] = useState<string>("12");
   const [isSavingNewRule, setIsSavingNewRule] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -71,13 +71,15 @@ const CommissionRulePage: React.FC = () => {
       ]);
       setPolicyNames(names);
       setCompanies(companyData);
-      
-      // Deduplicate rules by ID (in case backend returns duplicates)
-      const rulesArray = Array.isArray(rules) ? rules : rules.data;
-      const uniqueRules = Array.from(new Map(rulesArray.map(rule => [rule.id, rule])).values());
-      
-      setCommissionRules(uniqueRules);
-      console.log('[Frontend] Data updated:', { rulesCount: uniqueRules.length });
+
+      const rulesArray = Array.isArray(rules) ? rules : (rules as any).data;
+      const uniqueRules = Array.from(
+        new Map(rulesArray.map((rule: any) => [rule.id, rule])).values()
+      );
+
+      setCommissionRules(uniqueRules as any[]);
+      // Clear edit state after refresh so inputs reflect DB values
+      setEditValues({});
     } catch {
       toast.error("Failed to fetch data");
     } finally {
@@ -89,29 +91,28 @@ const CommissionRulePage: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  const handlePercentChange = (productId: string, policyStatus: string, siCondition: string, value: string) => {
-    const key = policyStatus && siCondition ? `${productId}-${policyStatus}-${siCondition}` : productId;
-    setEditValues((prev) => ({ ...prev, [key]: value }));
+  // ─── FLAT (non-classified) product handlers ───────────────────────────────
+
+  const handleFlatChange = (productId: string, value: string) => {
+    setEditValues((prev) => ({ ...prev, [productId]: value }));
   };
 
-  const handleSavePercent = async (productId: string, productType: string, policyStatus: string, siCondition: string) => {
-    const key = policyStatus && siCondition ? `${productId}-${policyStatus}-${siCondition}` : productId;
-    const raw = editValues[key];
+  const handleFlatSave = async (productId: string, ruleId: string | null) => {
+    const raw = editValues[productId];
     if (raw === undefined) return;
     const percent = parseFloat(raw);
     if (isNaN(percent) || percent < 0 || percent > 100) {
       toast.error("Enter a valid percentage between 0 and 100");
       return;
     }
-    setSavingId(key);
+    setSavingId(productId);
     try {
-      await upsertCommissionByProduct(productId, percent, productType, policyStatus, siCondition);
+      if (ruleId) {
+        await updateCommissionRule(ruleId, { commissionPercent: percent });
+      } else {
+        await upsertCommissionByProduct(productId, percent);
+      }
       toast.success("Commission percentage updated");
-      setEditValues((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
       fetchData();
     } catch {
       toast.error("Failed to update commission percentage");
@@ -120,17 +121,62 @@ const CommissionRulePage: React.FC = () => {
     }
   };
 
+  // ─── CLASSIFIED rule handlers ─────────────────────────────────────────────
+
+  const handleRuleChange = (ruleId: string, value: string) => {
+    setEditValues((prev) => ({ ...prev, [ruleId]: value }));
+  };
+
+  const handleRuleSave = async (ruleId: string) => {
+    const raw = editValues[ruleId];
+    if (raw === undefined) return;
+    const percent = parseFloat(raw);
+    if (isNaN(percent) || percent < 0 || percent > 100) {
+      toast.error("Enter a valid percentage between 0 and 100");
+      return;
+    }
+    setSavingId(ruleId);
+    try {
+      await updateCommissionRule(ruleId, { commissionPercent: percent });
+      toast.success("Commission percentage updated");
+      fetchData();
+    } catch {
+      toast.error("Failed to update commission percentage");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  // ─── Delete ───────────────────────────────────────────────────────────────
+
   const toggleExpand = (productId: string) => {
     setExpandedProducts((prev) => ({ ...prev, [productId]: !prev[productId] }));
   };
 
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!confirm("Are you sure you want to delete this commission rule?")) return;
+    setDeletingId(ruleId);
+    try {
+      await deleteCommissionRule(ruleId);
+      toast.success("Commission rule deleted successfully");
+      await fetchData();
+    } catch (error: any) {
+      const msg = error.response?.data?.error || error.message || "Failed to delete commission rule";
+      toast.error(msg);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // ─── Add filter modal ─────────────────────────────────────────────────────
+
   const openAddFilterModal = (product: PolicyName) => {
     setSelectedProductForFilter(product);
-    setNewRulePolicyStatus('Fresh');
-    setNewRuleSICondition('ALL_SI');
-    setCustomSIThreshold('1000000');
-    setCustomSIOperator('LESS_THAN');
-    setNewRuleCommission('12');
+    setNewRulePolicyStatus("Fresh");
+    setNewRuleSICondition("ALL_SI");
+    setCustomSIThreshold("1000000");
+    setCustomSIOperator("LESS_THAN");
+    setNewRuleCommission("12");
     setAddFilterModalOpen(true);
   };
 
@@ -141,14 +187,13 @@ const CommissionRulePage: React.FC = () => {
 
   const handleSaveNewRule = async () => {
     if (!selectedProductForFilter) return;
-    
+
     const percent = parseFloat(newRuleCommission);
     if (isNaN(percent) || percent < 0 || percent > 100) {
       toast.error("Enter a valid percentage between 0 and 100");
       return;
     }
-
-    if (newRuleSICondition === 'CUSTOM') {
+    if (newRuleSICondition === "CUSTOM") {
       const threshold = parseInt(customSIThreshold);
       if (isNaN(threshold) || threshold < 0) {
         toast.error("Enter a valid custom SI threshold");
@@ -162,87 +207,74 @@ const CommissionRulePage: React.FC = () => {
         policy_name_id: selectedProductForFilter.id,
         commissionPercent: percent,
         policyStatus: newRulePolicyStatus as any,
-        deductibleType: 'ALL_SI' as any,
-        ageCondition: 'LESS_THAN_60' as any,
-        productType: 'OTHER',
+        deductibleType: "ALL_SI" as any,
+        ageCondition: "LESS_THAN_60" as any,
+        productType: "OTHER",
         is_active: true,
       };
 
-      // Only set siCondition if not CUSTOM
-      if (newRuleSICondition !== 'CUSTOM') {
-        ruleData.siCondition = newRuleSICondition;
-      } else {
+      if (newRuleSICondition === "DEDUCTIBLE_ON") {
+        ruleData.deductibleStatus = true;
         ruleData.siCondition = null;
-      }
-
-      // Only add custom SI fields if CUSTOM is selected
-      if (newRuleSICondition === 'CUSTOM') {
-        ruleData.customSIThreshold = parseInt(customSIThreshold);
-        ruleData.customSIOperator = customSIOperator;
-      } else {
         ruleData.customSIThreshold = null;
         ruleData.customSIOperator = null;
-      }
-
-      // Check if DEDUCTIBLE_ON is selected - this ignores SI and applies when deductible is ON
-      if (newRuleSICondition === 'DEDUCTIBLE_ON') {
-        ruleData.deductibleStatus = true;
-        ruleData.siCondition = null; // Ignore SI for deductible-specific rules
+      } else if (newRuleSICondition === "CUSTOM") {
+        ruleData.siCondition = null;
+        ruleData.customSIThreshold = parseInt(customSIThreshold);
+        ruleData.customSIOperator = customSIOperator;
+        ruleData.deductibleStatus = null;
       } else {
+        ruleData.siCondition = newRuleSICondition === "ALL_SI" ? null : newRuleSICondition;
+        ruleData.customSIThreshold = null;
+        ruleData.customSIOperator = null;
         ruleData.deductibleStatus = null;
       }
 
-      console.log('[Frontend] Creating commission rule with data:', ruleData);
       await createCommissionRule(ruleData);
       toast.success("Commission rule added successfully");
       closeAddFilterModal();
       fetchData();
     } catch (error: any) {
-      console.error('Error creating commission rule:', error);
-      console.error('Error response:', error.response?.data);
-      let errorMessage = "Failed to add commission rule";
-      
+      let msg = "Failed to add commission rule";
       if (error.response?.data?.error) {
-        // Handle Zod validation errors
         if (Array.isArray(error.response.data.error)) {
-          errorMessage = error.response.data.error.map((e: any) => e.message).join(', ');
-        } else if (typeof error.response.data.error === 'string') {
-          errorMessage = error.response.data.error;
+          msg = error.response.data.error.map((e: any) => e.message).join(", ");
+        } else if (typeof error.response.data.error === "string") {
+          msg = error.response.data.error;
         } else if (error.response.data.error.message) {
-          errorMessage = error.response.data.error.message;
+          msg = error.response.data.error.message;
         }
       } else if (error.message) {
-        errorMessage = error.message;
+        msg = error.message;
       }
-      
-      toast.error(errorMessage);
+      toast.error(msg);
     } finally {
       setIsSavingNewRule(false);
     }
   };
 
-  const handleDeleteRule = async (ruleId: string) => {
-    if (!confirm('Are you sure you want to delete this commission rule?')) {
-      return;
-    }
+  // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    setDeletingId(ruleId);
-    try {
-      console.log('[Frontend] Deleting commission rule with id:', ruleId);
-      await deleteCommissionRule(ruleId);
-      console.log('[Frontend] Successfully deleted rule, refreshing data');
-      toast.success("Commission rule deleted successfully");
-      // Force a fresh fetch without cache
-      await fetchData();
-    } catch (error: any) {
-      console.error('[Frontend] Error deleting commission rule:', error);
-      const errorMessage = error.response?.data?.error || error.message || "Failed to delete commission rule";
-      toast.error(errorMessage);
-    } finally {
-      setDeletingId(null);
+  const statusLabel = (status: string) =>
+    status === "Migration" ? "Internal Portability" : status === "Portablity" ? "Portability" : status;
+
+  const formatSILabel = (rule: any): string => {
+    if (rule.deductibleStatus === true) return "Deductible ON (ignores SI)";
+    if (rule.customSIThreshold && rule.customSIOperator) {
+      const op = rule.customSIOperator === "LESS_THAN" ? "<" : ">";
+      const val =
+        rule.customSIThreshold >= 100000
+          ? `₹${(rule.customSIThreshold / 100000).toFixed(0)}L`
+          : `₹${rule.customSIThreshold.toLocaleString()}`;
+      return `SI (₹) ${op} ${val}`;
     }
+    if (!rule.siCondition || rule.siCondition === "ALL_SI") return "All SI";
+    if (rule.siCondition === "LESS_THAN_10_LAKHS") return "Sum Insured (₹) < ₹10L";
+    if (rule.siCondition === "GREATER_EQUAL_10_LAKHS") return "Sum Insured (₹) ≥ ₹10L";
+    return rule.siCondition;
   };
 
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
@@ -262,7 +294,6 @@ const CommissionRulePage: React.FC = () => {
         <div className="space-y-6">
           {companies.map((company) => {
             const companyProducts = policyNames.filter((p) => p.company_id === company.id);
-            
             if (companyProducts.length === 0) return null;
 
             return (
@@ -279,287 +310,132 @@ const CommissionRulePage: React.FC = () => {
                 {/* Products Grid */}
                 <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {companyProducts.map((product) => {
-                    // Check actual commission rules instead of hardcoded name patterns
-                    const productRules = commissionRules.filter(rule => rule.policy_name_id === product.id);
-                    const hasSI = productRules.some(rule => rule.siCondition && rule.siCondition !== 'ALL_SI');
-                    const hasStatus = productRules.some(rule => rule.policyStatus);
-                    const hasClassification = hasSI || hasStatus;
-
-                    // Get unique statuses from actual rules
-                    const statuses = Array.from(new Set(productRules.map(rule => rule.policyStatus).filter(Boolean)));
-
-                    const isExpanded = expandedProducts[product.id];
-                    const key = product.id;
-                    const hasEdit = editValues[key] !== undefined;
-
-                    // Find matching commission rule for non-classified products
-                    const matchingRule = commissionRules.find(
-                      (rule) => rule.policy_name_id === product.id && !rule.policyStatus && !rule.siCondition
+                    const productRules = commissionRules.filter(
+                      (r) => r.policy_name_id === product.id
                     );
 
-                    const displayValue = hasEdit
-                      ? editValues[key]
-                      : (matchingRule?.commissionPercent ?? DEFAULT_COMMISSION).toString();
-                    const isSaving = savingId === key;
+                    // A product is "classified" if any rule has a policyStatus set
+                    const hasClassification = productRules.some((r) => r.policyStatus);
 
-                    return (
-                      <div
-                        key={product.id}
-                        className="border border-gray-200 rounded-lg bg-white hover:shadow-md transition-shadow"
-                      >
+                    const isExpanded = expandedProducts[product.id];
+
+                    if (hasClassification) {
+                      // ── CLASSIFIED PRODUCT ──────────────────────────────
+                      return (
                         <div
-                          className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50"
-                          onClick={() => toggleExpand(product.id)}
+                          key={product.id}
+                          className="border border-gray-200 rounded-lg bg-white hover:shadow-md transition-shadow"
                         >
-                          <Package className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-gray-800 truncate">
-                              {product.name}
-                            </div>
-                            {hasClassification && (
-                              <div className="text-xs text-gray-500 mt-1">
-                                {statuses.join(', ')}
-                                {hasSI && ' + SI'}
+                          {/* Header row — click to expand */}
+                          <div
+                            className="flex items-center gap-3 p-4 cursor-pointer hover:bg-gray-50"
+                            onClick={() => toggleExpand(product.id)}
+                          >
+                            <Package className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-800 truncate">
+                                {product.name}
                               </div>
-                            )}
-                          </div>
-                          {hasClassification && (
+                              <div className="text-xs text-gray-500 mt-0.5">
+                                {productRules.length} rule{productRules.length !== 1 ? "s" : ""}
+                              </div>
+                            </div>
                             <ChevronDown
                               className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${
-                                isExpanded ? 'rotate-180' : ''
+                                isExpanded ? "rotate-180" : ""
                               }`}
                             />
-                          )}
-                        </div>
+                          </div>
 
-                        {isExpanded && hasClassification && (
-                          <div className="p-4 pt-0 border-t border-gray-100">
-                            <div className="flex justify-end mb-3">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openAddFilterModal(product)}
-                                className="text-xs"
+                          {isExpanded && (
+                            <div className="border-t border-gray-100">
+                              {/* Add filter button */}
+                              <div className="px-4 pt-3 pb-2 flex justify-end">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openAddFilterModal(product)}
+                                  className="text-xs h-7"
+                                >
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  Add Filter
+                                </Button>
+                              </div>
+
+                              {/* Scrollable rule list — max 4 rows visible (~168px), then scroll */}
+                              <div
+                                className="px-3 pb-3 overflow-y-auto"
+                                style={{ maxHeight: "220px" }}
                               >
-                                <Plus className="w-3 h-3 mr-1" />
-                                Add New Filter
-                              </Button>
-                            </div>
-                            <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
-                              {statuses.map((status) => {
-                                const siConditions = hasSI
-                                  ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS']
-                                  : ['DEFAULT'];
+                                {productRules.length === 0 ? (
+                                  <p className="text-xs text-gray-400 text-center py-4">
+                                    No rules yet. Add a filter above.
+                                  </p>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {productRules.map((rule) => {
+                                      const editKey = rule.id;
+                                      const isEditing = editValues[editKey] !== undefined;
+                                      const displayVal = isEditing
+                                        ? editValues[editKey]
+                                        : String(rule.commissionPercent ?? "");
+                                      const isSavingThis = savingId === editKey;
+                                      const isDeletingThis = deletingId === rule.id;
 
-                                // Also find any custom/deductible rules for this status that don't match standard SI
-                                // Exclude rules that will be shown in the standard SI conditions
-                                const standardSIValues = hasSI ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS'] : [null, undefined];
-                                const customRulesForStatus = commissionRules.filter(
-                                  (rule) =>
-                                    rule.policy_name_id === product.id &&
-                                    rule.policyStatus === status &&
-                                    // Only show rules with custom SI threshold or deductible status
-                                    (rule.customSIThreshold || rule.deductibleStatus === true) &&
-                                    // Don't show rules that match standard SI conditions (they're already shown above)
-                                    !(standardSIValues as any[]).includes(rule.siCondition)
-                                );
-
-                                return (
-                                  <div key={status} className="border border-gray-200 rounded p-3">
-                                    {siConditions.map((si) => {
-                                      const rowKey = `${product.id}-${status}-${si}`;
-                                      const rowHasEdit = editValues[rowKey] !== undefined;
-
-                                      // Find matching commission rule
-                                      const matchingRule = commissionRules.find(
-                                        (rule) =>
-                                          rule.policy_name_id === product.id &&
-                                          rule.policyStatus === status &&
-                                          (si === 'DEFAULT' ? !rule.siCondition : rule.siCondition === si) &&
-                                          // Exclude deductible rules from standard SI display
-                                          !rule.deductibleStatus
-                                      );
-
-                                      const rowDisplayValue = rowHasEdit
-                                        ? editValues[rowKey]
-                                        : (matchingRule?.commissionPercent ?? DEFAULT_COMMISSION).toString();
-                                      const rowIsSaving = savingId === rowKey;
-                                      
-                                      // Determine SI label - check for custom threshold first
-                                      let siLabel = si === 'DEFAULT'
-                                        ? 'All SI'
-                                        : si === 'LESS_THAN_10_LAKHS'
-                                        ? 'SI < ₹10L'
-                                        : 'SI ≥ ₹10L';
-
-                                      // If rule has custom SI threshold, display that instead
-                                      if (matchingRule?.customSIThreshold && matchingRule?.customSIOperator) {
-                                        const threshold = matchingRule.customSIThreshold;
-                                        const operator = matchingRule.customSIOperator === 'LESS_THAN' ? '<' : '>';
-                                        // Format threshold in lakhs if >= 100000, otherwise show full amount
-                                        const formattedThreshold = threshold >= 100000
-                                          ? `₹${(threshold / 100000).toFixed(0)}L`
-                                          : `₹${threshold.toLocaleString()}`;
-                                        siLabel = `SI ${operator} ${formattedThreshold}`;
-                                      }
-
-                                      // Add deductible status label if set
-                                      if (matchingRule?.deductibleStatus === true) {
-                                        siLabel += ' (Deductible On)';
-                                      }
-
-                                      // Map status display name
-                                      const statusDisplayName = status === 'Migration' ? 'Internal Portability' : status === 'Portablity' ? 'Portability' : status;
-
-                                      // Display as: Policy Status (Sum Insured Condition)
-                                      siLabel = `${statusDisplayName} (${siLabel})`;
-
-                                      return (
-                                        <div
-                                          key={si}
-                                          className="flex items-center gap-2 mb-2 last:mb-0"
-                                        >
-                                          <span className="text-xs text-gray-500 w-72 truncate">
-                                            {siLabel}
-                                          </span>
-                                          <Input
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            step={0.1}
-                                            value={rowDisplayValue}
-                                            onChange={(e) =>
-                                              handlePercentChange(
-                                                product.id,
-                                                status,
-                                                si === 'DEFAULT' ? '' : si,
-                                                e.target.value
-                                              )
-                                            }
-                                            className={`h-7 text-xs text-center ${hasSI ? 'w-16' : 'w-20'}`}
-                                          />
-                                          <span className="text-xs text-gray-500">%</span>
-                                          {rowHasEdit && (
-                                            <Button
-                                              size="sm"
-                                              onClick={() =>
-                                                handleSavePercent(
-                                                  product.id,
-                                                  '',
-                                                  status,
-                                                  si === 'DEFAULT' ? '' : si
-                                                )
-                                              }
-                                              disabled={rowIsSaving}
-                                              className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-white"
-                                            >
-                                              {rowIsSaving ? (
-                                                <Loader2 className="w-3 h-3 animate-spin" />
-                                              ) : (
-                                                <Save className="w-3 h-3" />
-                                              )}
-                                            </Button>
-                                          )}
-                                          {matchingRule && (
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              onClick={() => handleDeleteRule(matchingRule.id)}
-                                              disabled={deletingId === matchingRule.id}
-                                              className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                            >
-                                              {deletingId === matchingRule.id ? (
-                                                <Loader2 className="w-3 h-3 animate-spin" />
-                                              ) : (
-                                                <Trash2 className="w-3 h-3" />
-                                              )}
-                                            </Button>
-                                          )}
-                                        </div>
-                                      );
-                                    })}
-                                    {/* Display custom/deductible rules */}
-                                    {customRulesForStatus.map((rule) => {
-                                      const rowKey = `${product.id}-${status}-custom-${rule.id}`;
-                                      const rowHasEdit = editValues[rowKey] !== undefined;
-                                      const rowDisplayValue = rowHasEdit
-                                        ? editValues[rowKey]
-                                        : (rule.commissionPercent ?? DEFAULT_COMMISSION).toString();
-                                      const rowIsSaving = savingId === rowKey;
-
-                                      let siLabel = 'All SI';
-                                      if (rule.customSIThreshold && rule.customSIOperator) {
-                                        const threshold = rule.customSIThreshold;
-                                        const operator = rule.customSIOperator === 'LESS_THAN' ? '<' : '>';
-                                        const formattedThreshold = threshold >= 100000
-                                          ? `₹${(threshold / 100000).toFixed(0)}L`
-                                          : `₹${threshold.toLocaleString()}`;
-                                        siLabel = `SI ${operator} ${formattedThreshold}`;
-                                      }
-
-                                      if (rule.deductibleStatus === true) {
-                                        siLabel = 'Deductible On (ignores SI)';
-                                      }
-
-                                      // Map status display name
-                                      const statusDisplayName = status === 'Migration' ? 'Internal Portability' : status === 'Portablity' ? 'Portability' : status;
-
-                                      siLabel = `${statusDisplayName} (${siLabel})`;
+                                      const label = `${statusLabel(rule.policyStatus)} — ${formatSILabel(rule)}`;
 
                                       return (
                                         <div
                                           key={rule.id}
-                                          className="flex items-center gap-2 mb-2 last:mb-0"
+                                          className="flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1.5"
                                         >
-                                          <span className="text-xs text-gray-500 w-72 truncate">
-                                            {siLabel}
+                                          {/* Label */}
+                                          <span
+                                            className="text-xs text-gray-600 flex-1 min-w-0 truncate"
+                                            title={label}
+                                          >
+                                            {label}
                                           </span>
+
+                                          {/* Editable % input */}
                                           <Input
                                             type="number"
                                             min={0}
                                             max={100}
                                             step={0.1}
-                                            value={rowDisplayValue}
+                                            value={displayVal}
                                             onChange={(e) =>
-                                              handlePercentChange(
-                                                product.id,
-                                                status,
-                                                `custom-${rule.id}`,
-                                                e.target.value
-                                              )
+                                              handleRuleChange(editKey, e.target.value)
                                             }
-                                            className="h-7 text-xs text-center w-16"
+                                            className="h-7 w-16 text-xs text-center shrink-0"
                                           />
-                                          <span className="text-xs text-gray-500">%</span>
-                                          {rowHasEdit && (
+                                          <span className="text-xs text-gray-500 shrink-0">%</span>
+
+                                          {/* Save button — visible when value changed */}
+                                          {isEditing && (
                                             <Button
                                               size="sm"
-                                              onClick={() =>
-                                                handleSavePercent(
-                                                  product.id,
-                                                  '',
-                                                  status,
-                                                  `custom-${rule.id}`
-                                                )
-                                              }
-                                              disabled={rowIsSaving}
-                                              className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-white"
+                                              onClick={() => handleRuleSave(editKey)}
+                                              disabled={isSavingThis}
+                                              className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-white shrink-0"
                                             >
-                                              {rowIsSaving ? (
+                                              {isSavingThis ? (
                                                 <Loader2 className="w-3 h-3 animate-spin" />
                                               ) : (
                                                 <Save className="w-3 h-3" />
                                               )}
                                             </Button>
                                           )}
+
+                                          {/* Delete button — always visible */}
                                           <Button
                                             size="sm"
                                             variant="outline"
                                             onClick={() => handleDeleteRule(rule.id)}
-                                            disabled={deletingId === rule.id}
-                                            className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                            disabled={isDeletingThis}
+                                            className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 shrink-0"
                                           >
-                                            {deletingId === rule.id ? (
+                                            {isDeletingThis ? (
                                               <Loader2 className="w-3 h-3 animate-spin" />
                                             ) : (
                                               <Trash2 className="w-3 h-3" />
@@ -569,54 +445,85 @@ const CommissionRulePage: React.FC = () => {
                                       );
                                     })}
                                   </div>
-                                );
-                              })}
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    } else {
+                      // ── FLAT (no classification) PRODUCT ────────────────
+                      const flatRule = productRules[0] ?? null;
+                      const flatEditKey = product.id;
+                      const flatIsEditing = editValues[flatEditKey] !== undefined;
+                      const flatDisplayVal = flatIsEditing
+                        ? editValues[flatEditKey]
+                        : String(flatRule?.commissionPercent ?? "");
+                      const flatIsSaving = savingId === flatEditKey;
+                      const flatIsDeleting = deletingId === flatRule?.id;
+
+                      return (
+                        <div
+                          key={product.id}
+                          className="border border-gray-200 rounded-lg bg-white hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-center gap-3 p-4">
+                            <Package className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-800 truncate">
+                                {product.name}
+                              </div>
+                              <div className="text-xs text-gray-400 mt-0.5">Flat rate</div>
                             </div>
                           </div>
-                        )}
 
-                        {!hasClassification && (
-                          <div className="p-4 pt-0 border-t border-gray-100">
+                          <div className="px-4 pb-4 border-t border-gray-100 pt-3">
                             <div className="flex items-center gap-2">
                               <Input
                                 type="number"
                                 min={0}
                                 max={100}
                                 step={0.1}
-                                value={displayValue}
-                                onChange={(e) => handlePercentChange(product.id, '', '', e.target.value)}
+                                placeholder="e.g. 12"
+                                value={flatDisplayVal}
+                                onChange={(e) => handleFlatChange(flatEditKey, e.target.value)}
                                 className="w-20 h-9 text-sm text-center"
                               />
                               <span className="text-sm text-gray-500">%</span>
-                              {hasEdit && (
+
+                              {flatIsEditing && (
                                 <Button
                                   size="sm"
-                                  onClick={() => handleSavePercent(product.id, '', '', '')}
-                                  disabled={isSaving}
+                                  onClick={() => handleFlatSave(flatEditKey, flatRule?.id ?? null)}
+                                  disabled={flatIsSaving}
                                   className="h-9 px-3 bg-blue-600 hover:bg-blue-700 text-white"
                                 >
-                                  {isSaving ? (
+                                  {flatIsSaving ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                   ) : (
                                     <Save className="w-4 h-4" />
                                   )}
                                 </Button>
                               )}
-                              {matchingRule && (
+
+                              {/* Delete flat rule */}
+                              {flatRule && (
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleDeleteRule(matchingRule.id)}
-                                  disabled={deletingId === matchingRule.id}
+                                  onClick={() => handleDeleteRule(flatRule.id)}
+                                  disabled={flatIsDeleting}
                                   className="h-9 px-3 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                                 >
-                                  {deletingId === matchingRule.id ? (
+                                  {flatIsDeleting ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
                                   ) : (
                                     <Trash2 className="w-4 h-4" />
                                   )}
                                 </Button>
                               )}
+
+                              {/* Add Filter */}
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -628,9 +535,9 @@ const CommissionRulePage: React.FC = () => {
                               </Button>
                             </div>
                           </div>
-                        )}
-                      </div>
-                    );
+                        </div>
+                      );
+                    }
                   })}
                 </div>
               </div>
@@ -648,7 +555,7 @@ const CommissionRulePage: React.FC = () => {
 
       {/* Add Filter Modal */}
       <Dialog open={addFilterModalOpen} onOpenChange={setAddFilterModalOpen}>
-        <DialogContent className="sm:max-w-[425px] bg-white rounded-lg shadow-lg">
+        <DialogContent className="sm:max-w-[440px] bg-white rounded-lg shadow-lg">
           <DialogHeader>
             <DialogTitle className="text-left text-gray-700">Add Commission Filter</DialogTitle>
             <DialogDescription className="text-left text-gray-600">
@@ -670,27 +577,29 @@ const CommissionRulePage: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Sum Insured Condition</label>
+              <label className="text-sm font-medium text-gray-700">Sum Insured (₹) Condition</label>
               <Select value={newRuleSICondition} onValueChange={setNewRuleSICondition}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select SI condition (optional)" />
+                  <SelectValue placeholder="Select SI condition" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ALL_SI">None (All SI)</SelectItem>
-                  <SelectItem value="LESS_THAN_10_LAKHS">SI &lt; 10L</SelectItem>
-                  <SelectItem value="GREATER_EQUAL_10_LAKHS">SI &gt;= 10L</SelectItem>
-                  <SelectItem value="DEDUCTIBLE_ON">Deductible Amount Status ON (ignores SI)</SelectItem>
-                  <SelectItem value="CUSTOM">Custom Threshold</SelectItem>
+                  <SelectItem value="ALL_SI">None — applies to all Sum Insured</SelectItem>
+                  <SelectItem value="LESS_THAN_10_LAKHS">Sum Insured (₹) &lt; ₹10L</SelectItem>
+                  <SelectItem value="GREATER_EQUAL_10_LAKHS">Sum Insured (₹) ≥ ₹10L</SelectItem>
+                  <SelectItem value="DEDUCTIBLE_ON">Deductible Status ON — ignores Sum Insured (₹)</SelectItem>
+                  <SelectItem value="CUSTOM">Custom Sum Insured (₹) Threshold</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {newRuleSICondition === 'CUSTOM' && (
+
+            {newRuleSICondition === "CUSTOM" && (
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Custom SI Threshold (₹)</label>
+                <label className="text-sm font-medium text-gray-700">Custom Sum Insured (₹) Threshold</label>
                 <div className="flex gap-2">
                   <Select value={customSIOperator} onValueChange={setCustomSIOperator}>
-                    <SelectTrigger className="w-32">
+                    <SelectTrigger className="w-36">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -705,13 +614,14 @@ const CommissionRulePage: React.FC = () => {
                     value={customSIThreshold}
                     onChange={(e) => setCustomSIThreshold(e.target.value)}
                     className="flex-1"
-                    placeholder="Enter threshold amount"
+                    placeholder="Amount in ₹"
                   />
                 </div>
               </div>
             )}
+
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Commission Percentage</label>
+              <label className="text-sm font-medium text-gray-700">Commission Percentage (%)</label>
               <Input
                 type="number"
                 min={0}
@@ -737,11 +647,7 @@ const CommissionRulePage: React.FC = () => {
               disabled={isSavingNewRule}
               className="bg-blue-600 text-white hover:bg-blue-700"
             >
-              {isSavingNewRule ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                'Add Rule'
-              )}
+              {isSavingNewRule ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add Rule"}
             </Button>
           </DialogFooter>
         </DialogContent>

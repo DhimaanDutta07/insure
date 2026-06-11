@@ -1426,7 +1426,7 @@ export const policyRepository = {
     return prisma.policy.findMany({
       where: { created_by: userId },
       orderBy: { created_at: 'desc' },
-      include: POLICY_FULL_INCLUDE,
+      include: POLICY_LIST_INCLUDE,
     });
   },
 

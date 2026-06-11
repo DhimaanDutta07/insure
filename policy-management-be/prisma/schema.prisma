@@ -255,6 +255,7 @@ model Policy {
   @@index([created_at, status])
   @@index([company_id, policy_creation_status])
   @@index([policy_group_id, created_at])
+  @@index([created_by])
   @@map("policy")
 }
 
@@ -451,7 +452,7 @@ model Reminder {
 model CommissionRule {
   id                String               @id @default(uuid())
   policy_name_id    String
-  policyStatus      PolicyCreationStatus
+  policyStatus      PolicyCreationStatus?
   deductibleType    DeductibleType
   deductibleStatus  Boolean?             @map("deductible_status")
   ageCondition      AgeCondition
@@ -467,6 +468,7 @@ model CommissionRule {
 
   @@unique([policy_name_id, policyStatus, deductibleType, deductibleStatus, ageCondition, productType, siCondition, customSIThreshold, customSIOperator])
   @@index([policy_name_id])
+  @@index([policy_name_id, is_active, policyStatus])
   @@index([productType])
   @@map("commission_rules")
 }

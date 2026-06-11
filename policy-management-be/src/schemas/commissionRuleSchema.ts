@@ -14,10 +14,10 @@ export const commissionRuleSchema = z.object({
   deductibleStatus: z.boolean().nullable().optional(),
   ageCondition: AgeConditionEnum,
   commissionPercent: z.number().min(0, 'Commission percent must be non-negative'),
-  productType: ProductTypeEnum.nullable(),
-  siCondition: SIConditionEnum.nullable(),
-  customSIThreshold: z.number().nullable(),
-  customSIOperator: z.string().nullable(),
+  productType: ProductTypeEnum.nullable().optional(),
+  siCondition: SIConditionEnum.nullable().optional(),
+  customSIThreshold: z.number().nullable().optional(),
+  customSIOperator: z.string().nullable().optional(),
   is_active: z.boolean().default(true),
 });
 
