@@ -181,6 +181,7 @@ export const commissionRuleService = {
         sum_insured: true,
         premium_amount: true,
         gst_status: true,
+        deductible_amount_status: true,
         calculated_commission_amount: true,
         commission_add_on_percentage: true,
       },
@@ -201,6 +202,7 @@ export const commissionRuleService = {
           sum_insured: policy.sum_insured || 0,
           premium_amount: policy.premium_amount,
           gst_status: policy.gst_status,
+          deductible_amount_status: policy.deductible_amount_status,
         };
 
         console.log('[Recalculate] Processing policy:', {

@@ -48,6 +48,7 @@ const CommissionRulePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingAllProductId, setDeletingAllProductId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
   const [renewalCommission, setRenewalCommission] = useState<string>('15');
@@ -240,6 +241,30 @@ const CommissionRulePage: React.FC = () => {
     }
   };
 
+  const handleDeleteAllFilters = async (product: PolicyName) => {
+    const productRules = commissionRules.filter((rule) => rule.policy_name_id === product.id);
+    if (productRules.length === 0) {
+      toast.error('No filters to delete for this product');
+      return;
+    }
+    if (!confirm(`Delete all ${productRules.length} commission filter(s) for ${product.name}?`)) {
+      return;
+    }
+
+    setDeletingAllProductId(product.id);
+    try {
+      await Promise.all(productRules.map((rule) => deleteCommissionRule(rule.id)));
+      toast.success('All commission filters deleted successfully');
+      await fetchData();
+    } catch (error) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string };
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to delete commission filters';
+      toast.error(errorMessage);
+    } finally {
+      setDeletingAllProductId(null);
+    }
+  };
+
   const handleSaveRenewalCommission = async () => {
     const percent = parseFloat(renewalCommission);
     if (isNaN(percent) || percent < 0 || percent > 100) {
@@ -414,7 +439,21 @@ const CommissionRulePage: React.FC = () => {
 
                         {isExpanded && hasClassification && (
                           <div className="p-4 pt-0 border-t border-gray-100">
-                            <div className="flex justify-end mb-3">
+                            <div className="flex justify-end gap-2 mb-3">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteAllFilters(product)}
+                                disabled={deletingAllProductId === product.id}
+                                className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                              >
+                                {deletingAllProductId === product.id ? (
+                                  <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3 h-3 mr-1" />
+                                )}
+                                Delete All Filters
+                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -425,7 +464,7 @@ const CommissionRulePage: React.FC = () => {
                                 Add New Filter
                               </Button>
                             </div>
-                            <div className="space-y-3">
+                            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
                               {statuses.map((status) => {
                                 const siConditions = hasSI
                                   ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS']
