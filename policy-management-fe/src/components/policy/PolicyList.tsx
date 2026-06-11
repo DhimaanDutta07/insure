@@ -282,10 +282,8 @@ const PolicyList: React.FC<PolicyListProps> = ({
       setPolicyHistoryData(prev => ({ ...prev, [policyId]: history }));
     } catch (error) {
       console.error('Failed to fetch policy history:', error);
-      // Mark as failed to prevent infinite retries
-      if (error instanceof Error && error.message.includes('401')) {
-        setHistoryErrors(prev => ({ ...prev, [policyId]: true }));
-      }
+      // Mark as failed to prevent infinite retries (any status code)
+      setHistoryErrors(prev => ({ ...prev, [policyId]: true }));
       // Don't show toast for background loading
     } finally {
       setLoadingHistory(prev => ({ ...prev, [policyId]: false }));
