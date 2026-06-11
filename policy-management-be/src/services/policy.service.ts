@@ -424,8 +424,8 @@ export async function calculateAndSetCommission(policyInput: any) {
     // Products with status-based classification
     const policyStatus = policyInput.policy_creation_status || 'Fresh';
 
-    // Map Migration (Internal Portability) to Portablity for commission lookup
-    const statusForLookup = policyStatus === 'Migration' ? 'Portablity' : policyStatus;
+    // Map Migration (Internal Portability) to Portability for commission lookup
+    const statusForLookup = policyStatus === 'Migration' ? 'Portability' : policyStatus;
 
     // PRIORITY: Check if deductible status is ON first - if yes, use that rule ignoring SI
     if (policyInput.deductible_amount_status === true) {
@@ -456,8 +456,13 @@ export async function calculateAndSetCommission(policyInput: any) {
       };
 
       // Only add deductible_status filter if it's OFF (not ON, since we already checked ON above)
+      // When deductible is OFF, match rules that have deductibleStatus = false OR null
+      // (existing rules were created before deductibleStatus column existed, so they have null)
       if (policyInput.deductible_amount_status === false) {
-        whereClause.deductibleStatus = false;
+        whereClause.OR = [
+          { deductibleStatus: false },
+          { deductibleStatus: null },
+        ];
       } else if (policyInput.deductible_amount_status === undefined) {
         whereClause.deductibleStatus = null;
       }
@@ -555,8 +560,12 @@ export async function calculateAndSetCommission(policyInput: any) {
     };
 
     // Add deductible_status filter if provided
-    if (policyInput.deductible_amount_status !== undefined) {
-      whereClause.deductibleStatus = policyInput.deductible_amount_status;
+    // When deductible is OFF (false), also match rules where deductibleStatus is null
+    // (existing rules were created before this column existed, so they have null)
+    if (policyInput.deductible_amount_status === true) {
+      whereClause.deductibleStatus = true;
+    } else if (policyInput.deductible_amount_status === false) {
+      whereClause.OR = [{ deductibleStatus: false }, { deductibleStatus: null }];
     }
 
     activeRule = await prisma.commissionRule.findFirst({
@@ -578,8 +587,11 @@ export async function calculateAndSetCommission(policyInput: any) {
     };
 
     // Add deductible_status filter if provided
-    if (policyInput.deductible_amount_status !== undefined) {
-      whereClause.deductibleStatus = policyInput.deductible_amount_status;
+    // When deductible is OFF (false), also match rules where deductibleStatus is null
+    if (policyInput.deductible_amount_status === true) {
+      whereClause.deductibleStatus = true;
+    } else if (policyInput.deductible_amount_status === false) {
+      whereClause.OR = [{ deductibleStatus: false }, { deductibleStatus: null }];
     }
 
     activeRule = await prisma.commissionRule.findFirst({

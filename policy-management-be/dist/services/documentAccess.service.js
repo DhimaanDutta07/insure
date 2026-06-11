@@ -1,8 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DocumentAccessService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 class DocumentAccessService {
     static async getPolicyDocuments(policyId, options = {}) {
         console.log(`🔍 DocumentAccessService.getPolicyDocuments called for policy: ${policyId}`);
@@ -31,7 +33,7 @@ class DocumentAccessService {
     static async getDocumentsEfficiently(policyId, options) {
         console.log(`🔍 getDocumentsEfficiently called for policy: ${policyId}`);
         // Single optimized query to get all documents
-        const policyWithDocs = await prisma.policy.findUnique({
+        const policyWithDocs = await prismaClient_1.default.policy.findUnique({
             where: { id: policyId },
             include: {
                 documents: true,

@@ -1,32 +1,34 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.companyService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 exports.companyService = {
     // Create a new company
     async createCompany(data) {
-        return prisma.company.create({ data });
+        return prismaClient_1.default.company.create({ data });
     },
     // Get all companies
     async getAllCompanies() {
-        return prisma.company.findMany({ orderBy: { name: 'asc' } });
+        return prismaClient_1.default.company.findMany({ orderBy: { name: 'asc' } });
     },
     // Get company by ID
     async getCompanyById(id) {
-        return prisma.company.findUnique({ where: { id } });
+        return prismaClient_1.default.company.findUnique({ where: { id } });
     },
     // Update company
     async updateCompany(id, data) {
-        return prisma.company.update({ where: { id }, data });
+        return prismaClient_1.default.company.update({ where: { id }, data });
     },
     // Delete company
     async deleteCompany(id) {
-        return prisma.company.delete({ where: { id } });
+        return prismaClient_1.default.company.delete({ where: { id } });
     },
     // Get form fields for a company
     async getCompanyFormFields(companyId) {
-        return prisma.companyFormField.findMany({
+        return prismaClient_1.default.companyFormField.findMany({
             where: { company_id: companyId },
             orderBy: { order: 'asc' },
         });

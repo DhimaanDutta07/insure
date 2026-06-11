@@ -1235,10 +1235,12 @@ exports.policyRepository = {
             await Promise.all([
                 tx.commissionJournal.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.policyFormValue.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.policyReceiptImage.deleteMany({ where: { policyReceipt: { policy_id: { in: policyIdsArray } } } }),
                 tx.policyReceipt.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.revenue.deleteMany({ where: { policyId: { in: policyIdsArray } } }),
                 tx.reminder.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.claim.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
+                tx.claimMember.deleteMany({ where: { claim: { policy_id: { in: policyIdsArray } } } }),
                 tx.uploadedDocument.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.insuredMember.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),
                 tx.proposer.deleteMany({ where: { policy_id: { in: policyIdsArray } } }),

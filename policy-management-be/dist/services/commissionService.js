@@ -1,27 +1,29 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.commissionService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 exports.commissionService = {
     // Create a new commission
     async createCommission(data) {
-        return prisma.commission.create({ data });
+        return prismaClient_1.default.commission.create({ data });
     },
     // Get all commissions
     async getAllCommissions() {
-        return prisma.commission.findMany({ orderBy: { createdAt: 'desc' } });
+        return prismaClient_1.default.commission.findMany({ orderBy: { createdAt: 'desc' } });
     },
     // Get commission by ID
     async getCommissionById(id) {
-        return prisma.commission.findUnique({ where: { id } });
+        return prismaClient_1.default.commission.findUnique({ where: { id } });
     },
     // Update commission
     async updateCommission(id, data) {
-        return prisma.commission.update({ where: { id }, data });
+        return prismaClient_1.default.commission.update({ where: { id }, data });
     },
     // Delete commission
     async deleteCommission(id) {
-        return prisma.commission.delete({ where: { id } });
+        return prismaClient_1.default.commission.delete({ where: { id } });
     },
 };

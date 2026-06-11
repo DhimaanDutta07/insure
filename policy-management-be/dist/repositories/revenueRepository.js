@@ -1,4 +1,7 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.findRevenuesByTimePeriod = findRevenuesByTimePeriod;
 exports.createRevenue = createRevenue;
@@ -6,8 +9,7 @@ exports.updateRevenue = updateRevenue;
 exports.softDeleteRevenue = softDeleteRevenue;
 exports.getRevenueById = getRevenueById;
 exports.getAllRevenues = getAllRevenues;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 async function findRevenuesByTimePeriod(siteId, period) {
     const today = new Date();
     let startDate, endDate;
@@ -41,7 +43,7 @@ async function findRevenuesByTimePeriod(siteId, period) {
         default:
             throw new Error("Invalid time period");
     }
-    return prisma.revenue.findMany({
+    return prismaClient_1.default.revenue.findMany({
         where: {
             isDeleted: false,
             createdAt: {
@@ -58,17 +60,17 @@ async function findRevenuesByTimePeriod(siteId, period) {
     });
 }
 async function createRevenue(data) {
-    return prisma.revenue.create({ data });
+    return prismaClient_1.default.revenue.create({ data });
 }
 async function updateRevenue(id, data) {
-    return prisma.revenue.update({ where: { id }, data });
+    return prismaClient_1.default.revenue.update({ where: { id }, data });
 }
 async function softDeleteRevenue(id) {
-    return prisma.revenue.update({ where: { id }, data: { isDeleted: true } });
+    return prismaClient_1.default.revenue.update({ where: { id }, data: { isDeleted: true } });
 }
 async function getRevenueById(id) {
-    return prisma.revenue.findUnique({ where: { id } });
+    return prismaClient_1.default.revenue.findUnique({ where: { id } });
 }
 async function getAllRevenues() {
-    return prisma.revenue.findMany({ where: { isDeleted: false } });
+    return prismaClient_1.default.revenue.findMany({ where: { isDeleted: false } });
 }

@@ -1,27 +1,29 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.agentService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 exports.agentService = {
     // Create a new agent
     async createAgent(data) {
-        return prisma.agent.create({ data });
+        return prismaClient_1.default.agent.create({ data });
     },
     // Get all agents
     async getAllAgents() {
-        return prisma.agent.findMany({ orderBy: { createdAt: 'desc' } });
+        return prismaClient_1.default.agent.findMany({ orderBy: { createdAt: 'desc' } });
     },
     // Get agent by ID
     async getAgentById(id) {
-        return prisma.agent.findUnique({ where: { id } });
+        return prismaClient_1.default.agent.findUnique({ where: { id } });
     },
     // Update agent
     async updateAgent(id, data) {
-        return prisma.agent.update({ where: { id }, data });
+        return prismaClient_1.default.agent.update({ where: { id }, data });
     },
     // Delete agent
     async deleteAgent(id) {
-        return prisma.agent.delete({ where: { id } });
+        return prismaClient_1.default.agent.delete({ where: { id } });
     },
 };

@@ -1,9 +1,12 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyTypeController = void 0;
 const client_1 = require("@prisma/client");
 const zod_1 = require("zod");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 // Validation schemas
 const createPolicyTypeSchema = zod_1.z.object({
     name: zod_1.z.string().min(1, "Name is required").max(100, "Name must be 100 characters or less"),
@@ -15,7 +18,7 @@ exports.policyTypeController = {
     // Get all policy types
     async getAllPolicyTypes(req, res) {
         try {
-            const policyTypes = await prisma.policyType.findMany({
+            const policyTypes = await prismaClient_1.default.policyType.findMany({
                 select: {
                     id: true,
                     name: true,
@@ -39,7 +42,7 @@ exports.policyTypeController = {
     // Get single policy type by ID
     async getPolicyTypeById(req, res) {
         try {
-            const policyType = await prisma.policyType.findUnique({
+            const policyType = await prismaClient_1.default.policyType.findUnique({
                 where: { id: req.params.id },
                 select: {
                     id: true,
@@ -65,7 +68,7 @@ exports.policyTypeController = {
     async createPolicyType(req, res) {
         try {
             const data = createPolicyTypeSchema.parse(req.body);
-            const policyType = await prisma.policyType.create({
+            const policyType = await prismaClient_1.default.policyType.create({
                 data: {
                     name: data.name,
                 },
@@ -91,7 +94,7 @@ exports.policyTypeController = {
     async updatePolicyType(req, res) {
         try {
             const data = updatePolicyTypeSchema.parse(req.body);
-            const policyType = await prisma.policyType.update({
+            const policyType = await prismaClient_1.default.policyType.update({
                 where: { id: req.params.id },
                 data: data,
                 select: {
@@ -121,7 +124,7 @@ exports.policyTypeController = {
     async deletePolicyType(req, res) {
         try {
             // Check if policy type has associated policies
-            const policyType = await prisma.policyType.findUnique({
+            const policyType = await prismaClient_1.default.policyType.findUnique({
                 where: { id: req.params.id },
                 include: {
                     _count: {
@@ -139,7 +142,7 @@ exports.policyTypeController = {
                     error: `Cannot delete policy type. It has ${policyType._count.policies} associated policies.`
                 });
             }
-            await prisma.policyType.delete({
+            await prismaClient_1.default.policyType.delete({
                 where: { id: req.params.id },
             });
             res.status(204).send();

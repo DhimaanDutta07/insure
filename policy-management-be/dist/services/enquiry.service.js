@@ -1,8 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.enquiryService = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 exports.enquiryService = {
     // Create a new enquiry
     async createEnquiry(data) {
@@ -10,13 +12,13 @@ exports.enquiryService = {
             throw new Error("userId is required to create an enquiry");
         }
         // Verify user exists
-        const user = await prisma.user.findUnique({
+        const user = await prismaClient_1.default.user.findUnique({
             where: { id: data.userId }
         });
         if (!user) {
             throw new Error("User not found");
         }
-        return prisma.enquiry.create({
+        return prismaClient_1.default.enquiry.create({
             data: {
                 ...data,
                 is_deleted: false,
@@ -101,7 +103,7 @@ exports.enquiryService = {
             //     is_deleted: false,
             //     ...(siteId && { site_id: siteId }), // Add site filter if siteId is provided
             //   };
-            const enquiries = await prisma.enquiry.findMany({
+            const enquiries = await prismaClient_1.default.enquiry.findMany({
                 // where: whereClause,
                 orderBy: {
                     createdAt: 'desc',
@@ -126,7 +128,7 @@ exports.enquiryService = {
     },
     // Get a single enquiry by ID
     async getEnquiryById(id) {
-        return prisma.enquiry.findUnique({
+        return prismaClient_1.default.enquiry.findUnique({
             where: {
                 id,
                 is_deleted: false,
@@ -147,7 +149,7 @@ exports.enquiryService = {
     async updateEnquiry(id, data) {
         // Remove fields that shouldn't be included in update
         const { id: enquiryId, userId, createdAt, updatedAt, user, ...updateData } = data;
-        return prisma.enquiry.update({
+        return prismaClient_1.default.enquiry.update({
             where: { id },
             data: updateData,
             include: {
@@ -164,7 +166,7 @@ exports.enquiryService = {
     },
     // Delete an enquiry (soft delete)
     async deleteEnquiry(id) {
-        return prisma.enquiry.update({
+        return prismaClient_1.default.enquiry.update({
             where: { id },
             data: {
                 is_deleted: true,
@@ -173,7 +175,7 @@ exports.enquiryService = {
     },
     // Get enquiries by user ID
     async getEnquiriesByUserId(userId) {
-        return prisma.enquiry.findMany({
+        return prismaClient_1.default.enquiry.findMany({
             where: {
                 userId,
                 is_deleted: false,

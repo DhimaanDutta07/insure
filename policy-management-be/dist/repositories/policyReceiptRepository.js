@@ -1,14 +1,16 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getPolicyReceiptsByTimePeriod = exports.deletePolicyReceipt = exports.updatePolicyReceipt = exports.getPolicyReceiptById = exports.getAllPolicyReceipts = exports.createPolicyReceipt = void 0;
 exports.createUploadedDocument = createUploadedDocument;
-const client_1 = require("@prisma/client");
 const AppError_1 = require("../utils/AppError");
 const policyReceiptController_1 = require("../controllers/policyReceiptController");
-const prisma = new client_1.PrismaClient();
+const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 // Helper to create an UploadedDocument
 async function createUploadedDocument({ policy_id, file_name, original_name, relative_path, category, file_type, uploaded_by, proposer_id, insured_member_id, }) {
-    return prisma.uploadedDocument.create({
+    return prismaClient_1.default.uploadedDocument.create({
         data: {
             policy_id,
             file_name,
@@ -24,7 +26,7 @@ async function createUploadedDocument({ policy_id, file_name, original_name, rel
 }
 const createPolicyReceipt = async (data) => {
     const { images, policy_document_id, ...receiptData } = data;
-    return prisma.policyReceipt.create({
+    return prismaClient_1.default.policyReceipt.create({
         data: {
             ...receiptData,
             ...(policy_document_id && { policy_document_id }),
@@ -40,7 +42,7 @@ const createPolicyReceipt = async (data) => {
 };
 exports.createPolicyReceipt = createPolicyReceipt;
 const getAllPolicyReceipts = async () => {
-    return prisma.policyReceipt.findMany({
+    return prismaClient_1.default.policyReceipt.findMany({
         where: { is_deleted: false },
         include: {
             user: { select: { id: true, name: true } },
@@ -50,7 +52,7 @@ const getAllPolicyReceipts = async () => {
 };
 exports.getAllPolicyReceipts = getAllPolicyReceipts;
 const getPolicyReceiptById = async (id) => {
-    return prisma.policyReceipt.findUnique({
+    return prismaClient_1.default.policyReceipt.findUnique({
         where: { id, is_deleted: false },
         include: {
             user: { select: { id: true, name: true } },
@@ -61,7 +63,7 @@ const getPolicyReceiptById = async (id) => {
 exports.getPolicyReceiptById = getPolicyReceiptById;
 const updatePolicyReceipt = async (id, data) => {
     const { images, ...receiptData } = data;
-    return prisma.policyReceipt.update({
+    return prismaClient_1.default.policyReceipt.update({
         where: { id },
         data: {
             ...receiptData,
@@ -80,7 +82,7 @@ const updatePolicyReceipt = async (id, data) => {
 };
 exports.updatePolicyReceipt = updatePolicyReceipt;
 const deletePolicyReceipt = async (id) => {
-    return prisma.policyReceipt.update({
+    return prismaClient_1.default.policyReceipt.update({
         where: { id },
         data: { is_deleted: true },
         include: {
@@ -158,7 +160,7 @@ const getPolicyReceiptsByTimePeriod = async (timePeriod = 'today') => {
             },
             is_deleted: false,
         };
-        const receipts = await prisma.policyReceipt.findMany({
+        const receipts = await prismaClient_1.default.policyReceipt.findMany({
             where: whereClause,
             include: {
                 images: true,
