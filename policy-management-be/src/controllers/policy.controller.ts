@@ -67,32 +67,47 @@ async function getOrLoadAllRules(): Promise<any[]> {
   return ALL_RULES_CACHE;
 }
 
-function matchRule(rules: any[], pid: string, status: string, sumInsured: number, deductOn: boolean): any {
+function matchRuleInScope(scope: any[], sumInsured: number, deductOn: boolean): any {
   const siCond = sumInsured >= 1000000 ? 'GREATER_EQUAL_10_LAKHS' : 'LESS_THAN_10_LAKHS';
-  const scope = rules.filter(r => r.policy_name_id === pid && r.policyStatus === status);
-  // Exact SI match
-  let m = scope.find(r => r.siCondition === siCond && (r.deductibleStatus === deductOn || r.deductibleStatus === null));
-  if (m) return m;
-  // Null SI fallback
-  m = scope.find(r => !r.siCondition && (r.deductibleStatus === deductOn || r.deductibleStatus === null));
-  if (m) return m;
-  // Try opposite deductible
-  m = scope.find(r => r.siCondition === siCond && (r.deductibleStatus !== deductOn));
-  if (m) return m;
-  m = scope.find(r => !r.siCondition && (r.deductibleStatus !== deductOn));
-  if (m) return m;
+  const dedOk = (r: any) => r.deductibleStatus === deductOn || r.deductibleStatus === null;
+  const dedNot = (r: any) => r.deductibleStatus !== deductOn;
+  const noCustom = (r: any) => !r.customSIThreshold;
+  const isGeneric = (r: any) => !r.siCondition || r.siCondition === 'ALL_SI';
+  const customMatch = (r: any) =>
+    r.customSIThreshold != null && r.customSIOperator != null &&
+    (r.customSIOperator === 'LESS_THAN' ? sumInsured < r.customSIThreshold : sumInsured > r.customSIThreshold);
+
+  let m: any;
+  m = scope.find(r => r.siCondition === siCond && dedOk(r));        if (m) return m;
+  m = scope.find(r => isGeneric(r) && noCustom(r) && dedOk(r));     if (m) return m;
+  m = scope.find(r => customMatch(r) && dedOk(r));                  if (m) return m;
+  m = scope.find(r => r.siCondition === siCond && dedNot(r));       if (m) return m;
+  m = scope.find(r => isGeneric(r) && noCustom(r) && dedNot(r));   if (m) return m;
   return null;
+}
+
+function matchRule(rules: any[], pid: string, status: string, sumInsured: number, deductOn: boolean): any {
+  const scope = rules.filter(r => r.policy_name_id === pid && r.policyStatus === status);
+  return matchRuleInScope(scope, sumInsured, deductOn);
 }
 
 async function enrichPolicyList(policies: any[]): Promise<any[]> {
   const rules = await getOrLoadAllRules();
+  const rulesByKey = new Map<string, any[]>();
+  for (const r of rules) {
+    const key = `${r.policy_name_id}:${r.policyStatus || ''}`;
+    let arr = rulesByKey.get(key);
+    if (!arr) { arr = []; rulesByKey.set(key, arr); }
+    arr.push(r);
+  }
   return policies.map(p => {
     if (!p || !p.policy_name_id || !p.premium_amount || p.premium_amount <= 0)
       return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0 };
     const si = typeof p.sum_insured === 'string' ? parseInt(p.sum_insured) : (p.sum_insured || 0);
     const ded = p.deductible_amount_status === true;
     const status = p.policy_creation_status || 'Fresh';
-    const rule = matchRule(rules, p.policy_name_id, status, si, ded);
+    const scope = rulesByKey.get(`${p.policy_name_id}:${status}`) || [];
+    const rule = matchRuleInScope(scope, si, ded);
     if (!rule) {
       return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
     }
@@ -138,7 +153,33 @@ function enrichWithCommissionRules(policy: any, rules: any[]): any {
 export async function batchEnrichWithLiveCommission(policies: any[]): Promise<any[]> {
   if (!policies || !policies.length) return policies;
   const rules = await getOrLoadAllRules();
-  return policies.map(p => enrichWithCommissionRules(p, rules));
+  const rulesByKey = new Map<string, any[]>();
+  for (const r of rules) {
+    const key = `${r.policy_name_id}:${r.policyStatus || ''}`;
+    let arr = rulesByKey.get(key);
+    if (!arr) { arr = []; rulesByKey.set(key, arr); }
+    arr.push(r);
+  }
+  return policies.map(p => {
+    if (!p || !p.policy_name_id) return p;
+    const si = typeof p.sum_insured === 'string' ? parseInt(p.sum_insured) : (p.sum_insured || 0);
+    const ded = p.deductible_amount_status === true;
+    const status = p.policy_creation_status || 'Fresh';
+    const scope = rulesByKey.get(`${p.policy_name_id}:${status}`) || [];
+    const rule = matchRuleInScope(scope, si, ded);
+    if (!rule) return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
+    const prem = typeof p.premium_amount === 'string' ? parseFloat(p.premium_amount) : p.premium_amount;
+    const effectiveGst = getEffectiveGstStatus(p);
+    const base = prem * (effectiveGst ? 0.82 : 1);
+    return {
+      ...p,
+      commission_add_on_percentage: rule.commissionPercent,
+      calculated_commission_amount: Math.round((base * rule.commissionPercent / 100) * 100) / 100,
+      _commissionPercent: rule.commissionPercent,
+      _commissionRuleId: rule.id,
+      _ruleNotFound: false,
+    };
+  });
 }
 
 // Enhanced data conversion for nested objects

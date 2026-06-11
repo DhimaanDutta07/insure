@@ -329,11 +329,25 @@ export const commissionRuleRepository = {
               AND cr."policyStatus" = p.policy_creation_status
               AND (
                 cr."siCondition" IS NULL
+                OR cr."siCondition" = 'ALL_SI'::si_condition
                 OR cr."siCondition" = CASE WHEN p.sum_insured >= 1000000 THEN 'GREATER_EQUAL_10_LAKHS'::si_condition ELSE 'LESS_THAN_10_LAKHS'::si_condition END
+                OR (
+                  cr.custom_si_threshold IS NOT NULL
+                  AND cr.custom_si_operator IS NOT NULL
+                  AND (
+                    (cr.custom_si_operator = 'LESS_THAN' AND p.sum_insured < cr.custom_si_threshold)
+                    OR
+                    (cr.custom_si_operator = 'GREATER_THAN' AND p.sum_insured > cr.custom_si_threshold)
+                  )
+                )
               )
               AND (cr.deductible_status IS NULL OR cr.deductible_status = p.deductible_amount_status)
             ORDER BY 
-              CASE WHEN cr."siCondition" IS NOT NULL THEN 0 ELSE 1 END,
+              CASE 
+                WHEN cr."siCondition" = 'LESS_THAN_10_LAKHS'::si_condition OR cr."siCondition" = 'GREATER_EQUAL_10_LAKHS'::si_condition THEN 0
+                WHEN cr.custom_si_threshold IS NOT NULL THEN 1
+                ELSE 2
+              END,
               cr."createdAt" DESC
             LIMIT 1
           ) cr ON true

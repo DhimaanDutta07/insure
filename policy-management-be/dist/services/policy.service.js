@@ -211,31 +211,36 @@ async function calculateAndSetCommission(policyInput) {
     });
     // In-memory matching (avoids 5+ sequential DB queries)
     let activeRule = null;
-    // Step 1: exact SI + deductible match
+    // Step 1: exact SI bucket + deductible match
+    const tryMatch = (pred) => allRules.find(pred);
     if (isDeductOn) {
-        activeRule = allRules.find(r => r.siCondition === siCondition && r.deductibleStatus === true);
+        activeRule = tryMatch(r => r.siCondition === siCondition && r.deductibleStatus === true);
     }
     else {
-        activeRule = allRules.find(r => r.siCondition === siCondition && (r.deductibleStatus === false || r.deductibleStatus === null));
+        activeRule = tryMatch(r => r.siCondition === siCondition && (r.deductibleStatus === false || r.deductibleStatus === null));
     }
-    // Step 2: null-SI + deductible match
+    // Step 2: ALL_SI (applies to all) + deductible match
     if (!activeRule) {
-        if (isDeductOn) {
-            activeRule = allRules.find(r => !r.siCondition && r.deductibleStatus === true);
-        }
-        else {
-            activeRule = allRules.find(r => !r.siCondition && (r.deductibleStatus === false || r.deductibleStatus === null));
-        }
+        const pred = (r) => r.siCondition === 'ALL_SI' && !r.customSIThreshold && (isDeductOn ? r.deductibleStatus === true : (r.deductibleStatus === false || r.deductibleStatus === null));
+        activeRule = tryMatch(pred);
     }
-    // Step 3: custom SI threshold rules
+    // Step 3: null SI (no bucket, no custom) + deductible match
     if (!activeRule) {
-        activeRule = allRules.find(r => r.customSIThreshold != null && r.customSIOperator != null &&
+        const pred = (r) => !r.siCondition && !r.customSIThreshold && (isDeductOn ? r.deductibleStatus === true : (r.deductibleStatus === false || r.deductibleStatus === null));
+        activeRule = tryMatch(pred);
+    }
+    // Step 4: custom SI threshold + deductible match
+    if (!activeRule) {
+        activeRule = tryMatch(r => r.customSIThreshold != null && r.customSIOperator != null &&
             (r.customSIOperator === 'LESS_THAN' ? sumInsured < r.customSIThreshold :
-                r.customSIOperator === 'GREATER_THAN' ? sumInsured > r.customSIThreshold : false));
+                r.customSIOperator === 'GREATER_THAN' ? sumInsured > r.customSIThreshold : false) &&
+            (isDeductOn ? r.deductibleStatus === true : (r.deductibleStatus === false || r.deductibleStatus === null)));
     }
-    // Step 4: if deductible ON had no match, retry with deductible OFF/null + null SI
+    // Step 5: if deductible ON had no match, retry with deductible OFF/null fallbacks
     if (!activeRule && isDeductOn) {
-        activeRule = allRules.find(r => !r.siCondition && (r.deductibleStatus === false || r.deductibleStatus === null));
+        activeRule = tryMatch(r => r.siCondition === siCondition && (r.deductibleStatus === false || r.deductibleStatus === null))
+            || tryMatch(r => r.siCondition === 'ALL_SI' && !r.customSIThreshold && (r.deductibleStatus === false || r.deductibleStatus === null))
+            || tryMatch(r => !r.siCondition && !r.customSIThreshold && (r.deductibleStatus === false || r.deductibleStatus === null));
     }
     if (!activeRule) {
         console.warn('[Commission] No rule found, auto-creating default 12% rule for', { product: productName, status: requestedStatus });

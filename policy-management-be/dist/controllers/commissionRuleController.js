@@ -38,6 +38,7 @@ const commissionRuleService_1 = require("../services/commissionRuleService");
 const commissionRuleSchema_1 = require("../schemas/commissionRuleSchema");
 const zod_1 = require("zod");
 const errorHandler_1 = require("../utils/errorHandler");
+const lruCache_1 = require("../utils/lruCache");
 // CommissionRule status validation schema
 const commissionRuleStatusSchema = zod_1.z.object({ is_active: zod_1.z.boolean() });
 exports.commissionRuleController = {
@@ -166,7 +167,12 @@ exports.commissionRuleController = {
     async getCommissionDashboardStats(req, res) {
         try {
             const { timeRange = 'all', year } = req.query;
+            const cacheKey = `dashboard:${timeRange}:${year || ''}`;
+            const cached = lruCache_1.commissionStatsCache.get(cacheKey);
+            if (cached)
+                return res.status(200).json(cached);
             const stats = await commissionRuleService_1.commissionRuleService.getCommissionDashboardStats(timeRange, year ? parseInt(year) : undefined);
+            lruCache_1.commissionStatsCache.set(cacheKey, stats, 30000);
             res.status(200).json(stats);
         }
         catch (error) {

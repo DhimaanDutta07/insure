@@ -136,11 +136,15 @@ export const commissionRuleController = {
   async getCommissionDashboardStats(req: Request, res: Response) {
     try {
       const { timeRange = 'all', year } = req.query;
-      
+      const cacheKey = `dashboard:${timeRange}:${year || ''}`;
+      const cached = commissionStatsCache.get(cacheKey);
+      if (cached) return res.status(200).json(cached);
+
       const stats = await commissionRuleService.getCommissionDashboardStats(
         timeRange as string,
         year ? parseInt(year as string) : undefined
       );
+      commissionStatsCache.set(cacheKey, stats, 30_000);
       res.status(200).json(stats);
     } catch (error: any) {
       console.error('Error fetching commission dashboard stats:', error);
