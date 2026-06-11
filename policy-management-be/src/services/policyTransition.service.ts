@@ -170,65 +170,7 @@ export class PolicyTransitionService {
       console.error(`[Transition] Error recalculating commission for new policy ${newPolicy.id}:`, error);
     }
 
-    // 2. Process uploaded documents (read files, create UploadedDocument records)
-    try {
-      const documentsToProcess = newPolicy._pendingDocuments;
-      if (documentsToProcess && Array.isArray(documentsToProcess) && documentsToProcess.length > 0) {
-        const fs = require('fs').promises;
-        const { DocumentCategory } = require('@prisma/client');
-
-        function mapMimeTypeToFileType(mimeType: string): string {
-          const mimeMap: Record<string, string> = {
-            'application/pdf': 'PDF',
-            'image/jpeg': 'IMAGE',
-            'image/jpg': 'IMAGE',
-            'image/png': 'IMAGE',
-            'application/msword': 'DOC',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
-            'application/vnd.ms-excel': 'XLS',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
-            'text/csv': 'CSV',
-          };
-          return mimeMap[mimeType] || 'OTHER';
-        }
-
-        const processedDocs = [];
-        for (const doc of documentsToProcess) {
-          try {
-            const fileData = await fs.readFile(doc.path);
-            processedDocs.push({
-              file_name: doc.filename,
-              original_name: doc.originalname,
-              relative_path: `/api/uploads/policy-documents/${doc.filename}`,
-              file_data: fileData,
-              file_type: mapMimeTypeToFileType(doc.mimetype),
-              category: DocumentCategory.POLICY_DOCUMENT,
-              uploaded_by: 'system',
-            });
-          } catch (error) {
-            console.error(`Failed to read file ${doc.filename}:`, error);
-          }
-        }
-
-        if (processedDocs.length > 0) {
-          await prisma.uploadedDocument.createMany({
-            data: processedDocs.map((doc: any) => ({
-              file_name: doc.file_name,
-              original_name: doc.original_name,
-              relative_path: doc.relative_path,
-              file_type: doc.file_type,
-              category: doc.category,
-              uploaded_by: doc.uploaded_by,
-              policy_id: newPolicy.id,
-            }))
-          });
-        }
-      }
-    } catch (error) {
-      console.error(`[Transition] Error processing documents for new policy ${newPolicy.id}:`, error);
-    }
-
-    // 3. Create document references (not copies)
+    // 2. Create document references (not copies)
     try {
       await this.createDocumentReferences(parentPolicyId, newPolicy.id, transitionType);
     } catch (error) {
@@ -437,12 +379,49 @@ export class PolicyTransitionService {
       });
     }
 
-    // Get members for the response (documents omitted — processed in background)
+    // Process uploaded documents synchronously — file_data must be stored in DB for Vercel
+    if (documentsToProcess && Array.isArray(documentsToProcess) && documentsToProcess.length > 0) {
+      const fs = require('fs').promises;
+      const { DocumentCategory } = require('@prisma/client');
+
+      const mimeMap: Record<string, string> = {
+        'application/pdf': 'PDF', 'image/jpeg': 'IMAGE', 'image/jpg': 'IMAGE',
+        'image/png': 'IMAGE', 'application/msword': 'DOC',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+        'application/vnd.ms-excel': 'XLS', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+        'text/csv': 'CSV',
+      };
+
+      // Parallel file reads — avoids sequential bottleneck
+      const docResults = await Promise.all(
+        documentsToProcess.map(async (doc: any) => {
+          try {
+            const fileData = await fs.readFile(doc.path);
+            return {
+              file_name: doc.filename, original_name: doc.originalname,
+              relative_path: `/api/uploads/policy-documents/${doc.filename}`,
+              file_data: fileData, file_type: mimeMap[doc.mimetype] || 'OTHER',
+              category: DocumentCategory.POLICY_DOCUMENT, uploaded_by: 'system',
+              policy_id: newPolicy.id,
+            };
+          } catch (error) {
+            console.error(`Failed to read file ${doc.filename}:`, error);
+            return null;
+          }
+        })
+      );
+      const processedDocs = docResults.filter(d => d !== null) as any[];
+
+      if (processedDocs.length > 0) {
+        await prisma.uploadedDocument.createMany({ data: processedDocs });
+      }
+    }
+
+    // Get members for the response
     const members = await prisma.insuredMember.findMany({
       where: { policy_id: newPolicy.id }
     });
-    const resultPolicy: any = { ...newPolicy, members, _pendingDocuments: documentsToProcess };
-    return resultPolicy;
+    return { ...newPolicy, members };
   }
 
   private static async createPolicy(policyData: any): Promise<any> {
