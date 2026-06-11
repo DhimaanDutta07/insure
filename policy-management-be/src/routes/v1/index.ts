@@ -272,7 +272,7 @@ router.use('/uploads', (req, res, next) => {
 
 // user Routes
 router.post("/auth/login", login);
-router.get("/user/validate", restrictTo(['ADMIN',"OPERATIONS"]), validateUser);
+router.get("/user/validate", validateUser);
 // router.post("/auth/admin/register", register);
 router.post('/send-otp', sendUserOTP);
 router.post('/verify-otp', verifyUserOTP);
