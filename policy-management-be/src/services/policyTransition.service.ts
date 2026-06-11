@@ -96,49 +96,31 @@ export class PolicyTransitionService {
       const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
       result.newPolicy = newPolicy;
 
-      // 3. Mark old policy as INACTIVE so it disappears from main list
-      await prisma.policy.update({
-        where: { id: parentPolicyId },
-        data: { status: 'INACTIVE' }
-      });
-
-      // 4. Set transition relationship on new policy
-      await prisma.policy.update({
-        where: { id: newPolicy.id },
-        data: {
-          parent_policy_id: parentPolicyId,
-          transition_type: transitionType,
-          policy_creation_status: this.getPolicyCreationStatus(transitionType)
-        }
-      });
-
-      // 5. Recalculate commission for the new term using current rules
-      try {
-        newPolicy.policy_creation_status = this.getPolicyCreationStatus(transitionType);
-        const commissionResult = await calculateCommissionForPolicy(newPolicy);
-        await prisma.policy.update({
+      // 3. Mark old policy as INACTIVE AND set transition + commission on new policy in parallel
+      const creationStatus = this.getPolicyCreationStatus(transitionType);
+      const [updatedNewPolicy] = await Promise.all([
+        // Set transition relationship and initial commission on new policy
+        prisma.policy.update({
           where: { id: newPolicy.id },
           data: {
-            calculated_commission_amount: commissionResult.calculated_commission_amount,
-            commission_add_on_percentage: commissionResult.commission_add_on_percentage,
-          },
-        });
-        console.log(`[Transition] Commission recalculated for new policy ${newPolicy.id}: ${commissionResult.calculated_commission_amount} (${commissionResult.commission_add_on_percentage}%)`);
-      } catch (error) {
-        console.error(`[Transition] Error recalculating commission for new policy ${newPolicy.id}:`, error);
-      }
+            parent_policy_id: parentPolicyId,
+            transition_type: transitionType,
+            policy_creation_status: creationStatus,
+          }
+        }),
+        // Mark old policy as INACTIVE
+        prisma.policy.update({
+          where: { id: parentPolicyId },
+          data: { status: 'INACTIVE' }
+        }),
+      ]);
+      result.newPolicy = { ...newPolicy, ...updatedNewPolicy };
 
-      // 6. Create document references (not copies) - run in background for speed
-      // Don't await this - let it complete asynchronously
-      this.createDocumentReferences(
-        parentPolicyId,
-        newPolicy.id,
-        transitionType
-      ).catch(error => {
-        // Silently handle background errors
-      });
+      // 4. Recalculate commission + process documents + create document references
+      // Run in background — response sent immediately
+      this.completeTransitionAsync(newPolicy, parentPolicyId, creationStatus, transitionType);
 
-      // 6. Clear all relevant caches for instant UI refresh
+      // 5. Clear all relevant caches for instant UI refresh
       DocumentAccessService.clearCache(parentPolicyId);
       DocumentAccessService.clearCache(newPolicy.id);
       policyListCache.delete(`policy:${parentPolicyId}`);
@@ -163,6 +145,94 @@ export class PolicyTransitionService {
         return 'Portablity';
       default:
         return 'Fresh';
+    }
+  }
+
+  private static async completeTransitionAsync(
+    newPolicy: any,
+    parentPolicyId: string,
+    creationStatus: string,
+    transitionType: PolicyTransitionType
+  ): Promise<void> {
+    // 1. Recalculate commission
+    try {
+      newPolicy.policy_creation_status = creationStatus;
+      const commissionResult = await calculateCommissionForPolicy(newPolicy);
+      await prisma.policy.update({
+        where: { id: newPolicy.id },
+        data: {
+          calculated_commission_amount: commissionResult.calculated_commission_amount,
+          commission_add_on_percentage: commissionResult.commission_add_on_percentage,
+        },
+      });
+      console.log(`[Transition] Commission recalculated for new policy ${newPolicy.id}: ${commissionResult.calculated_commission_amount} (${commissionResult.commission_add_on_percentage}%)`);
+    } catch (error) {
+      console.error(`[Transition] Error recalculating commission for new policy ${newPolicy.id}:`, error);
+    }
+
+    // 2. Process uploaded documents (read files, create UploadedDocument records)
+    try {
+      const documentsToProcess = newPolicy._pendingDocuments;
+      if (documentsToProcess && Array.isArray(documentsToProcess) && documentsToProcess.length > 0) {
+        const fs = require('fs').promises;
+        const { DocumentCategory } = require('@prisma/client');
+
+        function mapMimeTypeToFileType(mimeType: string): string {
+          const mimeMap: Record<string, string> = {
+            'application/pdf': 'PDF',
+            'image/jpeg': 'IMAGE',
+            'image/jpg': 'IMAGE',
+            'image/png': 'IMAGE',
+            'application/msword': 'DOC',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+            'application/vnd.ms-excel': 'XLS',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
+            'text/csv': 'CSV',
+          };
+          return mimeMap[mimeType] || 'OTHER';
+        }
+
+        const processedDocs = [];
+        for (const doc of documentsToProcess) {
+          try {
+            const fileData = await fs.readFile(doc.path);
+            processedDocs.push({
+              file_name: doc.filename,
+              original_name: doc.originalname,
+              relative_path: `/api/uploads/policy-documents/${doc.filename}`,
+              file_data: fileData,
+              file_type: mapMimeTypeToFileType(doc.mimetype),
+              category: DocumentCategory.POLICY_DOCUMENT,
+              uploaded_by: 'system',
+            });
+          } catch (error) {
+            console.error(`Failed to read file ${doc.filename}:`, error);
+          }
+        }
+
+        if (processedDocs.length > 0) {
+          await prisma.uploadedDocument.createMany({
+            data: processedDocs.map((doc: any) => ({
+              file_name: doc.file_name,
+              original_name: doc.original_name,
+              relative_path: doc.relative_path,
+              file_type: doc.file_type,
+              category: doc.category,
+              uploaded_by: doc.uploaded_by,
+              policy_id: newPolicy.id,
+            }))
+          });
+        }
+      }
+    } catch (error) {
+      console.error(`[Transition] Error processing documents for new policy ${newPolicy.id}:`, error);
+    }
+
+    // 3. Create document references (not copies)
+    try {
+      await this.createDocumentReferences(parentPolicyId, newPolicy.id, transitionType);
+    } catch (error) {
+      console.error(`[Transition] Error creating document references for new policy ${newPolicy.id}:`, error);
     }
   }
 
@@ -367,73 +437,12 @@ export class PolicyTransitionService {
       });
     }
 
-    // Handle document uploads if provided
-    if (documentsToProcess && Array.isArray(documentsToProcess) && documentsToProcess.length > 0) {
-
-      // Process uploaded documents directly
-      const fs = require('fs').promises;
-      const { DocumentCategory } = await import('@prisma/client');
-
-      function mapMimeTypeToFileType(mimeType: string): string {
-        const mimeMap: Record<string, string> = {
-          'application/pdf': 'PDF',
-          'image/jpeg': 'IMAGE',
-          'image/jpg': 'IMAGE',
-          'image/png': 'IMAGE',
-          'application/msword': 'DOC',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
-          'application/vnd.ms-excel': 'XLS',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'XLSX',
-          'text/csv': 'CSV',
-        };
-        return mimeMap[mimeType] || 'OTHER';
-      }
-
-      const processedDocs = [];
-      for (const doc of documentsToProcess) {
-        try {
-          const fileData = await fs.readFile(doc.path);
-          processedDocs.push({
-            file_name: doc.filename,
-            original_name: doc.originalname,
-            relative_path: `/api/uploads/policy-documents/${doc.filename}`,
-            file_data: fileData,
-            file_type: mapMimeTypeToFileType(doc.mimetype),
-            category: DocumentCategory.POLICY_DOCUMENT,
-            uploaded_by: 'system',
-          });
-        } catch (error) {
-          console.error(`Failed to read file ${doc.filename}:`, error);
-        }
-      }
-
-      // Create documents for the new policy
-      if (processedDocs.length > 0) {
-        await prisma.uploadedDocument.createMany({
-          data: processedDocs.map((doc: any) => ({
-            file_name: doc.file_name,
-            original_name: doc.original_name,
-            relative_path: doc.relative_path,
-            file_type: doc.file_type,
-            category: doc.category,
-            uploaded_by: doc.uploaded_by,
-            policy_id: newPolicy.id,
-          }))
-        });
-      }
-    }
-
-    // Return the complete policy with all relations
-    return await prisma.policy.findUnique({
-      where: { id: newPolicy.id },
-      include: {
-        proposer: true,
-        members: true,
-        nominee_payment: true,
-        documents: true,
-        form_values: true
-      }
+    // Get members for the response (documents omitted — processed in background)
+    const members = await prisma.insuredMember.findMany({
+      where: { policy_id: newPolicy.id }
     });
+    const resultPolicy: any = { ...newPolicy, members, _pendingDocuments: documentsToProcess };
+    return resultPolicy;
   }
 
   private static async createPolicy(policyData: any): Promise<any> {
