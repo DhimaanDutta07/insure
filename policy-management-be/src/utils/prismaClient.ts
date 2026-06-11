@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 
 declare global {
     var prisma: PrismaClient;
+    var prismaDirect: PrismaClient;
 }
 
 const prisma = globalThis.prisma || new PrismaClient({
@@ -15,7 +16,8 @@ const prisma = globalThis.prisma || new PrismaClient({
 });
 
 // Create a separate client for seeding that uses direct connection to avoid pool timeout
-export const prismaDirect = new PrismaClient({
+// Use singleton pattern to prevent connection pool exhaustion
+const prismaDirect = globalThis.prismaDirect || new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   datasources: {
     db: {
@@ -26,6 +28,8 @@ export const prismaDirect = new PrismaClient({
 
 if (process.env.NODE_ENV !== 'PRODUCTION') {
     globalThis.prisma = prisma;
+    globalThis.prismaDirect = prismaDirect;
 }
 
 export default prisma;
+export { prismaDirect };
