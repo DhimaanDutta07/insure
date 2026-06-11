@@ -74,7 +74,7 @@ exports.commissionRuleRepository = {
             const [dataRows, countRows] = await Promise.all([
                 prismaClient_1.default.$queryRaw `
           SELECT cr.*, pn.id as "policyName.id", pn.name as "policyName.name"
-          FROM "commission_rule" cr
+          FROM "commission_rules" cr
           LEFT JOIN "policy_names" pn ON cr."policy_name_id" = pn.id
           ${whereSql}
           ORDER BY cr."createdAt" DESC
@@ -82,7 +82,7 @@ exports.commissionRuleRepository = {
         `,
                 prismaClient_1.default.$queryRaw `
           SELECT COUNT(*)::int as total
-          FROM "commission_rule" cr
+          FROM "commission_rules" cr
           LEFT JOIN "policy_names" pn ON cr."policy_name_id" = pn.id
           ${whereSql}
         `,
@@ -264,11 +264,13 @@ exports.commissionRuleRepository = {
           WHERE p.start_date >= '${startDateStr}'
             ${endDateCondition}
         ),
-        -- Get policies with calculated commission not in journal (all policies, filtered by term dates)
+        -- Live commission from policy + commission_rules (no stored value dependency)
         policy_commission AS (
           SELECT 
             p.id as policy_id,
-            p."calculated_commission_amount" as commission_amount,
+            ROUND(CAST(
+              (p.premium_amount * CASE WHEN p.start_date IS NOT NULL AND p.start_date < '2025-09-22'::date THEN 0.82 WHEN p.start_date IS NOT NULL THEN 1.0 WHEN p.gst_status THEN 0.82 ELSE 1.0 END * cr."commissionPercent" / 100.0)
+            AS numeric), 2) as commission_amount,
             p.created_at as calculated_at,
             p.company_id,
             p.policy_name_id,
@@ -277,10 +279,26 @@ exports.commissionRuleRepository = {
             p.created_at as policy_created_at,
             p.gst_status
           FROM "policy" p
+          LEFT JOIN LATERAL (
+            SELECT cr."commissionPercent"
+            FROM "commission_rules" cr
+            WHERE cr.policy_name_id = p.policy_name_id
+              AND cr.is_active = true
+              AND cr."policyStatus" = p.policy_creation_status
+              AND (
+                cr."siCondition" IS NULL
+                OR cr."siCondition" = CASE WHEN p.sum_insured >= 1000000 THEN 'GREATER_EQUAL_10_LAKHS'::si_condition ELSE 'LESS_THAN_10_LAKHS'::si_condition END
+              )
+              AND (cr.deductible_status IS NULL OR cr.deductible_status = p.deductible_amount_status)
+            ORDER BY 
+              CASE WHEN cr."siCondition" IS NOT NULL THEN 0 ELSE 1 END,
+              cr."createdAt" DESC
+            LIMIT 1
+          ) cr ON true
           WHERE p.start_date >= '${startDateStr}'
             ${endDateCondition}
-            AND p."calculated_commission_amount" > 0
-            AND p.id NOT IN (SELECT DISTINCT policy_id FROM "commission_journal" WHERE "calculatedAt" >= '${startDateStr}')
+            AND p.premium_amount > 0
+            AND NOT EXISTS (SELECT 1 FROM "commission_journal" cj2 WHERE cj2.policy_id = p.id AND cj2."calculatedAt" >= '${startDateStr}')
         ),
         -- Combine both sources
         all_commission AS (

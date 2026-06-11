@@ -93,6 +93,7 @@ router.post(
 // Get all claims for a policy
 router.get(
   "/policies/:policyId/claims", 
+  restrictTo(["ADMIN", "OPERATIONS"]),
   claimController.getPolicyClaims
 );
 

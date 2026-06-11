@@ -149,7 +149,13 @@ exports.commissionRuleService = {
     },
     // Get commission dashboard statistics
     async getCommissionDashboardStats(timeRange, year) {
-        return commissionRuleRepository_1.commissionRuleRepository.getCommissionDashboardStats(timeRange, year);
+        const cacheKey = `commission:dashboard:${timeRange}:${year || 'all'}`;
+        const cached = lruCache_1.commissionStatsCache.get(cacheKey);
+        if (cached)
+            return cached;
+        const result = await commissionRuleRepository_1.commissionRuleRepository.getCommissionDashboardStats(timeRange, year);
+        lruCache_1.commissionStatsCache.set(cacheKey, result, 30000);
+        return result;
     },
     // Simplified: get commission percentage for a product
     async getCommissionByProduct(policyNameId) {
@@ -173,12 +179,8 @@ exports.commissionRuleService = {
     // Recalculate commissions for all policies with a given policy_name_id
     async recalculateCommissionsForPolicyName(policyNameId) {
         const { calculateAndSetCommission } = await Promise.resolve().then(() => __importStar(require('./policy.service')));
-        // Find all policies with the given policy_name_id
         const policies = await prismaClient_1.default.policy.findMany({
-            where: {
-                policy_name_id: policyNameId,
-                status: 'Active', // Only update active policies
-            },
+            where: { policy_name_id: policyNameId, status: 'Active' },
             select: {
                 id: true,
                 policy_name_id: true,
@@ -186,48 +188,43 @@ exports.commissionRuleService = {
                 sum_insured: true,
                 premium_amount: true,
                 gst_status: true,
-                calculated_commission_amount: true,
-                commission_add_on_percentage: true,
+                deductible_amount_status: true,
             },
         });
-        if (policies.length === 0) {
+        if (!policies.length) {
             return { updatedCount: 0, message: 'No active policies found for this product' };
         }
         let updatedCount = 0;
+        const updates = [];
         for (const policy of policies) {
             try {
-                // Create a policy input object for commission calculation
                 const policyInput = {
                     policy_name_id: policy.policy_name_id,
                     policy_creation_status: policy.policy_creation_status || 'Fresh',
                     sum_insured: policy.sum_insured || 0,
                     premium_amount: policy.premium_amount,
                     gst_status: policy.gst_status,
+                    deductible_amount_status: policy.deductible_amount_status,
                 };
-                console.log('[Recalculate] Processing policy:', {
-                    policyId: policy.id,
-                    status: policy.policy_creation_status,
-                    sumInsured: policy.sum_insured,
-                });
-                // Calculate new commission
                 await calculateAndSetCommission(policyInput);
-                // Update the policy with new commission values
-                await prismaClient_1.default.policy.update({
+                updates.push(prismaClient_1.default.policy.update({
                     where: { id: policy.id },
                     data: {
                         calculated_commission_amount: policyInput.calculated_commission_amount,
                         commission_add_on_percentage: policyInput._commissionPercent,
                     },
-                });
+                }));
                 updatedCount++;
-                console.log('[Recalculate] Updated policy:', policy.id, 'New commission:', policyInput.calculated_commission_amount);
             }
             catch (error) {
                 console.error(`Error recalculating commission for policy ${policy.id}:`, error);
             }
         }
-        // Invalidate policy list cache to ensure fresh data
+        // Execute all updates in parallel
+        await Promise.all(updates);
+        // Invalidate caches to ensure fresh data on dashboard
         lruCache_1.policyListCache.clear();
+        lruCache_1.dashboardCache.deleteByPrefix('dashboard:');
         return {
             updatedCount,
             totalPolicies: policies.length,

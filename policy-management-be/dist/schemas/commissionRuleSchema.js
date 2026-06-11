@@ -15,10 +15,10 @@ exports.commissionRuleSchema = zod_1.z.object({
     deductibleStatus: zod_1.z.boolean().nullable().optional(),
     ageCondition: exports.AgeConditionEnum,
     commissionPercent: zod_1.z.number().min(0, 'Commission percent must be non-negative'),
-    productType: exports.ProductTypeEnum.nullable(),
-    siCondition: exports.SIConditionEnum.nullable(),
-    customSIThreshold: zod_1.z.number().nullable(),
-    customSIOperator: zod_1.z.string().nullable(),
+    productType: exports.ProductTypeEnum.nullable().optional(),
+    siCondition: exports.SIConditionEnum.nullable().optional(),
+    customSIThreshold: zod_1.z.number().nullable().optional(),
+    customSIOperator: zod_1.z.string().nullable().optional(),
     is_active: zod_1.z.boolean().default(true),
 });
 exports.commissionRuleUpdateSchema = exports.commissionRuleSchema.partial();

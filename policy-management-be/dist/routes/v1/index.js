@@ -65,6 +65,7 @@ const policyGroupController = __importStar(require("../../controllers/policyGrou
 const policyTypeController_1 = require("../../controllers/policyTypeController");
 const commissionRuleController_1 = require("../../controllers/commissionRuleController");
 const bulkImportController_1 = require("../../bulkImport/bulkImportController");
+const AuthMiddleware_2 = require("../../middlewares/AuthMiddleware");
 const claims_1 = __importDefault(require("./claims"));
 const policyTransition_routes_1 = __importDefault(require("../policyTransition.routes"));
 // import { 
@@ -462,5 +463,5 @@ router.delete('/company-form-field/:id', (0, AuthMiddleware_1.restrictTo)(['ADMI
 // Claim Routes
 router.use('/', claims_1.default);
 // Policy Transition Routes
-router.use('/', policyTransition_routes_1.default);
+router.use('/', AuthMiddleware_2.requireAuth, policyTransition_routes_1.default);
 exports.default = router;

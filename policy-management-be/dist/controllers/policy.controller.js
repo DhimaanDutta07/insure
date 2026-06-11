@@ -37,6 +37,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.policyController = void 0;
+exports.enrichWithLiveCommission = enrichWithLiveCommission;
+exports.batchEnrichWithLiveCommission = batchEnrichWithLiveCommission;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const sync_1 = require("csv-parse/sync");
 const xlsx = __importStar(require("xlsx"));
@@ -44,6 +46,7 @@ const fs = __importStar(require("fs"));
 const policy_service_1 = require("./../services/policy.service");
 const policy_service_2 = require("../services/policy.service");
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
+const gstUtils_1 = require("../utils/gstUtils");
 const policy_schema_1 = require("../schemas/policy.schema");
 const JWT_SECRET = process.env.JWT_SECRET;
 const extractUserId = (req) => {
@@ -69,7 +72,6 @@ const extractUserRole = (req) => {
 const filterCommissionData = (data, userRole) => {
     if (userRole === 'ADMIN')
         return data;
-    // Hide commission data from non-ADMIN users
     if (Array.isArray(data)) {
         return data.map(item => {
             const { commission_add_on_percentage, calculated_commission_amount, ...rest } = item;
@@ -82,6 +84,93 @@ const filterCommissionData = (data, userRole) => {
     }
     return data;
 };
+// Fast in-memory commission enrichment — fetches all rules in ONE query
+const ALL_RULES_CACHE = [];
+let allRulesLoaded = 0;
+async function getOrLoadAllRules() {
+    if (!ALL_RULES_CACHE.length || Date.now() - allRulesLoaded > 10000) {
+        ALL_RULES_CACHE.length = 0;
+        ALL_RULES_CACHE.push(...await prismaClient_1.default.commissionRule.findMany({ where: { is_active: true } }));
+        allRulesLoaded = Date.now();
+    }
+    return ALL_RULES_CACHE;
+}
+function matchRule(rules, pid, status, sumInsured, deductOn) {
+    const siCond = sumInsured >= 1000000 ? 'GREATER_EQUAL_10_LAKHS' : 'LESS_THAN_10_LAKHS';
+    const scope = rules.filter(r => r.policy_name_id === pid && r.policyStatus === status);
+    // Exact SI match
+    let m = scope.find(r => r.siCondition === siCond && (r.deductibleStatus === deductOn || r.deductibleStatus === null));
+    if (m)
+        return m;
+    // Null SI fallback
+    m = scope.find(r => !r.siCondition && (r.deductibleStatus === deductOn || r.deductibleStatus === null));
+    if (m)
+        return m;
+    // Try opposite deductible
+    m = scope.find(r => r.siCondition === siCond && (r.deductibleStatus !== deductOn));
+    if (m)
+        return m;
+    m = scope.find(r => !r.siCondition && (r.deductibleStatus !== deductOn));
+    if (m)
+        return m;
+    return null;
+}
+async function enrichPolicyList(policies) {
+    const rules = await getOrLoadAllRules();
+    return policies.map(p => {
+        if (!p || !p.policy_name_id || !p.premium_amount || p.premium_amount <= 0)
+            return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0 };
+        const si = typeof p.sum_insured === 'string' ? parseInt(p.sum_insured) : (p.sum_insured || 0);
+        const ded = p.deductible_amount_status === true;
+        const status = p.policy_creation_status || 'Fresh';
+        const rule = matchRule(rules, p.policy_name_id, status, si, ded);
+        if (!rule) {
+            return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
+        }
+        const prem = typeof p.premium_amount === 'string' ? parseFloat(p.premium_amount) : p.premium_amount;
+        const effectiveGst = (0, gstUtils_1.getEffectiveGstStatus)(p);
+        const base = prem * (effectiveGst ? 0.82 : 1);
+        return {
+            ...p,
+            commission_add_on_percentage: rule.commissionPercent,
+            calculated_commission_amount: Math.round((base * rule.commissionPercent / 100) * 100) / 100,
+            _commissionPercent: rule.commissionPercent,
+            _commissionRuleId: rule.id,
+            _ruleNotFound: false,
+        };
+    });
+}
+async function enrichWithLiveCommission(policy) {
+    if (!policy || !policy.policy_name_id)
+        return policy;
+    const rules = await getOrLoadAllRules();
+    return enrichWithCommissionRules(policy, rules);
+}
+function enrichWithCommissionRules(policy, rules) {
+    const si = typeof policy.sum_insured === 'string' ? parseInt(policy.sum_insured) : (policy.sum_insured || 0);
+    const ded = policy.deductible_amount_status === true;
+    const status = policy.policy_creation_status || 'Fresh';
+    const rule = matchRule(rules, policy.policy_name_id, status, si, ded);
+    if (!rule)
+        return { ...policy, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
+    const prem = typeof policy.premium_amount === 'string' ? parseFloat(policy.premium_amount) : policy.premium_amount;
+    const effectiveGst = (0, gstUtils_1.getEffectiveGstStatus)(policy);
+    const base = prem * (effectiveGst ? 0.82 : 1);
+    return {
+        ...policy,
+        commission_add_on_percentage: rule.commissionPercent,
+        calculated_commission_amount: Math.round((base * rule.commissionPercent / 100) * 100) / 100,
+        _commissionPercent: rule.commissionPercent,
+        _commissionRuleId: rule.id,
+        _ruleNotFound: false,
+    };
+}
+async function batchEnrichWithLiveCommission(policies) {
+    if (!policies || !policies.length)
+        return policies;
+    const rules = await getOrLoadAllRules();
+    return policies.map(p => enrichWithCommissionRules(p, rules));
+}
 // Enhanced data conversion for nested objects
 function convertPolicyDates(data) {
     const result = { ...data };
@@ -561,7 +650,8 @@ exports.policyController = {
         try {
             const userRole = await extractUserRole(req);
             const result = await policy_service_1.policyService.getAllPolicies(req.query);
-            const filteredData = filterCommissionData(result.data, userRole);
+            const enrichedData = await enrichPolicyList(result.data);
+            const filteredData = filterCommissionData(enrichedData, userRole);
             res.json({
                 success: true,
                 data: filteredData,
@@ -585,10 +675,10 @@ exports.policyController = {
     // Get single policy by ID with enhanced response
     async getPolicyById(req, res) {
         try {
-            // console.log(`Fetching policy with ID: ${req.params.id as string}`);
             const userRole = await extractUserRole(req);
             const policy = await policy_service_1.policyService.getPolicyById(req.params.id);
-            const filteredPolicy = filterCommissionData(policy, userRole);
+            const enrichedPolicy = await enrichWithLiveCommission(policy);
+            const filteredPolicy = filterCommissionData(enrichedPolicy, userRole);
             if (!filteredPolicy) {
                 // console.log(`Policy not found with ID: ${req.params.id as string}`);
                 return res.status(404).json({
@@ -891,10 +981,11 @@ exports.policyController = {
         }
         try {
             const policies = await policy_service_1.policyService.getPoliciesByUserId(userId);
+            const enrichedData = await enrichPolicyList(policies);
             res.json({
                 success: true,
-                data: policies,
-                count: policies.length
+                data: enrichedData,
+                count: enrichedData.length
             });
         }
         catch (error) {

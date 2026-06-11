@@ -40,20 +40,9 @@ exports.PolicyTransitionService = void 0;
 const documentAccess_service_1 = require("./documentAccess.service");
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 const lruCache_1 = require("../utils/lruCache");
-// Helper function to determine GST status based on policy date
-function determineGSTStatusFromDate(startDate) {
-    if (!startDate)
-        return false;
-    const policyDate = new Date(startDate);
-    const gstCutoffDate = new Date('2025-09-22'); // Sept 22, 2025
-    // Policies before Sept 22, 2025 should have GST status true
-    return policyDate < gstCutoffDate;
-}
 // Helper function to calculate commission for a policy based on its term
 async function calculateCommissionForPolicy(policy) {
     try {
-        // Auto-determine GST status if not set
-        const gstStatus = policy.gst_status !== undefined ? policy.gst_status : determineGSTStatusFromDate(policy.start_date);
         // Import the commission calculation function
         const { calculateAndSetCommission } = await Promise.resolve().then(() => __importStar(require('./policy.service')));
         // Create policy input for commission calculation
@@ -62,7 +51,7 @@ async function calculateCommissionForPolicy(policy) {
             policy_creation_status: policy.policy_creation_status || 'Fresh',
             sum_insured: policy.sum_insured || 0,
             premium_amount: policy.premium_amount,
-            gst_status: gstStatus,
+            gst_status: policy.gst_status, // stored value; calculateAndSetCommission overrides with date-based
             deductible_amount_status: policy.deductible_amount_status,
             // Add term dates for proper calculation
             start_date: policy.start_date,
@@ -73,7 +62,7 @@ async function calculateCommissionForPolicy(policy) {
         return {
             calculated_commission_amount: policyInput.calculated_commission_amount || 0,
             commission_add_on_percentage: policyInput.commission_add_on_percentage || 0,
-            gst_status: gstStatus,
+            gst_status: policy.gst_status || false,
         };
     }
     catch (error) {
@@ -125,7 +114,23 @@ class PolicyTransitionService {
                     policy_creation_status: this.getPolicyCreationStatus(transitionType)
                 }
             });
-            // 5. Create document references (not copies) - run in background for speed
+            // 5. Recalculate commission for the new term using current rules
+            try {
+                newPolicy.policy_creation_status = this.getPolicyCreationStatus(transitionType);
+                const commissionResult = await calculateCommissionForPolicy(newPolicy);
+                await prismaClient_1.default.policy.update({
+                    where: { id: newPolicy.id },
+                    data: {
+                        calculated_commission_amount: commissionResult.calculated_commission_amount,
+                        commission_add_on_percentage: commissionResult.commission_add_on_percentage,
+                    },
+                });
+                console.log(`[Transition] Commission recalculated for new policy ${newPolicy.id}: ${commissionResult.calculated_commission_amount} (${commissionResult.commission_add_on_percentage}%)`);
+            }
+            catch (error) {
+                console.error(`[Transition] Error recalculating commission for new policy ${newPolicy.id}:`, error);
+            }
+            // 6. Create document references (not copies) - run in background for speed
             // Don't await this - let it complete asynchronously
             this.createDocumentReferences(parentPolicyId, newPolicy.id, transitionType).catch(error => {
                 // Silently handle background errors
@@ -1165,12 +1170,15 @@ class PolicyTransitionService {
                 item.claimsByYear = null;
             }
         }
-        // Use pre-calculated commission values from database (no recalculation needed)
-        for (const item of completeHierarchy) {
-            item.commission = {
-                amount: item.policy.calculated_commission_amount || 0,
-                percentage: item.policy.commission_add_on_percentage || 0,
-                gst_status: item.policy.gst_status || false,
+        // Batch live commission enrichment using current rules (single DB call)
+        const { batchEnrichWithLiveCommission } = await Promise.resolve().then(() => __importStar(require('../controllers/policy.controller')));
+        const allPolicies = completeHierarchy.map((item) => item.policy);
+        const enriched = await batchEnrichWithLiveCommission(allPolicies);
+        for (let i = 0; i < completeHierarchy.length; i++) {
+            completeHierarchy[i].commission = {
+                amount: enriched[i].calculated_commission_amount || 0,
+                percentage: enriched[i].commission_add_on_percentage || 0,
+                gst_status: completeHierarchy[i].policy.gst_status || false,
             };
         }
         return {

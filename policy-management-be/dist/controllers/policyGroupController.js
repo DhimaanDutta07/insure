@@ -114,7 +114,7 @@ exports.getAllPolicyNames = (0, errorHandler_1.asyncTryCatch)(async (req, res) =
 });
 // Create policy name directly with company_id (for commission dashboard product management)
 exports.createPolicyNameDirect = (0, errorHandler_1.asyncTryCatch)(async (req, res) => {
-    const { name, description, company_id, commission_percent = 10 } = req.body;
+    const { name, description, company_id, commission_percent = 12 } = req.body;
     if (!name || !company_id) {
         res.status(400).json({ error: 'Name and company_id are required' });
         return;
@@ -130,18 +130,21 @@ exports.createPolicyNameDirect = (0, errorHandler_1.asyncTryCatch)(async (req, r
             policyGroup: true,
         }
     });
-    // Create a single simple flat commission rule (no complex filters - like OPTIMA RESTORE)
-    // Use default values for required fields, but set siCondition to null to avoid SI classification
-    await prisma.commissionRule.create({
-        data: {
-            policy_name_id: policyName.id,
-            commissionPercent: commission_percent,
-            policyStatus: 'Fresh',
-            deductibleType: 'ALL_SI',
-            ageCondition: 'LESS_THAN_60',
-            siCondition: null,
-            is_active: true,
-        }
-    });
+    // Auto-create 4 commission rules (one per policy status) with default 12%
+    // Editable via PATCH /commission-rules/:id but not deletable
+    const statuses = ['Fresh', 'Renewal', 'Migration', 'Portablity'];
+    for (const status of statuses) {
+        await prisma.commissionRule.create({
+            data: {
+                policy_name_id: policyName.id,
+                commissionPercent: commission_percent,
+                policyStatus: status,
+                deductibleType: 'ALL_SI',
+                ageCondition: 'LESS_THAN_60',
+                siCondition: null,
+                is_active: true,
+            }
+        });
+    }
     res.status(201).json(policyName);
 });

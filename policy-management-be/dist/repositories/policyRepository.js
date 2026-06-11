@@ -1323,7 +1323,7 @@ exports.policyRepository = {
         return prismaClient_1.default.policy.findMany({
             where: { created_by: userId },
             orderBy: { created_at: 'desc' },
-            include: exports.POLICY_FULL_INCLUDE,
+            include: exports.POLICY_LIST_INCLUDE,
         });
     },
     // Get document by ID

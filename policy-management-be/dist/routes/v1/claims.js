@@ -80,7 +80,7 @@ router.post("/policies/:policyId/claims", (0, AuthMiddleware_1.restrictTo)(["ADM
     { name: 'documents', maxCount: 10 }
 ]), claimController.createClaim);
 // Get all claims for a policy
-router.get("/policies/:policyId/claims", claimController.getPolicyClaims);
+router.get("/policies/:policyId/claims", (0, AuthMiddleware_1.restrictTo)(["ADMIN", "OPERATIONS"]), claimController.getPolicyClaims);
 // Update claim status (approve/reject)
 router.patch("/claims/:id/status", (0, AuthMiddleware_1.restrictTo)(["ADMIN", "OPERATIONS"]), claimController.updateClaimStatus);
 // Update claim

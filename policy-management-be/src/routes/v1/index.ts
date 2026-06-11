@@ -30,6 +30,7 @@ import * as policyGroupController from '../../controllers/policyGroupController'
 import { policyTypeController } from '../../controllers/policyTypeController';
 import { commissionRuleController } from '../../controllers/commissionRuleController';
 import { importPoliciesBulkHandler } from '../../bulkImport/bulkImportController';
+import { requireAuth } from '../../middlewares/AuthMiddleware';
 import claimRoutes from './claims';
 import policyTransitionRoutes from '../policyTransition.routes';
 
@@ -504,6 +505,6 @@ router.delete('/company-form-field/:id', restrictTo(['ADMIN']), (req, res) => { 
 router.use('/', claimRoutes);
 
 // Policy Transition Routes
-router.use('/', policyTransitionRoutes);
+router.use('/', requireAuth, policyTransitionRoutes);
 
 export default router
