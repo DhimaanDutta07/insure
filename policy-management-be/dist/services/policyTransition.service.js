@@ -549,16 +549,29 @@ class PolicyTransitionService {
      * Lightweight ancestor fetch for history display (no documents).
      * OPTIMIZED: Uses single recursive query instead of N+1 loop.
      */
-    static async getAllAncestorPoliciesLightweight(policyId, maxDepth = 5) {
-        // Use a single query with parent_policy_id chain to fetch all ancestors
-        // This is much faster than N+1 queries in a loop
+    static async getAllAncestorPoliciesLightweight(policyId) {
+        const ancestorIds = [];
+        let currentId = policyId;
+        let safety = 0;
+        while (currentId && safety < 100) {
+            const policy = await prismaClient_1.default.policy.findUnique({
+                where: { id: currentId },
+                select: { id: true, parent_policy_id: true },
+            });
+            if (!policy)
+                break;
+            ancestorIds.push(policy.id);
+            currentId = policy.parent_policy_id;
+            safety++;
+        }
+        if (ancestorIds.length === 0)
+            return [];
         const policies = await prismaClient_1.default.policy.findMany({
-            where: {
-                id: policyId,
-            },
+            where: { id: { in: ancestorIds } },
             select: {
                 id: true,
                 policy_number: true,
+                customer_name: true,
                 policy_creation_status: true,
                 transition_type: true,
                 created_at: true,
@@ -576,214 +589,28 @@ class PolicyTransitionService {
                 company: { select: { id: true, name: true } },
                 policyName: { select: { id: true, name: true } },
                 documents: {
-                    select: {
-                        id: true,
-                        file_name: true,
-                        original_name: true,
-                        file_type: true,
-                        category: true,
-                    },
+                    select: { id: true, file_name: true, original_name: true, file_type: true, category: true },
                 },
                 proposer: {
                     select: {
-                        id: true,
-                        full_name: true,
-                        mobile: true,
-                        email: true,
-                        date_of_birth: true,
-                        gender: true,
-                        marital_status: true,
-                        alternate_mobile: true,
-                        address: true,
-                        kyc_id: true,
-                        occupation: true,
-                        nationality: true,
+                        id: true, full_name: true, mobile: true, email: true, date_of_birth: true,
+                        gender: true, marital_status: true, alternate_mobile: true, address: true,
+                        kyc_id: true, occupation: true, nationality: true,
                         insured_members: {
                             select: {
-                                id: true,
-                                name: true,
-                                date_of_birth: true,
-                                gender: true,
-                                relation_to_proposer: true,
-                                insured_member_salutation: true,
-                                pre_existing: true,
-                                insured_member_medical_condition: true,
+                                id: true, name: true, date_of_birth: true, gender: true,
+                                relation_to_proposer: true, insured_member_salutation: true,
+                                pre_existing: true, insured_member_medical_condition: true,
                                 insured_member_medical_remarks: true,
                             },
                             orderBy: { created_at: 'asc' },
                         },
                     },
                 },
-                parent_policy: {
-                    select: {
-                        id: true,
-                        policy_number: true,
-                        policy_creation_status: true,
-                        transition_type: true,
-                        created_at: true,
-                        parent_policy_id: true,
-                        start_date: true,
-                        end_date: true,
-                        premium_amount: true,
-                        sum_insured: true,
-                        deductible_amount: true,
-                        deductible_amount_status: true,
-                        policy_name_id: true,
-                        calculated_commission_amount: true,
-                        commission_add_on_percentage: true,
-                        gst_status: true,
-                        company: { select: { id: true, name: true } },
-                        policyName: { select: { id: true, name: true } },
-                        proposer: {
-                            select: {
-                                id: true,
-                                full_name: true,
-                                mobile: true,
-                                email: true,
-                                date_of_birth: true,
-                                gender: true,
-                                marital_status: true,
-                                alternate_mobile: true,
-                                address: true,
-                                kyc_id: true,
-                                occupation: true,
-                                nationality: true,
-                                insured_members: {
-                                    select: {
-                                        id: true,
-                                        name: true,
-                                        date_of_birth: true,
-                                        gender: true,
-                                        relation_to_proposer: true,
-                                        insured_member_salutation: true,
-                                        pre_existing: true,
-                                        insured_member_medical_condition: true,
-                                        insured_member_medical_remarks: true,
-                                    },
-                                    orderBy: { created_at: 'asc' },
-                                },
-                            },
-                        },
-                        parent_policy: {
-                            select: {
-                                id: true,
-                                policy_number: true,
-                                policy_creation_status: true,
-                                transition_type: true,
-                                created_at: true,
-                                parent_policy_id: true,
-                                start_date: true,
-                                end_date: true,
-                                premium_amount: true,
-                                sum_insured: true,
-                                deductible_amount: true,
-                                deductible_amount_status: true,
-                                policy_name_id: true,
-                                calculated_commission_amount: true,
-                                commission_add_on_percentage: true,
-                                gst_status: true,
-                                company: { select: { id: true, name: true } },
-                                policyName: { select: { id: true, name: true } },
-                                proposer: {
-                                    select: {
-                                        id: true,
-                                        full_name: true,
-                                        mobile: true,
-                                        email: true,
-                                        date_of_birth: true,
-                                        gender: true,
-                                        marital_status: true,
-                                        alternate_mobile: true,
-                                        address: true,
-                                        kyc_id: true,
-                                        occupation: true,
-                                        nationality: true,
-                                        insured_members: {
-                                            select: {
-                                                id: true,
-                                                name: true,
-                                                date_of_birth: true,
-                                                gender: true,
-                                                relation_to_proposer: true,
-                                                insured_member_salutation: true,
-                                                pre_existing: true,
-                                                insured_member_medical_condition: true,
-                                                insured_member_medical_remarks: true,
-                                            },
-                                            orderBy: { created_at: 'asc' },
-                                        },
-                                    },
-                                },
-                                parent_policy: {
-                                    select: {
-                                        id: true,
-                                        policy_number: true,
-                                        policy_creation_status: true,
-                                        transition_type: true,
-                                        created_at: true,
-                                        parent_policy_id: true,
-                                        start_date: true,
-                                        end_date: true,
-                                        premium_amount: true,
-                                        sum_insured: true,
-                                        deductible_amount: true,
-                                        deductible_amount_status: true,
-                                        policy_name_id: true,
-                                        calculated_commission_amount: true,
-                                        commission_add_on_percentage: true,
-                                        gst_status: true,
-                                        company: { select: { id: true, name: true } },
-                                        policyName: { select: { id: true, name: true } },
-                                        proposer: {
-                                            select: {
-                                                id: true,
-                                                full_name: true,
-                                                mobile: true,
-                                                email: true,
-                                                date_of_birth: true,
-                                                gender: true,
-                                                marital_status: true,
-                                                alternate_mobile: true,
-                                                address: true,
-                                                kyc_id: true,
-                                                occupation: true,
-                                                nationality: true,
-                                                insured_members: {
-                                                    select: {
-                                                        id: true,
-                                                        name: true,
-                                                        date_of_birth: true,
-                                                        gender: true,
-                                                        relation_to_proposer: true,
-                                                        insured_member_salutation: true,
-                                                        pre_existing: true,
-                                                        insured_member_medical_condition: true,
-                                                        insured_member_medical_remarks: true,
-                                                    },
-                                                    orderBy: { created_at: 'asc' },
-                                                },
-                                            },
-                                        },
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            },
         });
-        if (policies.length === 0)
-            return [];
-        // Flatten the nested structure into an array
-        const ancestors = [];
-        let current = policies[0];
-        let depth = 0;
-        while (current && depth < maxDepth) {
-            ancestors.push(current);
-            current = current.parent_policy;
-            depth++;
-        }
-        return ancestors;
+        const idOrder = new Map(ancestorIds.map((id, idx) => [id, idx]));
+        return policies.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
     }
     static filterDocumentsByTransitionType(documents, transitionType) {
         // For now, carry over ALL documents from the parent policy
@@ -882,282 +709,70 @@ class PolicyTransitionService {
         return this.buildClaimsByYearFromData(policy, claims);
     }
     static async getPolicyTransitionHistory(policyId) {
-        // Get all ancestor policies recursively (lightweight - no documents)
-        const ancestorPolicies = await this.getAllAncestorPoliciesLightweight(policyId);
-        const policy = await prismaClient_1.default.policy.findUnique({
-            where: { id: policyId },
-            select: {
-                id: true,
-                policy_number: true,
-                customer_name: true,
-                policy_creation_status: true,
-                transition_type: true,
-                created_at: true,
-                parent_policy_id: true,
-                start_date: true,
-                end_date: true,
-                premium_amount: true,
-                sum_insured: true,
-                deductible_amount: true,
-                deductible_amount_status: true,
-                policy_name_id: true,
-                calculated_commission_amount: true,
-                commission_add_on_percentage: true,
-                gst_status: true,
-                company: { select: { id: true, name: true } },
-                policyName: { select: { id: true, name: true } },
-                documents: {
-                    select: {
-                        id: true,
-                        file_name: true,
-                        original_name: true,
-                        file_type: true,
-                        category: true,
-                    },
-                },
-                proposer: {
-                    select: {
-                        id: true,
-                        full_name: true,
-                        mobile: true,
-                        email: true,
-                        date_of_birth: true,
-                        gender: true,
-                        marital_status: true,
-                        alternate_mobile: true,
-                        address: true,
-                        kyc_id: true,
-                        occupation: true,
-                        nationality: true,
-                        insured_members: {
-                            select: {
-                                id: true,
-                                name: true,
-                                date_of_birth: true,
-                                gender: true,
-                                relation_to_proposer: true,
-                                insured_member_salutation: true,
-                                pre_existing: true,
-                                insured_member_medical_condition: true,
-                                insured_member_medical_remarks: true,
-                            },
-                            orderBy: { created_at: 'asc' },
-                        },
-                    },
-                },
-                parent_policy: {
-                    select: {
-                        id: true,
-                        policy_number: true,
-                        policy_creation_status: true,
-                        transition_type: true,
-                        created_at: true,
-                        start_date: true,
-                        end_date: true,
-                        premium_amount: true,
-                        sum_insured: true,
-                        deductible_amount: true,
-                        deductible_amount_status: true,
-                        policy_name_id: true,
-                        calculated_commission_amount: true,
-                        commission_add_on_percentage: true,
-                        gst_status: true,
-                        company: { select: { id: true, name: true } },
-                        policyName: { select: { id: true, name: true } },
-                        documents: {
-                            select: {
-                                id: true,
-                                file_name: true,
-                                original_name: true,
-                                file_type: true,
-                                category: true,
-                            },
-                        },
-                        proposer: {
-                            select: {
-                                id: true,
-                                full_name: true,
-                                mobile: true,
-                                email: true,
-                                date_of_birth: true,
-                                gender: true,
-                                marital_status: true,
-                                alternate_mobile: true,
-                                address: true,
-                                kyc_id: true,
-                                occupation: true,
-                                nationality: true,
-                                insured_members: {
-                                    select: {
-                                        id: true,
-                                        name: true,
-                                        date_of_birth: true,
-                                        gender: true,
-                                        relation_to_proposer: true,
-                                        insured_member_salutation: true,
-                                        pre_existing: true,
-                                        insured_member_medical_condition: true,
-                                        insured_member_medical_remarks: true,
-                                    },
-                                    orderBy: { created_at: 'asc' },
-                                },
-                            },
-                        },
-                    }
-                },
-                children_policies: {
-                    select: {
-                        id: true,
-                        policy_number: true,
-                        customer_name: true,
-                        policy_creation_status: true,
-                        transition_type: true,
-                        created_at: true,
-                        start_date: true,
-                        end_date: true,
-                        premium_amount: true,
-                        sum_insured: true,
-                        deductible_amount: true,
-                        deductible_amount_status: true,
-                        policy_name_id: true,
-                        calculated_commission_amount: true,
-                        commission_add_on_percentage: true,
-                        gst_status: true,
-                        company: { select: { id: true, name: true } },
-                        policyName: { select: { id: true, name: true } },
-                        documents: {
-                            select: {
-                                id: true,
-                                file_name: true,
-                                original_name: true,
-                                file_type: true,
-                                category: true,
-                            },
-                        },
-                        proposer: {
-                            select: {
-                                id: true,
-                                full_name: true,
-                                mobile: true,
-                                email: true,
-                                date_of_birth: true,
-                                gender: true,
-                                marital_status: true,
-                                alternate_mobile: true,
-                                address: true,
-                                kyc_id: true,
-                                occupation: true,
-                                nationality: true,
-                                insured_members: {
-                                    select: {
-                                        id: true,
-                                        name: true,
-                                        date_of_birth: true,
-                                        gender: true,
-                                        relation_to_proposer: true,
-                                        insured_member_salutation: true,
-                                        pre_existing: true,
-                                        insured_member_medical_condition: true,
-                                        insured_member_medical_remarks: true,
-                                    },
-                                    orderBy: { created_at: 'asc' },
-                                },
-                            },
-                        },
-                    }
-                }
-            }
-        });
-        if (!policy) {
+        const cacheKey = `history:${policyId}`;
+        const cached = lruCache_1.apiCache.get(cacheKey);
+        if (cached)
+            return cached;
+        const ancestors = await this.getAllAncestorPoliciesLightweight(policyId);
+        if (ancestors.length === 0) {
             throw new Error('Policy not found');
         }
-        const transitionHistory = [];
-        // Build complete hierarchy from earliest ancestor to current policy to children
-        const completeHierarchy = [];
-        // Filter out the current policy from ancestors to prevent duplication
-        const filteredAncestors = ancestorPolicies.filter(ancestor => ancestor.id !== policyId);
-        // Add ancestor policies (in chronological order from earliest to latest)
-        // The filteredAncestors array is in reverse order (current -> parent -> grandparent -> etc.)
-        // So we need to reverse it to show earliest first
+        const current = ancestors[0];
+        const filteredAncestors = ancestors.filter(a => a.id !== policyId);
         const chronologicalAncestors = [...filteredAncestors].reverse();
+        const children = await prismaClient_1.default.policy.findMany({
+            where: { parent_policy_id: policyId },
+            select: {
+                id: true, policy_number: true, customer_name: true,
+                policy_creation_status: true, transition_type: true,
+                created_at: true, parent_policy_id: true,
+                start_date: true, end_date: true,
+                premium_amount: true, sum_insured: true,
+                deductible_amount: true, deductible_amount_status: true,
+                policy_name_id: true, calculated_commission_amount: true,
+                commission_add_on_percentage: true, gst_status: true,
+                company: { select: { id: true, name: true } },
+                policyName: { select: { id: true, name: true } },
+                documents: { select: { id: true, file_name: true, original_name: true, file_type: true, category: true } },
+            },
+        });
+        const transitionHistory = [];
+        const completeHierarchy = [];
         for (let i = 0; i < chronologicalAncestors.length; i++) {
-            const ancestor = chronologicalAncestors[i];
-            const isImmediateParent = i === chronologicalAncestors.length - 1;
+            const a = chronologicalAncestors[i];
             completeHierarchy.push({
-                policy: ancestor,
-                relationship: isImmediateParent ? 'PARENT' : 'ANCESTOR',
-                transition_type: ancestor.transition_type,
-                position: isImmediateParent ? 'PARENT' : 'ANCESTOR',
-                generation: chronologicalAncestors.length - i // Generation number (1 = immediate parent, 2 = grandparent, etc.)
+                policy: a, relationship: i === chronologicalAncestors.length - 1 ? 'PARENT' : 'ANCESTOR',
+                transition_type: a.transition_type, position: i === chronologicalAncestors.length - 1 ? 'PARENT' : 'ANCESTOR',
+                generation: chronologicalAncestors.length - i,
             });
         }
-        // Add current policy
-        completeHierarchy.push({
-            policy: policy,
-            relationship: 'CURRENT',
-            transition_type: null,
-            position: 'CURRENT',
-            generation: 0
+        completeHierarchy.push({ policy: current, relationship: 'CURRENT', transition_type: null, position: 'CURRENT', generation: 0 });
+        children.forEach(child => {
+            completeHierarchy.push({ policy: child, relationship: 'CHILD', transition_type: child.transition_type, position: 'CHILD', generation: -1 });
+            transitionHistory.push({ policy: child, relationship: 'CHILD', transition_type: child.transition_type });
         });
-        // Add child policies
-        policy.children_policies.forEach(child => {
-            completeHierarchy.push({
-                policy: child,
-                relationship: 'CHILD',
-                transition_type: child.transition_type,
-                position: 'CHILD',
-                generation: -1
-            });
-        });
-        // Add parent policy to history if exists (for backward compatibility)
-        if (policy.parent_policy) {
-            transitionHistory.push({
-                policy: policy.parent_policy,
-                relationship: 'PARENT',
-                transition_type: policy.transition_type
-            });
+        if (filteredAncestors.length > 0) {
+            transitionHistory.push({ policy: filteredAncestors[0], relationship: 'PARENT', transition_type: current.transition_type });
         }
-        // Add child policies to history (for backward compatibility)
-        policy.children_policies.forEach(child => {
-            transitionHistory.push({
-                policy: child,
-                relationship: 'CHILD',
-                transition_type: child.transition_type
-            });
-        });
-        // OPTIMIZED: Fetch all claims for all hierarchy policies in ONE query
         const allPolicyIds = completeHierarchy.map((item) => item.policy.id);
         const allClaims = await prismaClient_1.default.claim.findMany({
-            where: {
-                policy_id: { in: allPolicyIds },
-                is_deleted: false,
-                claim_date: { not: null },
-            },
-            select: {
-                policy_id: true,
-                claim_date: true,
-                claim_status: true,
-                claim_amount: true,
-            }
+            where: { policy_id: { in: allPolicyIds }, is_deleted: false, claim_date: { not: null } },
+            select: { policy_id: true, claim_date: true, claim_status: true, claim_amount: true },
         });
-        // Build claims map by policy_id
-        const claimsByPolicyId = new Map();
-        for (const claim of allClaims) {
-            const list = claimsByPolicyId.get(claim.policy_id) || [];
-            list.push(claim);
-            claimsByPolicyId.set(claim.policy_id, list);
+        const claimsMap = new Map();
+        for (const c of allClaims) {
+            const list = claimsMap.get(c.policy_id) || [];
+            list.push(c);
+            claimsMap.set(c.policy_id, list);
         }
-        // Enrich hierarchy with claimsByYear using pre-fetched data
         for (const item of completeHierarchy) {
             try {
-                item.claimsByYear = this.buildClaimsByYearFromData(item.policy, claimsByPolicyId.get(item.policy.id) || []);
+                item.claimsByYear = this.buildClaimsByYearFromData(item.policy, claimsMap.get(item.policy.id) || []);
             }
-            catch (e) {
-                console.warn('Failed to build claimsByYear for policy', item?.policy?.id, e);
+            catch {
                 item.claimsByYear = null;
             }
         }
-        // Batch live commission enrichment using current rules (single DB call)
         const { batchEnrichWithLiveCommission } = await Promise.resolve().then(() => __importStar(require('../controllers/policy.controller')));
         const allPolicies = completeHierarchy.map((item) => item.policy);
         const enriched = await batchEnrichWithLiveCommission(allPolicies);
@@ -1168,16 +783,18 @@ class PolicyTransitionService {
                 gst_status: completeHierarchy[i].policy.gst_status || false,
             };
         }
-        return {
-            parentPolicy: policy.parent_policy,
-            childrenPolicies: policy.children_policies,
+        const result = {
+            parentPolicy: filteredAncestors.length > 0 ? filteredAncestors[0] : undefined,
+            childrenPolicies: children,
             transitionHistory: transitionHistory.sort((a, b) => {
                 const dateA = a.policy.created_at ? new Date(a.policy.created_at).getTime() : 0;
                 const dateB = b.policy.created_at ? new Date(b.policy.created_at).getTime() : 0;
                 return dateB - dateA;
             }),
-            completeHierarchy: completeHierarchy
+            completeHierarchy,
         };
+        lruCache_1.apiCache.set(cacheKey, result, 15000);
+        return result;
     }
     static async validateTransitionEligibility(parentPolicyId, transitionType) {
         const policy = await prismaClient_1.default.policy.findUnique({

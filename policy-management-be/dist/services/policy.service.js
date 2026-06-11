@@ -47,9 +47,10 @@ async function processUploadedFiles(files, uploadedBy) {
     }
     // Collect all file read promises for parallel execution
     const fileReadPromises = [];
-    // Process policy documents
-    if (files.policyDocs && Array.isArray(files.policyDocs)) {
-        for (const file of files.policyDocs) {
+    // Process policy documents (accept both fieldname aliases)
+    const policyDocFiles = files.policyDocs || files.documents;
+    if (policyDocFiles && Array.isArray(policyDocFiles)) {
+        for (const file of policyDocFiles) {
             fileReadPromises.push(fs_1.promises.readFile(file.path).then((data) => {
                 policyDocs.push({
                     file_name: file.filename,

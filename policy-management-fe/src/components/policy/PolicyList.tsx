@@ -242,7 +242,8 @@ const PolicyList: React.FC<PolicyListProps> = ({
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [policyHistoryData, setPolicyHistoryData] = useState<Record<string, PolicyTransitionHistory>>({});
   const [loadingHistory, setLoadingHistory] = useState<Record<string, boolean>>({});
-  const [historyErrors, setHistoryErrors] = useState<Record<string, boolean>>({});
+  const fetchedRef = useRef(new Set<string>());
+  const erroredRef = useRef(new Set<string>());
 
   // Import dialog state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -273,37 +274,32 @@ const PolicyList: React.FC<PolicyListProps> = ({
 
   // Fetch policy history for a specific policy
   const fetchPolicyHistory = useCallback(async (policyId: string) => {
-    if (policyHistoryData[policyId]) return; // Already loaded
-    if (historyErrors[policyId]) return; // Already failed, don't retry
-    
+    if (fetchedRef.current.has(policyId) || erroredRef.current.has(policyId)) return;
     setLoadingHistory(prev => ({ ...prev, [policyId]: true }));
     try {
       const history = await PolicyTransitionService.getTransitionHistory(policyId);
       setPolicyHistoryData(prev => ({ ...prev, [policyId]: history }));
+      fetchedRef.current.add(policyId);
     } catch (error) {
-      console.error('Failed to fetch policy history:', error);
-      // Mark as failed to prevent infinite retries (any status code)
-      setHistoryErrors(prev => ({ ...prev, [policyId]: true }));
-      // Don't show toast for background loading
+      erroredRef.current.add(policyId);
     } finally {
       setLoadingHistory(prev => ({ ...prev, [policyId]: false }));
     }
-  }, [policyHistoryData, historyErrors]);
+  }, []);
 
-  // Fetch policy history for loaded policies (after declaration)
+  // Fetch policy history for loaded policies
   useEffect(() => {
     if (policies.length > 0) {
-      // Process sequentially to avoid ERR_INSUFFICIENT_RESOURCES
       const fetchSequentially = async () => {
         for (const policy of policies) {
+          if (fetchedRef.current.has(policy.id) || erroredRef.current.has(policy.id)) continue;
           await fetchPolicyHistory(policy.id);
-          // Small delay between requests to avoid overwhelming the browser
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       };
       fetchSequentially();
     }
-  }, [policies, fetchPolicyHistory]);
+  }, [policies]);
 
   // Use backend pagination - no need for frontend slicing
   const prefetchPolicy = usePrefetchPolicy();

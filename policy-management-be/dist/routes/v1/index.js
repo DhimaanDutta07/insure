@@ -290,7 +290,7 @@ router.use('/uploads', (req, res, next) => {
 }, express_1.default.static(uploadPath));
 // user Routes
 router.post("/auth/login", userController_1.login);
-router.get("/user/validate", (0, AuthMiddleware_1.restrictTo)(['ADMIN', "OPERATIONS"]), userController_1.validateUser);
+router.get("/user/validate", userController_1.validateUser);
 // router.post("/auth/admin/register", register);
 router.post('/send-otp', userController_1.sendUserOTP);
 router.post('/verify-otp', userController_1.verifyUserOTP);
