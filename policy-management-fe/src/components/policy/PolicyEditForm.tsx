@@ -180,7 +180,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const [policyTypes, setPolicyTypes] = useState<PolicyTypeOption[]>([]);
   const [policyNames, setPolicyNames] = useState<PolicyName[]>([]);
   const [policyGroups, setPolicyGroups] = useState<PolicyGroup[]>([]);
-  const [commissionRules, setCommissionRules] = useState<any[]>([]);
   
   // File upload states - organized by entity
   const [policyDocs, setPolicyDocs] = useState<File[]>([]);
@@ -285,13 +284,12 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         const headers = { Authorization: `Bearer ${token}` };
 
         // Fetch dropdown data and policy details in parallel
-        const [policyRes, companiesRes, policyTypesRes, policyNamesRes, policyGroupsRes, commissionRulesRes] = await Promise.all([
+        const [policyRes, companiesRes, policyTypesRes, policyNamesRes, policyGroupsRes] = await Promise.all([
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policies/${policyId}`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/companies`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-types`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-names`, { headers }),
           axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/policy-groups`, { headers }),
-          axios.get(`${(import.meta.env.VITE_BASE_URL as string || '').replace(/\/$/, '')}/api/v1/commission-rules`, { headers }),
         ]);
 
         // Extract policy data from the response (backend returns { success: true, data: policy })
@@ -303,7 +301,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         setPolicyTypes(Array.isArray(policyTypesRes.data) ? policyTypesRes.data : []);
         setPolicyNames(Array.isArray(policyNamesRes.data) ? policyNamesRes.data : []);
         setPolicyGroups(Array.isArray(policyGroupsRes.data.policyGroups) ? policyGroupsRes.data.policyGroups : []);
-        setCommissionRules(Array.isArray(commissionRulesRes.data) ? commissionRulesRes.data : []);
         
         // Process and categorize documents
         const allDocs: PolicyDocument[] = policy.documents || [];
@@ -662,7 +659,6 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wTenureYears = watch("tenure_years");
   const wPremiumAmount = watch("premium_amount");
   const wPolicyNameId = watch("policy_name_id");
-  const wCompanyId = watch("company_id");
   const wProposerDob = watch("proposer.date_of_birth");
   const wProposerGender = watch("proposer.gender");
   const wProposerSalutation = watch("proposer.proposer_salutation");
@@ -672,43 +668,8 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wProposerFullName = watch("proposer.full_name");
   const wMembers = watch("members");
 
-  // Determine available statuses based on commission rules (like PolicyForm)
-  const selectedPolicyName = policyNames.find(pn => pn.id === wPolicyNameId);
-  const productName = selectedPolicyName?.name?.toUpperCase() || '';
-  const companyName = companies.find(c => c.id === wCompanyId)?.name || '';
-
-  // Check actual commission rules for this product to determine if it has complex classifications
-  const productCommissionRules = commissionRules.filter(rule => rule.policy_name_id === wPolicyNameId);
-
-  // Fallback to name-based classification only if no rules exist yet (for new products)
-  const isOptimaSecure = productName.includes('OPTIMA SECURE');
-  const isOtherRetailHealth = companyName === 'HDFC ERGO' && productName === 'OTHERS';
-  const isSTU = companyName === 'HDFC ERGO' && productName === 'STU';
-  const isPA = companyName === 'HDFC ERGO' && productName === 'PA';
-  const isSME = companyName === 'HDFC ERGO' && productName === 'SME';
-  const isTravel = companyName === 'HDFC ERGO' && productName === 'TRAVEL';
-
+  // Always show all 4 policy status options in edit form
   let availableStatuses: ("Fresh" | "Renewal" | "Migration" | "Portablity")[] = ["Fresh", "Renewal", "Migration", "Portablity"];
-
-  // Use actual rule classification if rules exist, otherwise fall back to name patterns
-  if (productCommissionRules.length > 0) {
-    // Extract unique statuses from actual rules
-    const uniqueStatuses = Array.from(new Set(productCommissionRules.map(rule => rule.policyStatus).filter(Boolean)));
-    if (uniqueStatuses.length > 0) {
-      availableStatuses = uniqueStatuses as ("Fresh" | "Renewal" | "Migration" | "Portablity")[];
-    }
-  } else {
-    // No rules yet - use name-based classification for backward compatibility
-    if (isOptimaSecure || isOtherRetailHealth) {
-      availableStatuses = ["Fresh", "Portablity", "Renewal"];
-    } else if (isSTU) {
-      availableStatuses = ["Fresh", "Portablity", "Renewal"];
-    } else if (isPA || isSME) {
-      availableStatuses = ["Fresh", "Renewal"];
-    } else if (isTravel) {
-      availableStatuses = ["Fresh", "Renewal"];
-    }
-  }
 
 
   // Auto-calculate end date based on start date and tenure years
@@ -1954,7 +1915,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
               <SelectContent>
                 {availableStatuses.map((status) => (
                   <SelectItem key={status} value={status}>
-                    {status === "Migration" ? "Internal Portability" : status}
+                    {status === "Migration" ? "Internal Portability" : status === "Portablity" ? "Portability" : status}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1979,53 +1940,51 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       />
           </div>
           
-          {/* Conditional Deductible Fields */}
-          {deductibleOptions && !hideDeductible && (
-            <>
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-gray-700">
-                  Deductible Amount Status
-                </label>
-                <Select
-                  value={watch("deductible_amount_status") ? "Yes" : "No"}
-                  onValueChange={(value) =>
-                    setValue("deductible_amount_status", value === "Yes", { shouldValidate: true })
-                  }
-                >
-                  <SelectTrigger className="w-full h-9 text-sm">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="No">No</SelectItem>
-                    <SelectItem value="Yes">Yes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              {watch("deductible_amount_status") && (
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Deductible Amount (₹)
-                  </label>
-                  <Select
-                    value={watch("deductible_amount") ? String(watch("deductible_amount")) : ""}
-                    onValueChange={value => setValue("deductible_amount", Number(value), { shouldValidate: true })}
-                  >
-                    <SelectTrigger className="w-full h-9 text-sm">
-                      <SelectValue placeholder="Select amount" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {deductibleOptions.map(opt => (
-                        <SelectItem key={opt} value={String(opt)}>
-                          {opt.toLocaleString("en-IN")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </>
+          {/* Deductible Status - Always visible for commission calculation */}
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-gray-700">
+              Deductible Amount Status
+            </label>
+            <Select
+              value={watch("deductible_amount_status") ? "Yes" : "No"}
+              onValueChange={(value) =>
+                setValue("deductible_amount_status", value === "Yes", { shouldValidate: true })
+              }
+            >
+              <SelectTrigger className="w-full h-9 text-sm">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="No">No</SelectItem>
+                <SelectItem value="Yes">Yes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          {/* Conditional Deductible Amount Selection - only for specific companies */}
+          {deductibleOptions && !hideDeductible && watch("deductible_amount_status") && (
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-700">
+                Deductible Amount (₹)
+              </label>
+              <Select
+                value={watch("deductible_amount") ? String(watch("deductible_amount")) : ""}
+                onValueChange={value => setValue("deductible_amount", Number(value), { shouldValidate: true })}
+              >
+                <SelectTrigger className="w-full h-9 text-sm">
+                  <SelectValue placeholder="Select amount" />
+                </SelectTrigger>
+                <SelectContent>
+                  {deductibleOptions.map(opt => (
+                    <SelectItem key={opt} value={String(opt)}>
+                      {opt.toLocaleString("en-IN")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
+
 {/* Calculated Commission Display */}
 <div className="space-y-1">
   <label className="block text-xs font-semibold text-gray-700">

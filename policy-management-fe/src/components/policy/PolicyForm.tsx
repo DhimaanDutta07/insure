@@ -21,7 +21,6 @@ import {
   usePolicyNames,
   usePolicyTypes,
   usePolicyGroups,
-  useCommissionRules,
 } from "../../hooks/useApi";
 // import { Checkbox } from "../ui/checkbox"; // Commented out as declaration section is hidden
 
@@ -134,7 +133,6 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const { data: policyNames = [] } = usePolicyNames();
   const { data: policyTypes = [] } = usePolicyTypes();
   const { data: policyGroups = [] } = usePolicyGroups();
-  const { data: commissionRules = [] } = useCommissionRules();
   
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -640,45 +638,8 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     setValue("policy_name_id", undefined, { shouldValidate: true });
   }, [selectedCompanyId, setValue]);
 
-  // Determine if product has classifications - check actual commission rules instead of name patterns
-  const selectedPolicyName = policyNames.find(pn => pn.id === wPolicyNameId);
-  const productName = selectedPolicyName?.name?.toUpperCase() || '';
-  const companyName = companies.find(c => c.id === selectedCompanyId)?.name || '';
-
-  // Check actual commission rules for this product to determine if it has complex classifications
-  // This allows products like "OPTIMA SECURE +" to have simple single-rate if they have no complex rules
-  const commissionRulesArray = Array.isArray(commissionRules) ? commissionRules : [];
-  const productCommissionRules = commissionRulesArray.filter((rule: any) => rule.policy_name_id === wPolicyNameId);
-
-  // Fallback to name-based classification only if no rules exist yet (for new products)
-  const isOptimaSecure = productName.includes('OPTIMA SECURE');
-  const isOtherRetailHealth = companyName === 'HDFC ERGO' && productName === 'OTHERS';
-  const isSTU = companyName === 'HDFC ERGO' && productName === 'STU';
-  const isPA = companyName === 'HDFC ERGO' && productName === 'PA';
-  const isSME = companyName === 'HDFC ERGO' && productName === 'SME';
-  const isTravel = companyName === 'HDFC ERGO' && productName === 'TRAVEL';
-
+  // Always show all 4 policy status options in creation form
   let availableStatuses: ("Fresh" | "Renewal" | "Migration" | "Portablity")[] = ["Fresh", "Renewal", "Migration", "Portablity"];
-  
-  // Use actual rule classification if rules exist, otherwise fall back to name patterns
-  if (productCommissionRules.length > 0) {
-    // Extract unique statuses from actual rules
-    const uniqueStatuses = Array.from(new Set(productCommissionRules.map((rule: any) => rule.policyStatus).filter(Boolean)));
-    if (uniqueStatuses.length > 0) {
-      availableStatuses = uniqueStatuses as ("Fresh" | "Renewal" | "Migration" | "Portablity")[];
-    }
-  } else {
-    // No rules yet - use name-based classification for backward compatibility
-    if (isOptimaSecure || isOtherRetailHealth) {
-      availableStatuses = ["Fresh", "Portablity", "Renewal"];
-    } else if (isSTU) {
-      availableStatuses = ["Fresh", "Portablity", "Renewal"];
-    } else if (isPA || isSME) {
-      availableStatuses = ["Fresh", "Renewal"];
-    } else if (isTravel) {
-      availableStatuses = ["Fresh", "Renewal"];
-    }
-  }
 
   // Reset irrelevant fields when company changes
   useEffect(() => {
@@ -1484,7 +1445,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
               <SelectContent>
                 {availableStatuses.map((status) => (
                   <SelectItem key={status} value={status}>
-                    {status === "Migration" ? "Internal Portability" : status}
+                    {status === "Migration" ? "Internal Portability" : status === "Portablity" ? "Portability" : status}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1508,62 +1469,59 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
             />
           </div>
 
-          {/* Conditional Deductible Fields */}
-          {deductibleOptions && !hideDeductible && (
-            <>
-              <div className="space-y-1">
-                <label className="block text-xs font-semibold text-gray-700">
-                  Deductible Amount Status
-                </label>
-                <Select
-                  value={watch("deductible_amount_status") ? "Yes" : "No"}
-                  onValueChange={(value) =>
-                    setValue("deductible_amount_status", value === "Yes", {
-                      shouldValidate: true,
-                    })
-                  }
-                >
-                  <SelectTrigger className="w-full h-9 text-sm">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="No">No</SelectItem>
-                    <SelectItem value="Yes">Yes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+          {/* Deductible Status - Always visible for commission calculation */}
+          <div className="space-y-1">
+            <label className="block text-xs font-semibold text-gray-700">
+              Deductible Amount Status
+            </label>
+            <Select
+              value={watch("deductible_amount_status") ? "Yes" : "No"}
+              onValueChange={(value) =>
+                setValue("deductible_amount_status", value === "Yes", {
+                  shouldValidate: true,
+                })
+              }
+            >
+              <SelectTrigger className="w-full h-9 text-sm">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="No">No</SelectItem>
+                <SelectItem value="Yes">Yes</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-              {watch("deductible_amount_status") && (
-                <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Deductible Amount (₹)
-                  </label>
-                  <Select
-                    value={
-                      watch("deductible_amount")
-                        ? String(watch("deductible_amount"))
-                        : ""
-                    }
-                    onValueChange={(value) =>
-                      setValue("deductible_amount", Number(value), {
-                        shouldValidate: true,
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-full h-9 text-sm">
-                      <SelectValue placeholder="Select amount" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {deductibleOptions.map((opt) => (
-                        <SelectItem key={opt} value={String(opt)}>
-                          {opt.toLocaleString("en-IN")}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </>
+          {/* Conditional Deductible Amount Selection - only for specific companies */}
+          {deductibleOptions && !hideDeductible && watch("deductible_amount_status") && (
+            <div className="space-y-1">
+              <label className="block text-xs font-semibold text-gray-700">
+                Deductible Amount (₹)
+              </label>
+              <Select
+                value={
+                  watch("deductible_amount")
+                    ? String(watch("deductible_amount"))
+                    : ""
+                }
+                onValueChange={(value) =>
+                  setValue("deductible_amount", Number(value), {
+                    shouldValidate: true,
+                  })
+                }
+              >
+                <SelectTrigger className="w-full h-9 text-sm">
+                  <SelectValue placeholder="Select amount" />
+                </SelectTrigger>
+                <SelectContent>
+                  {deductibleOptions.map((opt) => (
+                    <SelectItem key={opt} value={String(opt)}>
+                      {opt.toLocaleString("en-IN")}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
 
           {/* Commission Add-on Percentage - Auto-calculated, no manual input */}

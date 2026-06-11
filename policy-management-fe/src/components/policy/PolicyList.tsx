@@ -132,6 +132,8 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     switch (status) {
       case 'Migration':
         return 'Internal Portability';
+      case 'Portablity':
+        return 'Portability';
       default:
         return status;
     }
@@ -916,7 +918,7 @@ const PolicyList: React.FC<PolicyListProps> = ({
                 <SelectItem value="Fresh">Fresh</SelectItem>
                 <SelectItem value="Migration">Internal Portability</SelectItem>
                 <SelectItem value="Renewal">Renewal</SelectItem>
-                <SelectItem value="Portablity">Portablity</SelectItem>
+                <SelectItem value="Portablity">Portability</SelectItem>
               </SelectContent>
             </Select>
             {/* Date Filter Dropdown */}

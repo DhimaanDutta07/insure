@@ -50,8 +50,6 @@ const CommissionRulePage: React.FC = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [expandedProducts, setExpandedProducts] = useState<Record<string, boolean>>({});
-  const [renewalCommission, setRenewalCommission] = useState<string>('15');
-  const [isSavingRenewal, setIsSavingRenewal] = useState(false);
   
   // Add filter modal state
   const [addFilterModalOpen, setAddFilterModalOpen] = useState(false);
@@ -73,8 +71,13 @@ const CommissionRulePage: React.FC = () => {
       ]);
       setPolicyNames(names);
       setCompanies(companyData);
-      setCommissionRules(Array.isArray(rules) ? rules : rules.data);
-      console.log('[Frontend] Data updated:', { rulesCount: Array.isArray(rules) ? rules.length : rules.data?.length });
+      
+      // Deduplicate rules by ID (in case backend returns duplicates)
+      const rulesArray = Array.isArray(rules) ? rules : rules.data;
+      const uniqueRules = Array.from(new Map(rulesArray.map(rule => [rule.id, rule])).values());
+      
+      setCommissionRules(uniqueRules);
+      console.log('[Frontend] Data updated:', { rulesCount: uniqueRules.length });
     } catch {
       toast.error("Failed to fetch data");
     } finally {
@@ -240,94 +243,11 @@ const CommissionRulePage: React.FC = () => {
     }
   };
 
-  const handleSaveRenewalCommission = async () => {
-    const percent = parseFloat(renewalCommission);
-    if (isNaN(percent) || percent < 0 || percent > 100) {
-      toast.error("Enter a valid percentage between 0 and 100");
-      return;
-    }
-
-    setIsSavingRenewal(true);
-    try {
-      const hdfcCompany = companies.find(c => c.name === 'HDFC ERGO');
-      if (!hdfcCompany) {
-        toast.error("HDFC ERGO company not found in system");
-        return;
-      }
-
-      const hdfcProducts = policyNames.filter(p => p.company_id === hdfcCompany.id);
-
-      if (hdfcProducts.length === 0) {
-        toast.error("No HDFC ERGO products found");
-        return;
-      }
-
-      // Update all HDFC ERGO products with Renewal commission
-      // For products with SI classification (OPTIMA SECURE, OTHERS), update both SI conditions
-      for (const product of hdfcProducts) {
-        const productName = product.name.toUpperCase();
-        const isOptimaSecure = productName.includes('OPTIMA SECURE');
-        const isOtherRetailHealth = productName === 'OTHERS';
-
-        if (isOptimaSecure || isOtherRetailHealth) {
-          // Update both SI conditions for products with SI classification
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Renewal', 'LESS_THAN_10_LAKHS');
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Renewal', 'GREATER_EQUAL_10_LAKHS');
-        } else {
-          // Update with undefined SI condition for other products (will be set to null in backend)
-          await upsertCommissionByProduct(product.id, percent, undefined, 'Renewal', undefined);
-        }
-      }
-
-      toast.success(`Renewal commission updated for ${hdfcProducts.length} HDFC ERGO products`);
-      fetchData();
-    } catch {
-      toast.error("Failed to update Renewal commission");
-    } finally {
-      setIsSavingRenewal(false);
-    }
-  };
-
 
   return (
     <div className="p-4 max-w-7xl mx-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Commission Rules</h1>
-      </div>
-
-      {/* Global Commission Sections for HDFC ERGO */}
-      <div className="mb-6">
-        {/* Renewal Commission */}
-        <div className="p-4 bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-lg max-w-md">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Renewal (HDFC ERGO)</h3>
-          <p className="text-xs text-gray-600 mb-3">
-            Applies when policy status is "Renewal" for HDFC ERGO policies
-          </p>
-          <div className="flex items-center gap-2">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              value={renewalCommission}
-              onChange={(e) => setRenewalCommission(e.target.value)}
-              className="w-20 h-9 text-center text-sm"
-              disabled={isSavingRenewal}
-            />
-            <span className="text-xs text-gray-600">%</span>
-            <Button
-              onClick={handleSaveRenewalCommission}
-              disabled={isSavingRenewal}
-              className="bg-orange-600 hover:bg-orange-700 text-white h-9 px-3 text-xs"
-            >
-              {isSavingRenewal ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Save className="w-3 h-3" />
-              )}
-            </Button>
-          </div>
-        </div>
       </div>
 
       <div className="mb-6">
@@ -425,18 +345,23 @@ const CommissionRulePage: React.FC = () => {
                                 Add New Filter
                               </Button>
                             </div>
-                            <div className="space-y-3">
+                            <div className="space-y-3 max-h-64 overflow-y-auto pr-2">
                               {statuses.map((status) => {
                                 const siConditions = hasSI
                                   ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS']
                                   : ['DEFAULT'];
 
                                 // Also find any custom/deductible rules for this status that don't match standard SI
+                                // Exclude rules that will be shown in the standard SI conditions
+                                const standardSIValues = hasSI ? ['LESS_THAN_10_LAKHS', 'GREATER_EQUAL_10_LAKHS'] : [null, undefined];
                                 const customRulesForStatus = commissionRules.filter(
                                   (rule) =>
                                     rule.policy_name_id === product.id &&
                                     rule.policyStatus === status &&
-                                    !siConditions.includes(rule.siCondition || '')
+                                    // Only show rules with custom SI threshold or deductible status
+                                    (rule.customSIThreshold || rule.deductibleStatus === true) &&
+                                    // Don't show rules that match standard SI conditions (they're already shown above)
+                                    !(standardSIValues as any[]).includes(rule.siCondition)
                                 );
 
                                 return (
@@ -483,8 +408,11 @@ const CommissionRulePage: React.FC = () => {
                                         siLabel += ' (Deductible On)';
                                       }
 
+                                      // Map status display name
+                                      const statusDisplayName = status === 'Migration' ? 'Internal Portability' : status === 'Portablity' ? 'Portability' : status;
+
                                       // Display as: Policy Status (Sum Insured Condition)
-                                      siLabel = `${status} (${siLabel})`;
+                                      siLabel = `${statusDisplayName} (${siLabel})`;
 
                                       return (
                                         <div
@@ -573,7 +501,10 @@ const CommissionRulePage: React.FC = () => {
                                         siLabel = 'Deductible On (ignores SI)';
                                       }
 
-                                      siLabel = `${status} (${siLabel})`;
+                                      // Map status display name
+                                      const statusDisplayName = status === 'Migration' ? 'Internal Portability' : status === 'Portablity' ? 'Portability' : status;
+
+                                      siLabel = `${statusDisplayName} (${siLabel})`;
 
                                       return (
                                         <div
@@ -735,7 +666,7 @@ const CommissionRulePage: React.FC = () => {
                   <SelectItem value="Fresh">Fresh</SelectItem>
                   <SelectItem value="Portablity">Portability</SelectItem>
                   <SelectItem value="Renewal">Renewal</SelectItem>
-                  <SelectItem value="Migration">Migration</SelectItem>
+                  <SelectItem value="Migration">Internal Portability</SelectItem>
                 </SelectContent>
               </Select>
             </div>
