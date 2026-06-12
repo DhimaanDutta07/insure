@@ -1,8 +1,9 @@
 import fs from 'fs';
 import { promises as fsPromises } from 'fs';
 
-import { dashboardCache, policyListCache } from '../utils/lruCache';
-import { getEffectiveGstStatus } from '../utils/gstUtils';
+import { dashboardCache, policyListCache, referenceCache } from '../utils/lruCache';
+import { enforceGstByDate } from '../utils/gstUtils';
+import { resolveEffectivePolicyNameId } from '../utils/commissionUtils';
 import {
   Policy,
   PolicyFormValue,
@@ -328,30 +329,7 @@ export async function calculateAndSetCommission(policyInput: any) {
 
   const requestedStatus = policyInput.policy_creation_status || 'Fresh';
 
-  const policyName = await prisma.policyName.findUnique({
-    where: { id: policyInput.policy_name_id },
-    select: { name: true, company: { select: { name: true } } },
-  });
-
-  const productName = policyName?.name?.toUpperCase().trim() || '';
-  const companyName = policyName?.company?.name?.trim() || '';
-
-  const hdfcProducts = [
-    'OPTIMA RESTORE', 'OPTIMA SECURE', 'OPTIMA SUPER SECURE',
-    'ENERGY', 'EASY HEALTH', 'KOTI SURAKSHA', 'IPA',
-    'TRAVEL', 'OTHERS', 'STU', 'PA', 'SME',
-  ];
-
-  let effectivePolicyNameId = policyInput.policy_name_id;
-  if (hdfcProducts.includes(productName)) {
-    const hdfcCompany = await prisma.company.findFirst({ where: { name: 'HDFC ERGO' } });
-    if (hdfcCompany) {
-      const hdfcProduct = await prisma.policyName.findFirst({
-        where: { company_id: hdfcCompany.id, name: policyName?.name },
-      });
-      if (hdfcProduct) effectivePolicyNameId = hdfcProduct.id;
-    }
-  }
+  const { effectiveId: effectivePolicyNameId, productName, companyName } = await resolveEffectivePolicyNameId(policyInput.policy_name_id);
 
   const isOptimaSecure      = productName.includes('OPTIMA SECURE');
   const isOtherRetailHealth  = companyName === 'HDFC ERGO' && productName === 'OTHERS';
@@ -361,15 +339,20 @@ export async function calculateAndSetCommission(policyInput: any) {
   const siCondition = sumInsured >= 1000000 ? 'GREATER_EQUAL_10_LAKHS' : 'LESS_THAN_10_LAKHS';
   const isDeductOn = policyInput.deductible_amount_status === true;
 
-  // Batch-load all active rules for this product+status in ONE query
-  const allRules = await prisma.commissionRule.findMany({
-    where: {
-      policy_name_id: effectivePolicyNameId,
-      is_active: true,
-      policyStatus: requestedStatus,
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  // Batch-load all active rules for this product+status in ONE query (cached)
+  const rulesCacheKey = `rules:${effectivePolicyNameId}:${requestedStatus}`;
+  let allRules = referenceCache.get(rulesCacheKey) as any[] | undefined;
+  if (!allRules) {
+    allRules = await prisma.commissionRule.findMany({
+      where: {
+        policy_name_id: effectivePolicyNameId,
+        is_active: true,
+        policyStatus: requestedStatus,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    referenceCache.set(rulesCacheKey, allRules, 60_000);
+  }
 
   // In-memory matching (avoids 5+ sequential DB queries)
   let activeRule: any = null;
@@ -431,14 +414,11 @@ export async function calculateAndSetCommission(policyInput: any) {
 
   const basePercent = activeRule.commissionPercent || 0;
 
-  // GST: deduct 18% from premium before applying commission
-  // Auto-determined by start_date: pre-2025-09-22 = GST on (0.82), post = BN allowance (1.0)
-  const effectiveGst = getEffectiveGstStatus(policyInput);
-  const premiumForCommission = effectiveGst
-    ? policyInput.premium_amount * 0.82
-    : policyInput.premium_amount;
-
-  policyInput.calculated_commission_amount = (premiumForCommission * basePercent) / 100;
+  // Calculate base commission on full premium, then deduct 18% GST if applicable
+  // GST status is pre-enforced by enforceGstByDate before this function is called
+  const baseCommission = (policyInput.premium_amount * basePercent) / 100;
+  const gstOn = policyInput.gst_status === true;
+  policyInput.calculated_commission_amount = gstOn ? baseCommission * 0.82 : baseCommission;
   policyInput.commission_add_on_percentage = basePercent;
   policyInput._commissionPercent    = basePercent;
   policyInput._commissionRuleId     = activeRule.id;
@@ -464,6 +444,7 @@ export const policyService = {
         throw new Error(`Policy with number ${data.policy_number} already exists`);
       }
     }
+    enforceGstByDate(data);
 
     const result = await prisma.$transaction(async (tx) => {
       const policy = await tx.policy.create({
@@ -515,20 +496,19 @@ export const policyService = {
         },
       });
 
-      const insuredMembers = [];
       const membersToCreate = data.insured_members || data.members || [];
-      
-      for (const memberData of membersToCreate) {
-        const member = await tx.insuredMember.create({
-          data: {
-            ...memberData,
-            gender: memberData.gender as any,
-            proposer_id: proposer.id,
-            policy_id: policy.id,
-          },
-        });
-        insuredMembers.push(member);
-      }
+      const insuredMembers = await Promise.all(
+        membersToCreate.map(memberData =>
+          tx.insuredMember.create({
+            data: {
+              ...memberData,
+              gender: memberData.gender as any,
+              proposer_id: proposer.id,
+              policy_id: policy.id,
+            },
+          })
+        )
+      );
 
       let nomineePayment = null;
       if (data.nominee_payment) {
@@ -679,7 +659,8 @@ export const policyService = {
     });
 
     try {
-      // Pre-calculate commission before transaction to save DB round-trips
+      // Enforce GST by date first, THEN calculate commission
+      enforceGstByDate(data);
       await calculateAndSetCommission(data);
 
       // Phase 1: Create core entities (commission already baked into data)
@@ -706,6 +687,8 @@ export const policyService = {
         policy_creation_status: data.policy_creation_status,
         calculated_commission_amount: data.calculated_commission_amount,
         commission_add_on_percentage: data.commission_add_on_percentage,
+        gst_status: data.gst_status,
+        start_date: data.start_date,
         created_at: new Date(),
         proposer: {
           id: coreEntities.proposerId,
@@ -1358,9 +1341,6 @@ export const policyService = {
     const skip = (Number(page) - 1) * Number(limit);
     const take = Number(limit);
 
-    // Clear all policy cache to force reload with new data structure (one-time cache bust)
-    policyListCache.deleteByPrefix('policies:');
-
     // Cache key for unfiltered policy lists (most common case)
     const cacheKey = `policies:${search || 'all'}:${type || 'all'}:${policy_creation_status || 'all'}:${policy_group_id || 'all'}:${from || 'all'}:${to || 'all'}:${page}:${limit}`;
     const cached = policyListCache.get(cacheKey);
@@ -1438,7 +1418,7 @@ export const policyService = {
   /**
    * ✅ ROBUST UPDATE POLICY - Handles insured member updates safely
    */
-  async updatePolicy(id: string, data: UpdatePolicyInput, files?: { [key: string]: Express.Multer.File[] }, userId?: string): Promise<any> {
+  async updatePolicy(id: string, data: UpdatePolicyInput, files?: { [key: string]: Express.Multer.File[] }, userId?: string, existingPolicy?: any): Promise<any> {
     console.log('🔄 Starting robust policy update...');
 
     // Debug incoming data
@@ -1453,8 +1433,10 @@ export const policyService = {
     
     console.log("📄 [Service] Update Files Received:", files ? Object.keys(files) : 'No files');
 
-    // Get existing policy to validate structure
-    const existingPolicy = await policyRepository.getPolicyById(id);
+    // Get existing policy to validate structure (skip re-fetch if controller already fetched it)
+    if (!existingPolicy) {
+      existingPolicy = await policyRepository.getPolicyById(id);
+    }
     if (!existingPolicy) {
       throw new Error('Policy not found');
     }
@@ -1513,6 +1495,7 @@ export const policyService = {
     delete updateData.insured_members_to_delete;
 
     // Defensive: Merge with existing policy for full context
+    enforceGstByDate(updateData);
     const mergedData = { ...existingPolicy, ...updateData };
 
     // Recalculate commission if GST status changed or if not manually provided
@@ -1720,12 +1703,13 @@ export const policyService = {
     const row = rawResult[0];
 
     // Build full 12-month trend with zero-filled months
+    const toMonthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const monthlyData: { [key: string]: number } = {};
     for (let i = 11; i >= 0; i--) {
       const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      monthlyData[monthDate.toISOString().slice(0, 7)] = 0;
+      monthlyData[toMonthKey(monthDate)] = 0;
     }
-    const currentMonthKey = now.toISOString().slice(0, 7);
+    const currentMonthKey = toMonthKey(now);
     if (!monthlyData.hasOwnProperty(currentMonthKey)) monthlyData[currentMonthKey] = 0;
 
     if (row.monthly_trend && Array.isArray(row.monthly_trend)) {

@@ -1195,50 +1195,36 @@ export const policyRepository = {
     }
 
     // Handle members update with robust approach
-    if (insuredMembersData) {
-      const membersToUpdate = insuredMembersData;
-      
-      if (membersToUpdate && Array.isArray(membersToUpdate)) {
-        console.log('📋 [REPOSITORY] Updating members:', membersToUpdate.length);
-        
-        // Get the proposer ID first
-        const existingPolicy = await prisma.policy.findUnique({
-          where: { id },
-          include: { proposer: true }
-        });
-        
-        if (existingPolicy?.proposer?.id) {
-          console.log('🔍 [REPOSITORY] Processing member updates for proposer:', existingPolicy.proposer.id);
-          // Update each member
-          for (const memberData of membersToUpdate) {
-            console.log('🔍 [REPOSITORY] Processing member:', memberData.id ? 'UPDATE' : 'CREATE', memberData);
-            if (memberData.id) {
-              // Update existing member
-              await prisma.insuredMember.update({
-                where: { id: memberData.id },
-                data: {
-                  insured_member_salutation: memberData.insured_member_salutation,
-                  name: memberData.name,
-                  relation_to_proposer: memberData.relation_to_proposer,
-                  date_of_birth: memberData.date_of_birth,
-                  gender: memberData.gender,
-                  pre_existing: memberData.pre_existing,
-                  insured_member_medical_condition: memberData.insured_member_medical_condition,
-                  insured_member_medical_remarks: memberData.insured_member_medical_remarks,
-                }
-              });
-            } else {
-              // Create new member
-              await prisma.insuredMember.create({
-                data: {
-                  ...memberData,
-                  proposer_id: existingPolicy.proposer.id,
-                  policy_id: id,
-                }
-              });
-            }
-          }
-        }
+    if (insuredMembersData && Array.isArray(insuredMembersData)) {
+      console.log('📋 [REPOSITORY] Updating members:', insuredMembersData.length);
+      const existingPolicy = await prisma.policy.findUnique({
+        where: { id },
+        include: { proposer: true }
+      });
+      if (existingPolicy?.proposer?.id) {
+        const proposerId = existingPolicy.proposer.id;
+        const updates = insuredMembersData.filter((m: any) => m.id);
+        const creates = insuredMembersData.filter((m: any) => !m.id);
+        await Promise.all([
+          ...updates.map((m: any) =>
+            prisma.insuredMember.update({
+              where: { id: m.id },
+              data: {
+                insured_member_salutation: m.insured_member_salutation,
+                name: m.name, relation_to_proposer: m.relation_to_proposer,
+                date_of_birth: m.date_of_birth, gender: m.gender,
+                pre_existing: m.pre_existing,
+                insured_member_medical_condition: m.insured_member_medical_condition,
+                insured_member_medical_remarks: m.insured_member_medical_remarks,
+              },
+            })
+          ),
+          ...creates.map((m: any) =>
+            prisma.insuredMember.create({
+              data: { ...m, proposer_id: proposerId, policy_id: id },
+            })
+          ),
+        ]);
       }
     }
 
@@ -1370,14 +1356,8 @@ export const policyRepository = {
         throw new Error('Policy not found');
       }
 
-      // If policy has children, we need to handle the parent-child relationship
+      // If policy has children, reparent them to this policy's parent (skip the deleted policy)
       if (policy._count.children_policies > 0) {
-        // Get the parent of this policy
-        const parent = await tx.policy.findUnique({
-          where: { id: policy.parent_policy_id || '' }
-        });
-
-        // Update all children to point to this policy's parent (skip the deleted policy)
         await tx.policy.updateMany({
           where: { parent_policy_id: id },
           data: { parent_policy_id: policy.parent_policy_id }

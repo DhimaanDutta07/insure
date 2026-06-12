@@ -126,7 +126,8 @@ const DEDUCTIBLE_OPTIONS: Record<string, number[]> = {
 const HIDE_DEDUCTIBLE_FOR = ["ICICI LOMBARD"];
 
 const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, role } = useAuth();
+  const isOperations = role?.role_name?.toUpperCase() === 'OPERATIONS';
   
   // Use React Query hooks for instant data loading with caching
   const { data: companies = [] } = useCompanies();
@@ -235,6 +236,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
   const wPolicyCreationStatus = watch("policy_creation_status");
   const wStartDate = watch("start_date");
   const wTenureYears = watch("tenure_years");
+  const wGstStatus = watch("gst_status");
 
   // Set commission percentage based on the same backend calculation logic
   // (deductible ON should ignore SI; otherwise SI/custom SI thresholds apply).
@@ -258,6 +260,8 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     const deductibleStatus = wDeductibleStatus;
     const policyCreationStatus = wPolicyCreationStatus || "Fresh";
 
+    const gstStatus = wGstStatus;
+
     console.log("🔍 [Commission Debug] Input values:", {
       premiumAmount,
       policyNameId,
@@ -265,6 +269,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
       sumInsured,
       deductibleStatus,
       policyCreationStatus,
+      gstStatus,
     });
 
     // Only calculate if we have the minimum required fields (policyNameId and proposerDob are still required)
@@ -289,6 +294,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
         sum_insured: finalSumInsured,
         deductible_amount_status: deductibleStatus || false,
         premium_amount: finalPremiumAmount,
+        gst_status: gstStatus,
       });
 
       console.log("🔍 [Commission Debug] Result:", result);
@@ -315,6 +321,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     wSumInsured,
     wDeductibleStatus,
     wPolicyCreationStatus,
+    wGstStatus,
   ]);
 
   // Calculate commission when relevant fields change (with debounce)
@@ -324,7 +331,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
     }, 200);
 
     return () => clearTimeout(timeoutId);
-  }, [calculateCommission, wPolicyCreationStatus, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPremiumAmount]);
+  }, [calculateCommission, wPolicyCreationStatus, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPremiumAmount, wGstStatus]);
 
   const onFormSubmit = async (
     data: PolicyFormData & { policy_name_id?: string; policy_type_id?: string }
@@ -1230,7 +1237,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
                 ))}
               </SelectContent>
             </Select>
-            {commissionPercentage !== null && (
+            {commissionPercentage !== null && !isOperations && (
               <p className="text-xs text-green-600 mt-1">
                 Commission Rate: {commissionPercentage}%
                 {calculatedCommission.si_condition && calculatedCommission.si_condition !== 'ALL_SI' && (
@@ -1521,7 +1528,7 @@ const PolicyForm: React.FC<PolicyFormProps> = ({ onSubmit, onClose }) => {
 
           {/* Calculated Commission Display - Read-only */}
           <div className="space-y-1">
-            {hasPermission('commission') && (
+            {hasPermission('commission') && !isOperations && (
               <div>
                 <label className="block text-xs font-semibold text-gray-700">
                   Commission Amount (₹) - Auto-calculated

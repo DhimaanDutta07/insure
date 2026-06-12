@@ -2,6 +2,7 @@ import { PrismaClient, PolicyTransitionType, PolicyCreationStatus, UploadedDocum
 import { DocumentAccessService } from './documentAccess.service';
 import prisma from '../utils/prismaClient';
 import { apiCache, dashboardCache, policyListCache } from '../utils/lruCache';
+import { enforceGstByDate } from '../utils/gstUtils';
 
 // Helper function to calculate commission for a policy based on its term
 async function calculateCommissionForPolicy(policy: any): Promise<{
@@ -19,7 +20,7 @@ async function calculateCommissionForPolicy(policy: any): Promise<{
       policy_creation_status: policy.policy_creation_status || 'Fresh',
       sum_insured: policy.sum_insured || 0,
       premium_amount: policy.premium_amount,
-      gst_status: policy.gst_status, // stored value; calculateAndSetCommission overrides with date-based
+      gst_status: policy.gst_status, // GST status (pre-enforced by date); used directly in commission calc
       deductible_amount_status: policy.deductible_amount_status,
       // Add term dates for proper calculation
       start_date: policy.start_date,
@@ -93,28 +94,19 @@ export class PolicyTransitionService {
 
       // 2. Create NEW policy for ALL transitions (Renewal, Portablity, Migration)
       // This ensures a proper parent-child chain and full history
-      const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData);
+      const creationStatus = this.getPolicyCreationStatus(transitionType);
+      const newPolicy = await this.createPolicyWithCarriedOverData(parentPolicy, newPolicyData, {
+        parent_policy_id: parentPolicyId,
+        transition_type: transitionType,
+        policy_creation_status: creationStatus,
+      });
       result.newPolicy = newPolicy;
 
-      // 3. Mark old policy as INACTIVE AND set transition + commission on new policy in parallel
-      const creationStatus = this.getPolicyCreationStatus(transitionType);
-      const [updatedNewPolicy] = await Promise.all([
-        // Set transition relationship and initial commission on new policy
-        prisma.policy.update({
-          where: { id: newPolicy.id },
-          data: {
-            parent_policy_id: parentPolicyId,
-            transition_type: transitionType,
-            policy_creation_status: creationStatus,
-          }
-        }),
-        // Mark old policy as INACTIVE
-        prisma.policy.update({
-          where: { id: parentPolicyId },
-          data: { status: 'INACTIVE' }
-        }),
-      ]);
-      result.newPolicy = { ...newPolicy, ...updatedNewPolicy };
+      // 3. Mark old policy as INACTIVE (new policy already has transition data baked in)
+      await prisma.policy.update({
+        where: { id: parentPolicyId },
+        data: { status: 'INACTIVE' }
+      });
 
       // 4. Recalculate commission + process documents + create document references
       // Run in background — response sent immediately
@@ -224,7 +216,11 @@ export class PolicyTransitionService {
     return updatedPolicy;
   }
   
-  private static async createPolicyWithCarriedOverData(parentPolicy: any, newPolicyData: any): Promise<any> {
+  private static async createPolicyWithCarriedOverData(
+    parentPolicy: any,
+    newPolicyData: any,
+    extraCreateFields?: Record<string, any>
+  ): Promise<any> {
     // Extract documents for separate processing after policy creation
     const documentsToProcess = newPolicyData.documents;
     
@@ -275,10 +271,13 @@ export class PolicyTransitionService {
     // Remove documents from createData - they will be processed separately
     delete processedData.documents;
     delete processedData.members; // Members are also handled separately
+    enforceGstByDate(processedData);
 
     // Create the new policy with all carried over data
     const createData: any = {
       ...processedData,
+      parent_policy_id: parentPolicy.id,
+      ...(extraCreateFields || {}),
     };
 
     // Carry over proposer data if exists
@@ -565,43 +564,39 @@ export class PolicyTransitionService {
    * Recursively get all ancestor policies with FULL document tree.
    * Used by createDocumentReferences and getDocumentTransferStats.
    */
-  private static async getAllAncestorPolicies(policyId: string, maxDepth = 5): Promise<any[]> {
-    const ancestors: any[] = [];
-    let currentPolicyId = policyId;
-    let depth = 0;
+  private static async getAllAncestorPolicies(policyId: string, maxDepth = 20): Promise<any[]> {
+    // Single recursive CTE — avoids N+1 loop
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+      WITH RECURSIVE ancestors AS (
+        SELECT id, "parent_policy_id", 0 AS depth FROM "policy" WHERE id = ${policyId}
+        UNION
+        SELECT p.id, p."parent_policy_id", a.depth + 1 FROM "policy" p
+        INNER JOIN ancestors a ON p.id = a."parent_policy_id"
+        WHERE a.depth < ${maxDepth}
+      )
+      SELECT id FROM ancestors ORDER BY depth
+    `;
+    if (rows.length === 0) return [];
 
-    while (currentPolicyId && depth < maxDepth) {
-      const policy = await prisma.policy.findUnique({
-        where: { id: currentPolicyId },
-        include: {
-          company: true,
-          policyName: true,
-          documents: true,
-          proposer: {
-            include: {
-              documents: true,
-              insured_members: {
-                include: {
-                  documents: true
-                }
-              }
-            }
-          }
-        }
-      });
+    const ancestors = await prisma.policy.findMany({
+      where: { id: { in: rows.map(r => r.id) } },
+      include: {
+        company: true,
+        policyName: true,
+        documents: true,
+        proposer: {
+          include: {
+            documents: true,
+            insured_members: {
+              include: { documents: true },
+            },
+          },
+        },
+      },
+    });
 
-      if (!policy) {
-        break;
-      }
-
-      ancestors.push(policy);
-
-      // Move to parent policy
-      currentPolicyId = policy.parent_policy_id || '';
-      depth++;
-    }
-
-    return ancestors;
+    const idOrder = new Map(rows.map((r, idx) => [r.id, idx]));
+    return ancestors.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
   }
 
   /**
@@ -609,26 +604,22 @@ export class PolicyTransitionService {
    * OPTIMIZED: Uses single recursive query instead of N+1 loop.
    */
   private static async getAllAncestorPoliciesLightweight(policyId: string): Promise<any[]> {
-    const ancestorIds: string[] = [];
-    let currentId: string | null = policyId;
-    let safety = 0;
+    // Single recursive CTE — avoids N+1 loop
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+      WITH RECURSIVE ancestors AS (
+        SELECT id, "parent_policy_id" FROM "policy" WHERE id = ${policyId}
+        UNION
+        SELECT p.id, p."parent_policy_id" FROM "policy" p
+        INNER JOIN ancestors a ON p.id = a."parent_policy_id"
+      )
+      SELECT id FROM ancestors
+    `;
+    if (rows.length === 0) return [];
 
-    while (currentId && safety < 100) {
-      const policy: { id: string; parent_policy_id: string | null } | null = await prisma.policy.findUnique({
-        where: { id: currentId },
-        select: { id: true, parent_policy_id: true },
-      });
-
-      if (!policy) break;
-      ancestorIds.push(policy.id);
-      currentId = policy.parent_policy_id;
-      safety++;
-    }
-
-    if (ancestorIds.length === 0) return [];
+    const ids = rows.map(r => r.id);
 
     const policies = await prisma.policy.findMany({
-      where: { id: { in: ancestorIds } },
+      where: { id: { in: ids } },
       select: {
         id: true,
         policy_number: true,
@@ -671,7 +662,7 @@ export class PolicyTransitionService {
       },
     });
 
-    const idOrder = new Map(ancestorIds.map((id, idx) => [id, idx]));
+    const idOrder = new Map(ids.map((id, idx) => [id, idx]));
     return policies.sort((a, b) => (idOrder.get(a.id) ?? 0) - (idOrder.get(b.id) ?? 0));
   }
   
@@ -796,7 +787,7 @@ export class PolicyTransitionService {
 
     const ancestors = await this.getAllAncestorPoliciesLightweight(policyId);
     if (ancestors.length === 0) {
-      throw new Error('Policy not found');
+      return { parentPolicy: undefined, childrenPolicies: [], transitionHistory: [], completeHierarchy: [] };
     }
 
     const current = ancestors[0];

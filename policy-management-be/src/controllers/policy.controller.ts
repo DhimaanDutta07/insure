@@ -6,7 +6,9 @@ import * as fs from "fs";
 import { policyService } from "./../services/policy.service";
 import { calculateAndSetCommission } from '../services/policy.service';
 import prisma from '../utils/prismaClient';
-import { getEffectiveGstStatus } from '../utils/gstUtils';
+import { enforceGstByDate } from '../utils/gstUtils';
+import { resolveEffectivePolicyNameId } from '../utils/commissionUtils';
+import { apiCache } from '../utils/lruCache';
 import { 
   insurancePolicySchema, 
   updatePolicySchema,
@@ -69,26 +71,53 @@ async function getOrLoadAllRules(): Promise<any[]> {
 
 function matchRuleInScope(scope: any[], sumInsured: number, deductOn: boolean): any {
   const siCond = sumInsured >= 1000000 ? 'GREATER_EQUAL_10_LAKHS' : 'LESS_THAN_10_LAKHS';
-  const dedOk = (r: any) => r.deductibleStatus === deductOn || r.deductibleStatus === null;
-  const dedNot = (r: any) => r.deductibleStatus !== deductOn;
-  const noCustom = (r: any) => !r.customSIThreshold;
-  const isGeneric = (r: any) => !r.siCondition || r.siCondition === 'ALL_SI';
-  const customMatch = (r: any) =>
-    r.customSIThreshold != null && r.customSIOperator != null &&
-    (r.customSIOperator === 'LESS_THAN' ? sumInsured < r.customSIThreshold : sumInsured > r.customSIThreshold);
+  const dedOk = (r: any) => deductOn ? r.deductibleStatus === true : (r.deductibleStatus === false || r.deductibleStatus === null);
+  const dedOff = (r: any) => r.deductibleStatus === false || r.deductibleStatus === null;
 
-  let m: any;
-  m = scope.find(r => r.siCondition === siCond && dedOk(r));        if (m) return m;
-  m = scope.find(r => isGeneric(r) && noCustom(r) && dedOk(r));     if (m) return m;
-  m = scope.find(r => customMatch(r) && dedOk(r));                  if (m) return m;
-  m = scope.find(r => r.siCondition === siCond && dedNot(r));       if (m) return m;
-  m = scope.find(r => isGeneric(r) && noCustom(r) && dedNot(r));   if (m) return m;
+  // Step 1: exact SI bucket + deductible match
+  let m = scope.find(r => r.siCondition === siCond && dedOk(r));       if (m) return m;
+  // Step 2: ALL_SI + no custom threshold + deductible match
+  m = scope.find(r => r.siCondition === 'ALL_SI' && !r.customSIThreshold && dedOk(r)); if (m) return m;
+  // Step 3: null SI (no bucket, no custom) + deductible match
+  m = scope.find(r => !r.siCondition && !r.customSIThreshold && dedOk(r)); if (m) return m;
+  // Step 4: custom SI threshold + deductible match
+  m = scope.find(r =>
+    r.customSIThreshold != null && r.customSIOperator != null &&
+    (r.customSIOperator === 'LESS_THAN' ? sumInsured < r.customSIThreshold : sumInsured > r.customSIThreshold) &&
+    dedOk(r));                                                           if (m) return m;
+  // Step 5: if deductible ON had no match, retry with deductible OFF/null fallbacks
+  if (deductOn) {
+    m = scope.find(r => r.siCondition === siCond && dedOff(r));         if (m) return m;
+    m = scope.find(r => r.siCondition === 'ALL_SI' && !r.customSIThreshold && dedOff(r)); if (m) return m;
+    m = scope.find(r => !r.siCondition && !r.customSIThreshold && dedOff(r)); if (m) return m;
+  }
   return null;
 }
 
-function matchRule(rules: any[], pid: string, status: string, sumInsured: number, deductOn: boolean): any {
-  const scope = rules.filter(r => r.policy_name_id === pid && r.policyStatus === status);
+async function matchRule(rules: any[], pid: string, status: string, sumInsured: number, deductOn: boolean): Promise<any> {
+  let scope = rules.filter(r => r.policy_name_id === pid && r.policyStatus === status);
+  if (scope.length === 0) {
+    try {
+      const { effectiveId } = await resolveEffectivePolicyNameId(pid);
+      if (effectiveId !== pid) {
+        scope = rules.filter(r => r.policy_name_id === effectiveId && r.policyStatus === status);
+      }
+    } catch {}
+  }
   return matchRuleInScope(scope, sumInsured, deductOn);
+}
+
+// Tries original PID first, then HDFC-resolved PID if no match
+async function getScopeForPolicy(p: any, rulesByKey: Map<string, any[]>, status: string): Promise<any[]> {
+  let scope = rulesByKey.get(`${p.policy_name_id}:${status}`);
+  if (scope && scope.length > 0) return scope;
+  try {
+    const { effectiveId } = await resolveEffectivePolicyNameId(p.policy_name_id);
+    if (effectiveId !== p.policy_name_id) {
+      scope = rulesByKey.get(`${effectiveId}:${status}`);
+    }
+  } catch {}
+  return scope || [];
 }
 
 async function enrichPolicyList(policies: any[]): Promise<any[]> {
@@ -100,50 +129,50 @@ async function enrichPolicyList(policies: any[]): Promise<any[]> {
     if (!arr) { arr = []; rulesByKey.set(key, arr); }
     arr.push(r);
   }
-  return policies.map(p => {
+  return Promise.all(policies.map(async p => {
     if (!p || !p.policy_name_id || !p.premium_amount || p.premium_amount <= 0)
       return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0 };
     const si = typeof p.sum_insured === 'string' ? parseInt(p.sum_insured) : (p.sum_insured || 0);
     const ded = p.deductible_amount_status === true;
     const status = p.policy_creation_status || 'Fresh';
-    const scope = rulesByKey.get(`${p.policy_name_id}:${status}`) || [];
+    const scope = await getScopeForPolicy(p, rulesByKey, status);
     const rule = matchRuleInScope(scope, si, ded);
     if (!rule) {
       return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
     }
     const prem = typeof p.premium_amount === 'string' ? parseFloat(p.premium_amount) : p.premium_amount;
-    const effectiveGst = getEffectiveGstStatus(p);
-    const base = prem * (effectiveGst ? 0.82 : 1);
+    const baseCommission = (prem * rule.commissionPercent) / 100;
+    const gstOn = p.gst_status === true;
     return {
       ...p,
       commission_add_on_percentage: rule.commissionPercent,
-      calculated_commission_amount: Math.round((base * rule.commissionPercent / 100) * 100) / 100,
+      calculated_commission_amount: Math.round((gstOn ? baseCommission * 0.82 : baseCommission) * 100) / 100,
       _commissionPercent: rule.commissionPercent,
       _commissionRuleId: rule.id,
       _ruleNotFound: false,
     };
-  });
+  }));
 }
 
 export async function enrichWithLiveCommission(policy: any): Promise<any> {
   if (!policy || !policy.policy_name_id) return policy;
   const rules = await getOrLoadAllRules();
-  return enrichWithCommissionRules(policy, rules);
+  return await enrichWithCommissionRules(policy, rules);
 }
 
-function enrichWithCommissionRules(policy: any, rules: any[]): any {
+async function enrichWithCommissionRules(policy: any, rules: any[]): Promise<any> {
   const si = typeof policy.sum_insured === 'string' ? parseInt(policy.sum_insured) : (policy.sum_insured || 0);
   const ded = policy.deductible_amount_status === true;
   const status = policy.policy_creation_status || 'Fresh';
-  const rule = matchRule(rules, policy.policy_name_id, status, si, ded);
+  const rule = await matchRule(rules, policy.policy_name_id, status, si, ded);
   if (!rule) return { ...policy, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
   const prem = typeof policy.premium_amount === 'string' ? parseFloat(policy.premium_amount) : policy.premium_amount;
-  const effectiveGst = getEffectiveGstStatus(policy);
-  const base = prem * (effectiveGst ? 0.82 : 1);
+  const baseCommission = (prem * rule.commissionPercent) / 100;
+  const gstOn = policy.gst_status === true;
   return {
     ...policy,
     commission_add_on_percentage: rule.commissionPercent,
-    calculated_commission_amount: Math.round((base * rule.commissionPercent / 100) * 100) / 100,
+    calculated_commission_amount: Math.round((gstOn ? baseCommission * 0.82 : baseCommission) * 100) / 100,
     _commissionPercent: rule.commissionPercent,
     _commissionRuleId: rule.id,
     _ruleNotFound: false,
@@ -160,26 +189,26 @@ export async function batchEnrichWithLiveCommission(policies: any[]): Promise<an
     if (!arr) { arr = []; rulesByKey.set(key, arr); }
     arr.push(r);
   }
-  return policies.map(p => {
+  return Promise.all(policies.map(async p => {
     if (!p || !p.policy_name_id) return p;
     const si = typeof p.sum_insured === 'string' ? parseInt(p.sum_insured) : (p.sum_insured || 0);
     const ded = p.deductible_amount_status === true;
     const status = p.policy_creation_status || 'Fresh';
-    const scope = rulesByKey.get(`${p.policy_name_id}:${status}`) || [];
+    const scope = await getScopeForPolicy(p, rulesByKey, status);
     const rule = matchRuleInScope(scope, si, ded);
     if (!rule) return { ...p, commission_add_on_percentage: 0, calculated_commission_amount: 0, _ruleNotFound: true };
     const prem = typeof p.premium_amount === 'string' ? parseFloat(p.premium_amount) : p.premium_amount;
-    const effectiveGst = getEffectiveGstStatus(p);
-    const base = prem * (effectiveGst ? 0.82 : 1);
+    const baseCommission = (prem * rule.commissionPercent) / 100;
+    const gstOn = p.gst_status === true;
     return {
       ...p,
       commission_add_on_percentage: rule.commissionPercent,
-      calculated_commission_amount: Math.round((base * rule.commissionPercent / 100) * 100) / 100,
+      calculated_commission_amount: Math.round((gstOn ? baseCommission * 0.82 : baseCommission) * 100) / 100,
       _commissionPercent: rule.commissionPercent,
       _commissionRuleId: rule.id,
       _ruleNotFound: false,
     };
-  });
+  }));
 }
 
 // Enhanced data conversion for nested objects
@@ -609,12 +638,9 @@ export const policyController = {
       // Pass files from Multer to the service
       const files = convertFilesToObject(req.files);
 
-      // Calculate commission before saving (skip if user provided manual value)
-      if (!dataWithDates.calculated_commission_amount) {
-        await calculateAndSetCommission(dataWithDates);
-      }
-
-      // NOTE: emi_amount and commission_add_on_percentage are passed through to service layer
+      // NOTE: emi_amount and commission_add_on_percentage are passed through to service layer.
+      // Commission is calculated inside policyService.createPolicy() — not here — to avoid
+      // doing the same DB/cache lookups twice. Service will skip if already set.
       console.log('📋 [CREATE] Processing policy:', {
         policy_number: dataWithDates.policy_number,
         customer_name: dataWithDates.customer_name,
@@ -708,11 +734,18 @@ export const policyController = {
   async getAllPolicies(req: Request, res: Response) {
     try {
       const userRole = await extractUserRole(req);
+      const cacheKey = `enriched:${JSON.stringify(req.query)}`;
+      const cached = apiCache.get(cacheKey);
+      if (cached) {
+        const f = filterCommissionData(cached.data, userRole);
+        return res.json({ ...cached, data: f });
+      }
+
       const result = await policyService.getAllPolicies(req.query);
       const enrichedData = await enrichPolicyList(result.data);
       const filteredData = filterCommissionData(enrichedData, userRole);
 
-      res.json({
+      const response = {
         success: true,
         data: filteredData,
         pagination: {
@@ -721,7 +754,13 @@ export const policyController = {
           limit: result.limit,
           pages: result.pages
         }
-      });
+      };
+
+      if (!req.query.search || String(req.query.search).length < 3) {
+        apiCache.set(cacheKey, { ...response, data: enrichedData }, 15_000);
+      }
+
+      res.json(response);
     } catch (error) {
       console.error("Error fetching policies:", error);
       res.status(500).json({ 
@@ -901,7 +940,8 @@ export const policyController = {
         policyId,
         dataWithDates,
         files,
-        userId
+        userId,
+        existingPolicy
       );
 
       // Propagate member changes to all descendant policies

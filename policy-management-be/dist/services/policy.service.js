@@ -172,12 +172,23 @@ async function calculateAndSetCommission(policyInput) {
         return;
     }
     const requestedStatus = policyInput.policy_creation_status || 'Fresh';
-    const policyName = await prismaClient_1.default.policyName.findUnique({
-        where: { id: policyInput.policy_name_id },
-        select: { name: true, company: { select: { name: true } } },
-    });
-    const productName = policyName?.name?.toUpperCase().trim() || '';
-    const companyName = policyName?.company?.name?.trim() || '';
+    const pnCacheKey = `pn:${policyInput.policy_name_id}`;
+    let productName;
+    let companyName;
+    const cached = lruCache_1.referenceCache.get(pnCacheKey);
+    if (cached) {
+        productName = cached.productName;
+        companyName = cached.companyName;
+    }
+    else {
+        const policyName = await prismaClient_1.default.policyName.findUnique({
+            where: { id: policyInput.policy_name_id },
+            select: { name: true, company: { select: { name: true } } },
+        });
+        productName = policyName?.name?.toUpperCase().trim() || '';
+        companyName = policyName?.company?.name?.trim() || '';
+        lruCache_1.referenceCache.set(pnCacheKey, { productName, companyName }, 300000);
+    }
     const hdfcProducts = [
         'OPTIMA RESTORE', 'OPTIMA SECURE', 'OPTIMA SUPER SECURE',
         'ENERGY', 'EASY HEALTH', 'KOTI SURAKSHA', 'IPA',
@@ -185,13 +196,26 @@ async function calculateAndSetCommission(policyInput) {
     ];
     let effectivePolicyNameId = policyInput.policy_name_id;
     if (hdfcProducts.includes(productName)) {
-        const hdfcCompany = await prismaClient_1.default.company.findFirst({ where: { name: 'HDFC ERGO' } });
-        if (hdfcCompany) {
-            const hdfcProduct = await prismaClient_1.default.policyName.findFirst({
-                where: { company_id: hdfcCompany.id, name: policyName?.name },
-            });
-            if (hdfcProduct)
-                effectivePolicyNameId = hdfcProduct.id;
+        let hdfcCompanyId = lruCache_1.referenceCache.get('hdfc:companyId');
+        if (!hdfcCompanyId) {
+            const hdfcCompany = await prismaClient_1.default.company.findFirst({ where: { name: 'HDFC ERGO' } });
+            hdfcCompanyId = hdfcCompany?.id || '';
+            if (hdfcCompanyId)
+                lruCache_1.referenceCache.set('hdfc:companyId', hdfcCompanyId, 300000);
+        }
+        if (hdfcCompanyId) {
+            const hdfcKey = `hdfc:pn:${policyInput.policy_name_id}`;
+            let hdfcPid = lruCache_1.referenceCache.get(hdfcKey);
+            if (!hdfcPid) {
+                const hdfcProduct = await prismaClient_1.default.policyName.findFirst({
+                    where: { company_id: hdfcCompanyId, name: productName },
+                });
+                hdfcPid = hdfcProduct?.id || '';
+                if (hdfcPid)
+                    lruCache_1.referenceCache.set(hdfcKey, hdfcPid, 300000);
+            }
+            if (hdfcPid)
+                effectivePolicyNameId = hdfcPid;
         }
     }
     const isOptimaSecure = productName.includes('OPTIMA SECURE');
@@ -200,15 +224,20 @@ async function calculateAndSetCommission(policyInput) {
     const sumInsured = policyInput.sum_insured || 0;
     const siCondition = sumInsured >= 1000000 ? 'GREATER_EQUAL_10_LAKHS' : 'LESS_THAN_10_LAKHS';
     const isDeductOn = policyInput.deductible_amount_status === true;
-    // Batch-load all active rules for this product+status in ONE query
-    const allRules = await prismaClient_1.default.commissionRule.findMany({
-        where: {
-            policy_name_id: effectivePolicyNameId,
-            is_active: true,
-            policyStatus: requestedStatus,
-        },
-        orderBy: { createdAt: 'desc' },
-    });
+    // Batch-load all active rules for this product+status in ONE query (cached)
+    const rulesCacheKey = `rules:${effectivePolicyNameId}:${requestedStatus}`;
+    let allRules = lruCache_1.referenceCache.get(rulesCacheKey);
+    if (!allRules) {
+        allRules = await prismaClient_1.default.commissionRule.findMany({
+            where: {
+                policy_name_id: effectivePolicyNameId,
+                is_active: true,
+                policyStatus: requestedStatus,
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+        lruCache_1.referenceCache.set(rulesCacheKey, allRules, 60000);
+    }
     // In-memory matching (avoids 5+ sequential DB queries)
     let activeRule = null;
     // Step 1: exact SI bucket + deductible match
@@ -1093,8 +1122,6 @@ exports.policyService = {
         const { search, type, policy_creation_status, page = 1, limit = 25, from, to, policy_group_id } = query;
         const skip = (Number(page) - 1) * Number(limit);
         const take = Number(limit);
-        // Clear all policy cache to force reload with new data structure (one-time cache bust)
-        lruCache_1.policyListCache.deleteByPrefix('policies:');
         // Cache key for unfiltered policy lists (most common case)
         const cacheKey = `policies:${search || 'all'}:${type || 'all'}:${policy_creation_status || 'all'}:${policy_group_id || 'all'}:${from || 'all'}:${to || 'all'}:${page}:${limit}`;
         const cached = lruCache_1.policyListCache.get(cacheKey);

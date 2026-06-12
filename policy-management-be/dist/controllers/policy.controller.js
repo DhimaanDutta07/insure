@@ -47,6 +47,7 @@ const policy_service_1 = require("./../services/policy.service");
 const policy_service_2 = require("../services/policy.service");
 const prismaClient_1 = __importDefault(require("../utils/prismaClient"));
 const gstUtils_1 = require("../utils/gstUtils");
+const lruCache_1 = require("../utils/lruCache");
 const policy_schema_1 = require("../schemas/policy.schema");
 const JWT_SECRET = process.env.JWT_SECRET;
 const extractUserId = (req) => {
@@ -701,10 +702,16 @@ exports.policyController = {
     async getAllPolicies(req, res) {
         try {
             const userRole = await extractUserRole(req);
+            const cacheKey = `enriched:${JSON.stringify(req.query)}`;
+            const cached = lruCache_1.apiCache.get(cacheKey);
+            if (cached) {
+                const f = filterCommissionData(cached.data, userRole);
+                return res.json({ ...cached, data: f });
+            }
             const result = await policy_service_1.policyService.getAllPolicies(req.query);
             const enrichedData = await enrichPolicyList(result.data);
             const filteredData = filterCommissionData(enrichedData, userRole);
-            res.json({
+            const response = {
                 success: true,
                 data: filteredData,
                 pagination: {
@@ -713,7 +720,11 @@ exports.policyController = {
                     limit: result.limit,
                     pages: result.pages
                 }
-            });
+            };
+            if (!req.query.search || String(req.query.search).length < 3) {
+                lruCache_1.apiCache.set(cacheKey, { ...response, data: enrichedData }, 15000);
+            }
+            res.json(response);
         }
         catch (error) {
             console.error("Error fetching policies:", error);

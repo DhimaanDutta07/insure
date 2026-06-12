@@ -17,6 +17,7 @@ export interface CommissionCalculationParams {
   sum_insured: number;
   deductible_amount_status: boolean;
   premium_amount: number;
+  gst_status?: boolean;
 }
 
 export const commissionCalculationService = {
@@ -62,7 +63,7 @@ export const commissionCalculationService = {
           policy_creation_status: params.policy_creation_status,
           sum_insured: params.sum_insured,
           premium_amount: params.premium_amount,
-          gst_status: false,
+          gst_status: params.gst_status ?? false,
           deductible_amount_status: params.deductible_amount_status,
         },
         {

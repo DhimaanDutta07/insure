@@ -18,6 +18,7 @@ import DocumentPreviewModal from "../ui/DocumentPreviewModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { commissionCalculationService } from "../../services/commissionCalculation.service";
 import { PolicyTransitionService } from "../../services/policyTransition.service";
+import { useAuth } from "../../Context/AuthContext";
 import { documentService } from "../../services/documentService";
 
 export type PolicyTypeEnum = "HEALTH_INSURANCE" | "MOTOR_INSURANCE" | "LIFE_INSURANCE";
@@ -174,6 +175,8 @@ const truncateName = (name: string, maxLength = 10) => {
 };
 
 export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEditFormProps) {
+  const { hasPermission, role } = useAuth();
+  const isOperations = role?.role_name?.toUpperCase() === 'OPERATIONS';
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -667,6 +670,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
   const wPolicyCreationStatus = watch("policy_creation_status");
   const wProposerFullName = watch("proposer.full_name");
   const wMembers = watch("members");
+  const wGstStatus = watch("gst_status");
 
   // Always show all 4 policy status options in edit form
   let availableStatuses: ("Fresh" | "Renewal" | "Migration" | "Portablity")[] = ["Fresh", "Renewal", "Migration", "Portablity"];
@@ -724,6 +728,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     const sumInsured = wSumInsured;
     const deductibleStatus = wDeductibleStatus;
     const policyCreationStatus = wPolicyCreationStatus || "Fresh";
+    const gstStatus = wGstStatus;
 
     console.log('🔍 [Commission Debug] Input values:', {
       premiumAmount,
@@ -732,6 +737,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       sumInsured,
       deductibleStatus,
       policyCreationStatus,
+      gstStatus,
     });
 
     // Only calculate if we have the minimum required fields
@@ -752,7 +758,8 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
         proposer_dob: proposerDob,
         sum_insured: sumInsured,
         deductible_amount_status: deductibleStatus || false,
-        premium_amount: premiumAmount, // Use GST-exclusive amount (same as PolicyForm)
+        premium_amount: premiumAmount,
+        gst_status: gstStatus,
       });
 
       console.log('🔍 [Commission Debug] Result:', result);
@@ -767,16 +774,16 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
     } finally {
       setIsCalculatingCommission(false);
     }
-  }, [wPremiumAmount, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPolicyCreationStatus]);
+  }, [wPremiumAmount, wPolicyNameId, wProposerDob, wSumInsured, wDeductibleStatus, wPolicyCreationStatus, wGstStatus]);
 
   // Calculate commission when relevant fields change
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       calculateCommission();
-    }, 200); // Reduced debounce to 200ms for faster response
+    }, 200);
 
     return () => clearTimeout(timeoutId);
-  }, [calculateCommission, wPolicyCreationStatus]);
+  }, [calculateCommission]);
 
   const onFormSubmit = async (data: PolicyFormData) => {
     setIsSubmitting(true);
@@ -1986,7 +1993,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
           )}
 
 {/* Calculated Commission Display */}
-<div className="space-y-1">
+{!isOperations && <div className="space-y-1">
   <label className="block text-xs font-semibold text-gray-700">
     Calculated Commission Amount (₹)
   </label>
@@ -2020,7 +2027,7 @@ export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEd
       No commission rule found for the selected criteria
     </div>
   )}
-</div>
+</div>}
           <div className="space-y-1">
             <label className="block text-xs font-semibold text-gray-700">
               Medical Condition
