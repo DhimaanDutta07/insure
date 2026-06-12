@@ -175,7 +175,7 @@ const truncateName = (name: string, maxLength = 10) => {
 };
 
 export default function PolicyEditForm({ policyId, onSubmit, onClose }: PolicyEditFormProps) {
-  const { hasPermission, role } = useAuth();
+  const { role } = useAuth();
   const isOperations = role?.role_name?.toUpperCase() === 'OPERATIONS';
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
